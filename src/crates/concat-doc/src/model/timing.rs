@@ -237,6 +237,100 @@ impl TimeMap {
             TimeMap::Unknown(_) => None,
         }
     }
+
+    /// The source at content tick `c`, on a smooth stretch too: there the
+    /// source is the cubic through the two keys with the speeds leaving
+    /// and arriving as its slopes (a Hermite curve), rounded to a tick.
+    /// `None` past a keyed map's keys and for a map this build cannot
+    /// read.
+    pub fn source_of(&self, c: Tick) -> Option<Tick> {
+        if let Some(exact) = self.source_at(c) {
+            return Some(exact);
+        }
+        let (from, to, leave, arrive) = self.smooth_stretch(c)?;
+        let w = (to.at.get() - from.at.get()) as f64;
+        let u = (c.get() - from.at.get()) as f64 / w;
+        let (s0, s1) = (from.source.get() as f64, to.source.get() as f64);
+        let (m0, m1) = (leave * w, arrive * w);
+        let (u2, u3) = (u * u, u * u * u);
+        let p = (2.0 * u3 - 3.0 * u2 + 1.0) * s0
+            + (u3 - 2.0 * u2 + u) * m0
+            + (-2.0 * u3 + 3.0 * u2) * s1
+            + (u3 - u2) * m1;
+        Some(Tick::new(p.round() as i64))
+    }
+
+    /// The pace at content tick `c`: source ticks per content tick,
+    /// signed, so below zero runs the source backwards. On a keyed map's
+    /// key the pace leaving it. `None` where [`TimeMap::source_of`] is.
+    pub fn pace_at(&self, c: Tick) -> Option<f64> {
+        match self {
+            TimeMap::Linear { speed, .. } => Some(speed.display()),
+            TimeMap::Keyed { first, rest } => {
+                let mut from = *first;
+                for (curve, to) in rest {
+                    if c >= from.at && c < to.at {
+                        let w = (to.at.get() - from.at.get()) as f64;
+                        let rise = (to.source.get() - from.source.get()) as f64;
+                        return match curve {
+                            TimeCurve::Linear => Some(rise / w),
+                            TimeCurve::Smooth { leave, arrive } => {
+                                let u = (c.get() - from.at.get()) as f64 / w;
+                                let (m0, m1) = (leave.display() * w, arrive.display() * w);
+                                // The Hermite curve's slope, per share of
+                                // the stretch, over the stretch's width.
+                                let d = (6.0 * u * u - 6.0 * u) * from.source.get() as f64
+                                    + (3.0 * u * u - 4.0 * u + 1.0) * m0
+                                    + (-6.0 * u * u + 6.0 * u) * to.source.get() as f64
+                                    + (3.0 * u * u - 2.0 * u) * m1;
+                                Some(d / w)
+                            }
+                            TimeCurve::Unknown(_) => None,
+                        };
+                    }
+                    from = *to;
+                }
+                // At the last key, or past it: the last stretch's pace
+                // arriving, if `c` is the last key.
+                if c == from.at {
+                    return match rest.last() {
+                        Some((TimeCurve::Smooth { arrive, .. }, _)) => Some(arrive.display()),
+                        Some((TimeCurve::Linear, to)) => {
+                            let before = rest
+                                .len()
+                                .checked_sub(2)
+                                .map_or(*first, |at| rest[at].1);
+                            let w = (to.at.get() - before.at.get()) as f64;
+                            Some((to.source.get() - before.source.get()) as f64 / w)
+                        }
+                        _ => None,
+                    };
+                }
+                None
+            }
+            TimeMap::Unknown(_) => None,
+        }
+    }
+
+    /// The smooth stretch `c` is on, with its speeds leaving and arriving.
+    fn smooth_stretch(&self, c: Tick) -> Option<(TimePoint, TimePoint, f64, f64)> {
+        let TimeMap::Keyed { first, rest } = self else {
+            return None;
+        };
+        let mut from = *first;
+        for (curve, to) in rest {
+            if c >= from.at && c <= to.at {
+                return match curve {
+                    TimeCurve::Smooth { leave, arrive } => {
+                        Some((from, *to, leave.display(), arrive.display()))
+                    }
+                    _ => None,
+                };
+            }
+            from = *to;
+        }
+        None
+    }
 }
 
 impl Default for TimeMap {

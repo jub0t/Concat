@@ -1292,7 +1292,6 @@ name = "concat-effects"
 version = "0.2.12"
 dependencies = [
  "concat-core",
- "concat-project",
  "naga",
  "proptest",
  "serde",
@@ -1305,14 +1304,15 @@ name = "concat-export"
 version = "0.2.12"
 dependencies = [
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-log",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-vision",
  "log",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1320,11 +1320,11 @@ name = "concat-host"
 version = "0.2.12"
 dependencies = [
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-log",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-sched",
  "concat-text",
@@ -1504,7 +1504,7 @@ name = "concat-vision"
 version = "0.2.12"
 dependencies = [
  "concat-core",
- "concat-project",
+ "concat-doc",
  "log",
  "ort",
  "png 0.17.16",

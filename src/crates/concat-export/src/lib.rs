@@ -24,6 +24,7 @@ mod ahead;
 pub mod chains;
 pub mod flatten;
 pub mod parts;
+pub mod rgba;
 mod resolve;
 #[cfg(test)]
 mod speed_curve_tests;
@@ -47,13 +48,43 @@ use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, 
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
-use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
+use concat_core::animate::RidingMask;
+use concat_doc::model::{Cutout, VoiceKind};
+use concat_effects::AppliedFilter;
 use concat_render::{
     Compositor, CpuCompositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition,
     WgpuCompositor, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
+
+/// What a timeline's picture is output in: standard range, or one of the
+/// two HDR transfers.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorSpace {
+    /// Standard dynamic range, BT.709.
+    #[default]
+    Sdr,
+    /// Hybrid log-gamma, BT.2100.
+    Hlg,
+    /// Perceptual quantiser, SMPTE ST 2084.
+    Pq,
+}
+
+impl ColorSpace {
+    /// The output space of a document's colour space; one this build
+    /// cannot read is SDR.
+    pub fn of(space: &concat_doc::model::ColorSpace) -> ColorSpace {
+        match space {
+            concat_doc::model::ColorSpace::Hlg => ColorSpace::Hlg,
+            concat_doc::model::ColorSpace::Pq => ColorSpace::Pq,
+            concat_doc::model::ColorSpace::Sdr | concat_doc::model::ColorSpace::Unknown(_) => {
+                ColorSpace::Sdr
+            }
+        }
+    }
+}
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
 /// seen cannot exist - the document says "video"/"audio"/"image".
@@ -115,7 +146,7 @@ pub fn voice_stems_dir(
     project: &Path,
     media_path: &str,
     stream: Option<u32>,
-    kind: concat_project::model::VoiceKind,
+    kind: &VoiceKind,
 ) -> PathBuf {
     // FNV-1a, as concat-vision names its folders.
     let hash = media_path
@@ -127,8 +158,8 @@ pub fn voice_stems_dir(
     project.join("cache").join("voice").join(format!(
         "{hash:016x}-{stream}-{}",
         match kind {
-            concat_project::model::VoiceKind::Vocals => "spleeter2",
-            concat_project::model::VoiceKind::Speech => "dfn3",
+            VoiceKind::Vocals | VoiceKind::Unknown(_) => "spleeter2",
+            VoiceKind::Speech => "dfn3",
         }
     ))
 }
@@ -146,8 +177,8 @@ pub struct ExportClip {
     pub audio_stream: Option<u32>,
     /// The levels the file is read as, over its own tag; absent reads the
     /// tag. See the document's `MediaItem::color_range`.
-    #[serde(default)]
-    pub color_range: Option<concat_project::model::ColorRange>,
+    #[serde(skip)]
+    pub color_range: Option<concat_media::ColorRange>,
     /// Whether the clip is footage, sound or a still.
     pub kind: ClipKind,
     /// Seconds into the timeline where the clip begins.
@@ -208,7 +239,7 @@ pub struct ExportClip {
     pub crop: Option<[f64; 4]>,
     /// The clip's applied effects, as the document holds them: each one's
     /// shader runs on the GPU. A link no package answers to draws nothing.
-    #[serde(default)]
+    #[serde(skip)]
     pub effects: Vec<AppliedFilter>,
     /// The fades to a colour and the wipes transition resolution gives the
     /// clip, which the frame plan draws; see [`TransitionShape`].
@@ -289,16 +320,16 @@ pub struct ExportClip {
     /// The background taken away by a mask, as the document holds it.
     /// Rendered only with `mask_dir`: a cutout whose masks are nowhere yet
     /// leaves the picture whole.
-    #[serde(default)]
+    #[serde(skip)]
     pub cutout: Option<Cutout>,
     /// The shapes that keep part of the picture, top first, as the
     /// document holds them, each with its own keys.
-    #[serde(default)]
-    pub masks: Vec<Mask>,
+    #[serde(skip)]
+    pub masks: Vec<RidingMask>,
     /// The clip's entrance, exit and loop; see the document's
     /// `Clip::motion`.
-    #[serde(default)]
-    pub motion: Option<concat_project::model::ClipMotion>,
+    #[serde(skip)]
+    pub motion: Option<concat_core::motion::Motion>,
     /// A moment of the clip this one stands in for, held: `(seconds into
     /// it, its length)`. Set on a transition's stand-ins, never read from
     /// a request; see `concat_core::timeline::Clip::frozen`.
@@ -315,8 +346,8 @@ pub struct ExportClip {
     /// The camera's shake taken out, as the document holds it. Rendered
     /// only with `motion_dir`: a clip whose movement is not measured yet
     /// shows as shot.
-    #[serde(default)]
-    pub stabilize: Option<concat_project::model::Stabilize>,
+    #[serde(skip)]
+    pub stabilize: Option<concat_vision::stabilize::Settings>,
     /// Where this clip's media has its measured movement - see
     /// `concat_vision::stabilize::motion_dir` - or empty when the
     /// flattener had no project folder to name it by.
@@ -565,7 +596,7 @@ pub struct ExportRequest {
     /// `VideoSettings::canvas`.
     #[serde(
         default = "opaque_black",
-        deserialize_with = "concat_project::model::rgba_array"
+        deserialize_with = "crate::rgba::array"
     )]
     pub canvas: [u8; 4],
     /// The flattened clip list to render.
@@ -579,11 +610,13 @@ pub struct ExportRequest {
 
 /// The engine's word for a document's colour range: the two enums are one
 /// idea kept in two crates, since the document knows nothing of FFmpeg
-/// and the engine nothing of documents.
-pub fn engine_range(range: concat_project::model::ColorRange) -> concat_media::ColorRange {
+/// and the engine nothing of documents. `None` for a range this build
+/// cannot read, which reads the file's own tag.
+pub fn engine_range(range: &concat_doc::model::ColorRange) -> Option<concat_media::ColorRange> {
     match range {
-        concat_project::model::ColorRange::Limited => concat_media::ColorRange::Limited,
-        concat_project::model::ColorRange::Full => concat_media::ColorRange::Full,
+        concat_doc::model::ColorRange::Limited => Some(concat_media::ColorRange::Limited),
+        concat_doc::model::ColorRange::Full => Some(concat_media::ColorRange::Full),
+        concat_doc::model::ColorRange::Unknown(_) => None,
     }
 }
 
@@ -1060,7 +1093,8 @@ pub fn render_on(
         request
     };
     if !request.effect_time_offset.is_finite()
-        || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
+        || request.effect_time_offset.abs()
+            > (concat_doc::model::TICK_LIMIT / concat_doc::TICKS_PER_SECOND) as f64
     {
         return Err("the effect timeline offset is not a valid time".into());
     }
@@ -3250,7 +3284,7 @@ pub struct PreviewFrameRequest {
     /// request does not say.
     #[serde(
         default = "opaque_black",
-        deserialize_with = "concat_project::model::rgba_array"
+        deserialize_with = "crate::rgba::array"
     )]
     pub canvas: [u8; 4],
 }
@@ -3265,7 +3299,7 @@ fn over_black([r, g, b, a]: [u8; 4]) -> [u8; 4] {
 /// The canvas of a request that does not name one: what every frame had
 /// before there was a choice. Not `[u8; 4]`'s default, which is clear.
 fn opaque_black() -> [u8; 4] {
-    concat_project::model::OPAQUE_BLACK
+    crate::rgba::OPAQUE_BLACK
 }
 
 /// The signal a timeline of `space` is drawn for (`FramePlan::output`).
@@ -4358,7 +4392,7 @@ mod tests {
                 rate_num: 30,
                 rate_den: 1,
                 clips: vec![first, second],
-                color_space: concat_project::model::ColorSpace::Sdr,
+                color_space: crate::ColorSpace::Sdr,
             };
             let bytes = preview_frame(&pool, &request).expect("previews");
             let (px, py) = ((f64::from(width) * x) as u32, height / 2);
@@ -4479,7 +4513,7 @@ mod tests {
                 rate_num: 30,
                 rate_den: 1,
                 clips: clips.to_vec(),
-                color_space: concat_project::model::ColorSpace::Sdr,
+                color_space: crate::ColorSpace::Sdr,
             };
             let bytes = preview_frame(&pool, &request).expect("previews");
             let i = ((y * width + x) * 4) as usize;
@@ -4577,7 +4611,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
         let bytes = preview_frame(&pool, &request).expect("previews");
@@ -4643,7 +4677,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
@@ -4669,7 +4703,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![outliving],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &late).expect("previews past the media's end");
         assert!(
@@ -4694,7 +4728,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![effected],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &filtered).expect("previews with an effect");
         assert!(
@@ -4816,7 +4850,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips,
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         // The window draws the plan with every live treatment folded in;
         // the export draws through `composite_treated`.
@@ -4906,7 +4940,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![still],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);

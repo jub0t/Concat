@@ -10,10 +10,63 @@ use std::path::{Path, PathBuf};
 use concat_core::frame::{Frame, Signal};
 use concat_core::time::Rational;
 use concat_media::{DecodeOptions, Decoder, FrameSource, SeekableSource};
-use concat_project::model::ColorSpace;
 use serde::Serialize;
 
 use crate::projects;
+
+/// What a file is, as the bin shows it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum FileKind {
+    /// Pictures over time, possibly with sound.
+    Video,
+    /// Sound alone.
+    Audio,
+    /// One picture.
+    Image,
+}
+
+impl FileKind {
+    /// The document's word for it.
+    pub fn doc(self) -> concat_doc::model::MediaKind {
+        match self {
+            FileKind::Video => concat_doc::model::MediaKind::Video,
+            FileKind::Audio => concat_doc::model::MediaKind::Audio,
+            FileKind::Image => concat_doc::model::MediaKind::Image,
+        }
+    }
+}
+
+/// What a picture was recorded in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorSpace {
+    /// Standard range.
+    #[default]
+    Sdr,
+    /// HDR, hybrid log-gamma.
+    Hlg,
+    /// HDR, perceptual quantiser.
+    Pq,
+}
+
+impl ColorSpace {
+    /// Whether it is standard range.
+    pub fn is_sdr(&self) -> bool {
+        *self == ColorSpace::Sdr
+    }
+
+    /// The document's word for it.
+    pub fn doc(self) -> concat_doc::model::ColorSpace {
+        match self {
+            ColorSpace::Sdr => concat_doc::model::ColorSpace::Sdr,
+            ColorSpace::Hlg => concat_doc::model::ColorSpace::Hlg,
+            ColorSpace::Pq => concat_doc::model::ColorSpace::Pq,
+        }
+    }
+}
 
 /// A video stream, as the UI sees it.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -73,8 +126,8 @@ impl AudioStreamInfo {
         }
     }
 
-    fn to_track(&self) -> concat_project::model::AudioTrack {
-        concat_project::model::AudioTrack {
+    fn to_stream(&self) -> concat_doc::model::SoundStream {
+        concat_doc::model::SoundStream {
             index: self.index,
             codec: self.codec.clone(),
             channels: self.channels,
@@ -95,7 +148,7 @@ pub struct MediaSummary {
     /// Container duration in seconds, when the container states one.
     pub duration: Option<f64>,
     /// What the file is.
-    pub kind: concat_project::model::MediaKind,
+    pub kind: FileKind,
     /// First video stream, if any.
     pub video: Option<VideoStreamInfo>,
     /// The first audio stream in file order, if any: what a clip plays
@@ -107,36 +160,52 @@ pub struct MediaSummary {
 
 impl MediaSummary {
     /// The bin entry this file becomes, named after its basename.
-    pub fn to_new_media(&self) -> concat_project::commands::NewMedia {
-        concat_project::commands::NewMedia {
+    /// A still has no length; footage and sound the container's, when it
+    /// states one.
+    pub fn to_new_media(&self) -> concat_doc::model::Media {
+        let has_sound = self.audio.is_some() && self.kind != FileKind::Image;
+        let rate = self.video.as_ref().and_then(|video| {
+            let (num, den) = video.frame_rate_fraction.split_once('/')?;
+            concat_doc::Rate::new(num.trim().parse().ok()?, den.trim().parse().ok()?).ok()
+        });
+        let mut streams: Vec<concat_doc::model::SoundStream> = Vec::new();
+        if has_sound {
+            for track in &self.audio_tracks {
+                if !streams.iter().any(|kept| kept.index == track.index) {
+                    streams.push(track.to_stream());
+                }
+            }
+        }
+        concat_doc::model::Media {
             path: self.path.clone(),
             name: Path::new(&self.path)
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| self.path.clone()),
-            duration: self.duration,
-            kind: self.kind,
-            width: self.video.as_ref().map(|video| video.width),
-            height: self.video.as_ref().map(|video| video.height),
-            frame_rate: self.video.as_ref().map(|video| video.frame_rate),
-            frame_rate_fraction: self
+            kind: self.kind.doc(),
+            length: match self.kind {
+                FileKind::Image => None,
+                FileKind::Video | FileKind::Audio => self
+                    .duration
+                    .and_then(concat_doc::Tick::from_display_seconds)
+                    .and_then(|end| concat_doc::TickLen::try_from(end.get()).ok()),
+            },
+            rate,
+            size: self
                 .video
                 .as_ref()
-                .map(|video| video.frame_rate_fraction.clone()),
+                .and_then(|video| concat_doc::model::Size::new(video.width, video.height)),
+            has_sound,
+            streams,
             video_codec: self.video.as_ref().map(|video| video.codec.clone()),
             audio_codec: self.audio.as_ref().map(|audio| audio.codec.clone()),
-            has_audio: self.audio.is_some(),
-            audio_tracks: self
-                .audio_tracks
-                .iter()
-                .map(AudioStreamInfo::to_track)
-                .collect(),
-            origin: None,
-            color_space: self
+            color: self
                 .video
                 .as_ref()
                 .map(|video| video.color_space)
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .doc(),
+            ..concat_doc::model::Media::default()
         }
     }
 }
@@ -160,8 +229,8 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// only "no duration" made every JPEG a 0.04-second video. It is a heuristic,
 /// and a deliberately conservative one - misreading an animation as a still
 /// shows its first frame rather than failing.
-fn classify(info: &concat_media::MediaInfo) -> concat_project::model::MediaKind {
-    use concat_project::model::MediaKind;
+fn classify(info: &concat_media::MediaInfo) -> FileKind {
+    use FileKind as MediaKind;
     if info.video.is_none() {
         return MediaKind::Audio;
     }
@@ -737,7 +806,7 @@ pub fn poster_cache(project: &str) -> PathBuf {
 /// poster on its next appearance and an untouched one costs a stat.
 pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
     let root = Path::new(project);
-    let manifest = projects::manifest_path(root);
+    let manifest = crate::session::document_path(root);
     let cached = poster_cache(project);
 
     let fresh = match (std::fs::metadata(&cached), std::fs::metadata(&manifest)) {
@@ -782,16 +851,17 @@ pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
 /// clip ends. For the launch screen's cards, read on a worker beside the
 /// poster; None when the manifest cannot be read as a project.
 pub fn timeline_seconds(project: &str) -> Option<f64> {
-    let manifest = projects::manifest_path(Path::new(project));
-    let text = std::fs::read_to_string(manifest).ok()?;
-    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let project = concat_project::from_document(&document)?;
-    let timeline = project
-        .timelines
-        .iter()
-        .find(|timeline| timeline.id == project.active_timeline_id)
-        .or_else(|| project.timelines.first())?;
-    Some(timeline.duration())
+    let document = crate::session::read_document(Path::new(project)).ok()??;
+    let sequence = document.view.showing?;
+    let end = document
+        .lanes
+        .index()
+        .of(sequence)
+        .filter_map(|(lane, _)| document.items.index().on_lane(lane).last())
+        .map(|(_, _, end)| end)
+        .max()
+        .unwrap_or(concat_doc::Tick::ZERO);
+    Some(end.display_seconds())
 }
 
 /// Below this mean brightness, out of 255, a frame is a black one: a
@@ -822,31 +892,16 @@ pub fn is_dead(frame: &Frame) -> bool {
 /// middle. A still is one moment. Capped, so a timeline of black clips
 /// does not cost a launch a hundred decodes.
 fn poster_moments(project: &str) -> Result<Vec<(String, f64)>, String> {
-    let manifest = projects::manifest_path(Path::new(project));
-    let text = std::fs::read_to_string(&manifest)
-        .map_err(|error| format!("could not read {}: {error}", manifest.display()))?;
-    let document: serde_json::Value =
-        serde_json::from_str(&text).map_err(|error| format!("not a project: {error}"))?;
-
-    // Typed access through the engine's own reader, not hand-parsed JSON -
-    // a schema change breaks this at compile time now, not silently at the
-    // next launch screen.
-    let Some(project) = concat_project::from_document(&document) else {
+    let document = crate::session::read_document(Path::new(project))?;
+    let (Some(document), Some(sequence)) = (
+        document.as_ref(),
+        document.as_ref().and_then(|document| document.view.showing),
+    ) else {
         return Err("the project has no timeline to preview".to_owned());
     };
-    let timeline = project
-        .timelines
-        .iter()
-        .find(|timeline| timeline.id == project.active_timeline_id)
-        .or_else(|| project.timelines.first());
-    let Some(timeline) = timeline else {
-        return Err("the project has no timeline to preview".to_owned());
-    };
-
-    use concat_project::model::ClipKind;
-    let mut clips: Vec<_> = timeline
-        .clips
-        .iter()
+    use concat_export::ClipKind;
+    let mut clips: Vec<_> = concat_export::flatten::clips(document, sequence, None)
+        .into_iter()
         .filter(|clip| clip.kind == ClipKind::Video || clip.kind == ClipKind::Image)
         .collect();
     clips.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -854,9 +909,7 @@ fn poster_moments(project: &str) -> Result<Vec<(String, f64)>, String> {
     const MOST: usize = 12;
     let mut moments = Vec::new();
     for clip in clips {
-        let Some(media) = project.media.iter().find(|item| item.id == clip.media_id) else {
-            continue;
-        };
+        let media = &clip;
         if clip.kind == ClipKind::Image {
             moments.push((media.path.clone(), 0.0));
         } else {
@@ -893,7 +946,7 @@ pub fn freeze_still(
     path: &str,
     clip_id: &str,
     seconds: f64,
-) -> Result<concat_project::commands::NewMedia, String> {
+) -> Result<concat_doc::model::Media, String> {
     let frame = still_at(path, seconds, 1280)?;
     let bytes = concat_media::jpeg(&frame, 4).map_err(|error| error.to_string())?;
     let key = format!("freeze-{clip_id}-{}.jpg", (seconds * 1000.0).round() as i64);
@@ -1035,7 +1088,7 @@ mod tests {
     #[test]
     fn a_picture_that_lasts_one_frame_is_a_still() {
         use concat_core::time::Rational;
-        use concat_project::model::MediaKind;
+        use FileKind as MediaKind;
         assert_eq!(classify(&probed("/a.png", None)), MediaKind::Image);
         assert_eq!(
             classify(&probed("/a.jpg", Some(Rational::new(1, 25)))),
@@ -1303,7 +1356,8 @@ mod tests {
     fn a_poster_is_never_a_black_frame() {
         use concat_core::time::FrameRate;
         use concat_media::{EncodeOptions, Encoder, FrameSink};
-        use concat_project::{Command, DocumentSettings, Editor, commands::NewMedia};
+        use crate::test_doc::{Doc, at, long};
+        use concat_doc::commands::Command;
 
         let scratch =
             std::env::temp_dir().join(format!("concat-poster-test-{}", std::process::id()));
@@ -1339,46 +1393,23 @@ mod tests {
         encoder.finish().expect("finishes");
 
         let project_with = |name: &str, file: &Path| -> String {
-            let mut editor = Editor::new();
-            let media_id = editor
-                .apply(Command::AddMedia {
-                    item: NewMedia {
-                        path: file.to_string_lossy().into_owned(),
-                        name: "clip.mp4".to_owned(),
-                        duration: Some(4.0),
-                        kind: concat_project::model::MediaKind::Video,
-                        width: Some(64),
-                        height: Some(32),
-                        frame_rate: Some(30.0),
-                        frame_rate_fraction: Some("30/1".to_owned()),
-                        video_codec: Some("h264".to_owned()),
-                        audio_codec: None,
-                        has_audio: false,
-                        audio_tracks: Vec::new(),
-                        origin: None,
-                        color_space: Default::default(),
-                    },
-                })
-                .expect("adds")
-                .created_id
-                .expect("id");
-            editor
-                .apply(Command::AddClipAtFirstFree {
-                    media_id,
-                    start: 0.0,
-                })
-                .expect("places");
-            let settings = DocumentSettings {
-                canvas: [0, 0, 0, 255],
-                name: name.to_owned(),
-                width: 64,
-                height: 32,
-                rate_num: 30,
-                rate_den: 1,
-            };
-            let document = concat_project::to_document(&settings, editor.project());
+            let mut doc = Doc::new();
+            let media = doc.media(concat_doc::model::Media {
+                path: file.to_string_lossy().into_owned(),
+                name: "clip.mp4".to_owned(),
+                kind: concat_doc::model::MediaKind::Video,
+                length: Some(long(4.0)),
+                size: concat_doc::model::Size::new(64, 32),
+                ..concat_doc::model::Media::default()
+            });
+            doc.apply(Command::AddClipAtFirstFree {
+                media,
+                start: at(0.0),
+            });
             let root = scratch.join(name);
-            projects::save(&root.to_string_lossy(), &document).expect("saves");
+            std::fs::create_dir_all(&root).expect("a folder");
+            concat_doc::save::save_document(&crate::session::document_path(&root), &doc.0)
+                .expect("saves");
             root.to_string_lossy().into_owned()
         };
 

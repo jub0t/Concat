@@ -25,8 +25,6 @@ pub mod capcut;
 pub mod captions;
 pub mod cards;
 pub mod consolidate;
-#[cfg(test)]
-mod consolidate_tests;
 pub mod crash;
 pub mod cutout;
 pub mod dirs;
@@ -51,6 +49,8 @@ pub mod record;
 pub mod reverse;
 mod route;
 pub mod session;
+#[cfg(test)]
+mod test_doc;
 pub mod sounds;
 pub mod stabilize;
 pub mod templates;
@@ -65,7 +65,7 @@ pub use enhance::{EnhanceRequest, Enhancers};
 pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use reverse::{ReverseRequest, Reversers};
-pub use session::{EditorView, Session, SettingsView};
+pub use session::{Change, ProjectSettings, Session};
 pub use stabilize::{StabilizeRequest, Stabilizers};
 pub use titles::{TitleClip, Titles};
 

@@ -59,32 +59,7 @@ fn map_mut(item: &mut Item) -> Option<&mut TimeMap> {
 /// The source at a content tick, worked out on a smooth stretch too.
 /// `None` past a keyed map's keys and for a map this build cannot read.
 pub(crate) fn source_at(map: &TimeMap, c: Tick) -> Option<Tick> {
-    if let Some(exact) = map.source_at(c) {
-        return Some(exact);
-    }
-    let TimeMap::Keyed { first, rest } = map else {
-        return None;
-    };
-    let mut from = *first;
-    for (curve, to) in rest {
-        if c >= from.at && c <= to.at {
-            let TimeCurve::Smooth { leave, arrive } = curve else {
-                return None;
-            };
-            let w = (to.at.get() - from.at.get()) as f64;
-            let u = (c.get() - from.at.get()) as f64 / w;
-            let (s0, s1) = (from.source.get() as f64, to.source.get() as f64);
-            let (m0, m1) = (leave.display() * w, arrive.display() * w);
-            let (u2, u3) = (u * u, u * u * u);
-            let p = (2.0 * u3 - 3.0 * u2 + 1.0) * s0
-                + (u3 - 2.0 * u2 + u) * m0
-                + (-2.0 * u3 + 3.0 * u2) * s1
-                + (u3 - u2) * m1;
-            return Some(Tick::new(p.round() as i64));
-        }
-        from = *to;
-    }
-    None
+    map.source_of(c)
 }
 
 /// The source the window shows, from its start to its end, signed.

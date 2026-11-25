@@ -11,7 +11,7 @@
 //! through.
 
 use concat_effects::Catalogue;
-use concat_project::model::AppliedFilter;
+use concat_effects::AppliedFilter;
 
 /// The complete FFmpeg *audio* filter string for a clip's filters, or the
 /// empty string if it has none. Filters apply in the order they were added:

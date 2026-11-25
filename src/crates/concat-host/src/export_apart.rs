@@ -32,8 +32,8 @@ pub struct Export;
 /// Everything an export needs from the window.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Order {
-    /// A copy of the edit as it is now, saved or not.
-    pub project: concat_project::model::Project,
+    /// A copy of the edit as it is now, saved or not, as its file's text.
+    pub project: String,
     /// The project's folder, which its media's paths are relative to.
     pub project_dir: PathBuf,
     /// The file to write.
@@ -113,7 +113,7 @@ impl Order {
     /// `project`, at its own frame and rate.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        project: concat_project::model::Project,
+        project: &concat_doc::Document<concat_doc::model::Model>,
         project_dir: PathBuf,
         spec: &ExportSpec,
         width: u32,
@@ -122,7 +122,7 @@ impl Order {
         rate_den: i64,
     ) -> Order {
         Order {
-            project,
+            project: concat_doc::file::write(project),
             project_dir,
             output: spec.output.clone(),
             crf: spec.crf,
@@ -144,6 +144,13 @@ impl Order {
                 .map(|package| package.id().to_owned())
                 .collect(),
         }
+    }
+
+    /// The edit, read back.
+    fn document(&self) -> Result<concat_doc::Document<concat_doc::model::Model>, String> {
+        concat_doc::file::read(self.project.as_bytes())
+            .map(|opened| opened.document)
+            .map_err(|error| format!("the edit did not read back: {error}"))
     }
 
     /// The spec the window started from, read back.
@@ -236,13 +243,13 @@ fn render(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<String, Halt> {
     let spec = order.spec().map_err(Halt::Failed)?;
+    let document = order.document().map_err(Halt::Failed)?;
     let titles = crate::titles::Titles::new(dirs);
-    let Some(titles) = titles.clips_unless(&order.project, order.width, order.height, cancel)
-    else {
+    let Some(titles) = titles.clips_unless(&document, order.width, order.height, cancel) else {
         return Err(Halt::Cancelled);
     };
     let titles = titles.into_iter().map(|title| title.clip).collect();
-    let mut request = crate::export::request_for(&order.project, &order.project_dir, &spec, titles);
+    let mut request = crate::export::request_for(&document, &order.project_dir, &spec, titles);
     request.width = order.width;
     request.height = order.height;
     request.rate_num = order.rate_num;
@@ -383,7 +390,7 @@ mod tests {
             hdr: false,
         };
         let order = Order::new(
-            concat_project::model::Project::default(),
+            &concat_doc::Document::new(),
             PathBuf::from("."),
             &spec,
             1920,
@@ -427,7 +434,7 @@ mod tests {
             hdr: true,
         };
         let order = Order::new(
-            concat_project::model::Project::new(),
+            &concat_doc::Document::new(),
             PathBuf::from("project"),
             &spec,
             1920,

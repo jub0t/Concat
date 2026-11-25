@@ -42,6 +42,7 @@
 //! ripple closes up only the lanes it took clips from.
 
 mod clips;
+pub mod consolidation;
 mod look;
 mod place;
 mod project;
@@ -1134,6 +1135,21 @@ pub fn run(
         commit: Some(commit),
         applied,
     })
+}
+
+/// [`run`] with no history: the document the command makes, the one given
+/// when it changes nothing, and what it made. For whatever edits a
+/// document outside an editing session - a template filled, a test.
+pub fn made(
+    document: &Document<Model>,
+    command: &Command,
+) -> Result<(Document<Model>, Applied), CommandError> {
+    let outcome = run(document, command, Origin(0))?;
+    let after = match outcome.commit {
+        Some(commit) => commit.into_document(),
+        None => document.clone(),
+    };
+    Ok((after, outcome.applied))
 }
 
 /// Makes a command in a draft. The draft may be left half-made when this

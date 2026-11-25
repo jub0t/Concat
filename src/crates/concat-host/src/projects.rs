@@ -75,7 +75,7 @@ pub struct ProjectInfo {
     /// entry written before there was one.
     #[serde(
         default = "opaque_black",
-        deserialize_with = "concat_project::model::rgba_array"
+        deserialize_with = "concat_export::rgba::array"
     )]
     pub canvas: [u8; 4],
     /// Milliseconds since the epoch.
@@ -110,17 +110,17 @@ struct Video {
     #[serde(
         default = "opaque_black",
         skip_serializing_if = "is_black",
-        with = "concat_project::model::hex_rgba"
+        with = "concat_export::rgba::hex"
     )]
     canvas: [u8; 4],
 }
 
 fn opaque_black() -> [u8; 4] {
-    concat_project::model::OPAQUE_BLACK
+    concat_export::rgba::OPAQUE_BLACK
 }
 
 fn is_black(rgba: &[u8; 4]) -> bool {
-    *rgba == concat_project::model::OPAQUE_BLACK
+    *rgba == concat_export::rgba::OPAQUE_BLACK
 }
 
 fn now_millis() -> u64 {
@@ -523,6 +523,57 @@ pub fn open(path: &str) -> Result<ProjectInfo, String> {
         rate_den: document.video.rate_den,
         opened_at: now_millis(),
     })
+}
+
+/// Writes a project's document, captured at `ticket`, through
+/// [`concat_doc::save::save_document`] - written beside the old one,
+/// flushed, read back, the old save kept as `.prev`, swapped in - and then
+/// the manifest with the project's `name` and the `frame` its showing
+/// timeline is in, in this process's write order: a snapshot older than
+/// one already written is skipped whole (see [`save_ordered`]).
+pub fn save_document_ordered(
+    root: &Path,
+    document_file: &Path,
+    name: &str,
+    frame: &concat_doc::model::Frame,
+    document: &concat_doc::Document<concat_doc::model::Model>,
+    ticket: Ticket,
+) -> Result<Saved, String> {
+    std::fs::create_dir_all(root)
+        .map_err(|error| format!("could not create {}: {error}", root.display()))?;
+    let state = write_state(&project_key(root));
+    let _writing = state
+        .writing
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if ticket.0 < state.written.load(Ordering::Acquire) {
+        return Ok(Saved::Superseded);
+    }
+    concat_doc::save::save_document(document_file, document)
+        .map_err(|error| format!("could not save {}: {error}", document_file.display()))?;
+    let canvas = frame.canvas;
+    let manifest = Manifest {
+        concat: env!("CARGO_PKG_VERSION").to_owned(),
+        name: name.to_owned(),
+        video: Video {
+            width: frame.width.get(),
+            height: frame.height.get(),
+            rate_num: i64::from(frame.rate.num()),
+            rate_den: i64::from(frame.rate.den()),
+            canvas: [canvas.r, canvas.g, canvas.b, canvas.a],
+        },
+        rest: serde_json::Map::new(),
+    };
+    let encoded = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| format!("could not encode the manifest: {error}"))?;
+    // Rewritten only when it says something new: most saves change the
+    // edit and not the name.
+    let current = std::fs::read(manifest_path(root)).ok();
+    if current.as_deref() != Some(encoded.as_slice()) {
+        write_manifest(root, &encoded)?;
+    }
+    state.written.store(ticket.0, Ordering::Release);
+    Ok(Saved::Written)
 }
 
 /// Moves a project to the front of the recents list.
