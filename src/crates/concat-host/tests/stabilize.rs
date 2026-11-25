@@ -17,6 +17,9 @@ use std::sync::atomic::AtomicBool;
 
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
+use concat_doc::commands::Command;
+use concat_doc::model::{ItemId, MediaId, Stabilize};
+use concat_export::ColorSpace;
 use concat_host::export::{self, ExportSpec};
 use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::Session;
@@ -25,8 +28,6 @@ use concat_host::{media, projects};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
 };
-use concat_project::commands::Command;
-use concat_project::model::{ColorSpace, Stabilize};
 use concat_vision::stabilize::{Motion, Step};
 
 const WIDTH: u32 = 320;
@@ -180,39 +181,44 @@ fn a_shaky_shot_is_measured_and_held_still() {
     .expect("creates the project");
     let mut session = Session::open_info(&info).expect("opens the project");
     let summary = media::probe(shot.to_str().expect("utf-8")).expect("probes");
-    let media_id = session
-        .apply(Command::AddMedia {
-            item: summary.to_new_media(),
+    let media_id: MediaId = session
+        .apply(&Command::AddMedia {
+            media: summary.to_new_media(),
         })
         .expect("imports")
-        .created_id
+        .applied
+        .created
+        .and_then(|id| id.typed())
         .expect("an id");
-    let clip_id = session
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 0.0,
+    let clip_id: ItemId = session
+        .apply(&Command::AddClipAtFirstFree {
+            media: media_id,
+            start: concat_doc::Tick::ZERO,
         })
         .expect("adds")
-        .created_id
+        .applied
+        .created
+        .and_then(|id| id.typed())
         .expect("an id");
 
     // Shown as shot first, for the comparison.
     let plain = export_to(&session, &scratch.0.join("plain.mp4"));
 
     session
-        .apply(Command::SetClipStabilize {
-            clip_id: clip_id.clone(),
+        .apply(&Command::SetClipStabilize {
+            item: clip_id,
             stabilize: Some(Stabilize {
                 smoothness: 0.6,
                 max_zoom: 1.3,
-                ..Stabilize::default()
+                keep_rotation: false,
+                tripod: false,
             }),
         })
         .expect("stabilizes");
     let project_dir = PathBuf::from(session.path());
 
     // Not measured yet: the clip shows as shot.
-    let requests = Stabilizers::requests(session.project(), &project_dir);
+    let requests = Stabilizers::requests(&session.document(), &project_dir);
     assert_eq!(requests.len(), 1);
     let (_, request) = &requests[0];
     assert!(!Stabilizers::outstanding(request).is_empty());
@@ -290,7 +296,7 @@ fn a_shaky_shot_is_measured_and_held_still() {
         let pixels = monitor
             .frame(
                 Arc::clone(&clips),
-                &session.settings(),
+                &session.frame(),
                 FrameSpec {
                     canvas: [0, 0, 0, 255],
                     time: k as f64 / 30.0,

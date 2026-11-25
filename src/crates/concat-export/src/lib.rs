@@ -28,6 +28,8 @@ pub mod rgba;
 mod resolve;
 #[cfg(test)]
 mod speed_curve_tests;
+#[cfg(test)]
+mod test_doc;
 
 use resolve::{
     BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
@@ -3754,63 +3756,35 @@ mod tests {
     /// and the export both plan through.
     #[test]
     fn an_animate_pick_moves_the_planned_picture() {
-        use concat_project::commands::{ClipPatch, NewMedia};
-        use concat_project::model::{ClipMotion, ClipMove, MediaKind};
-        use concat_project::{Command, Editor};
-        let mut editor = Editor::new();
-        let media_id = editor
-            .apply(Command::AddMedia {
-                item: NewMedia {
-                    path: "/nowhere/clip.mp4".into(),
-                    name: "clip.mp4".into(),
-                    duration: Some(4.0),
-                    kind: MediaKind::Video,
-                    width: Some(64),
-                    height: Some(36),
-                    frame_rate: None,
-                    frame_rate_fraction: None,
-                    video_codec: None,
-                    audio_codec: None,
-                    has_audio: false,
-                    audio_tracks: Vec::new(),
-                    origin: None,
-                    color_space: Default::default(),
-                },
-            })
-            .expect("adds media")
-            .created_id
-            .expect("an id");
-        let track_id = editor.project().timelines[0].tracks[0].id.clone();
-        let clip_id = editor
-            .apply(Command::AddClip {
-                media_id,
-                track_id,
-                start: 0.0,
-                ripple: false,
-            })
-            .expect("adds the clip")
-            .created_id
-            .expect("an id");
-        editor
-            .apply(Command::UpdateClip {
-                clip_id,
-                patch: ClipPatch {
-                    motion: Some(Some(ClipMotion {
-                        enter: Some(ClipMove {
-                            kind: "slide-left".into(),
-                            seconds: 1.0,
-                        }),
-                        exit: Some(ClipMove {
-                            kind: "fade".into(),
-                            seconds: 1.0,
-                        }),
-                        ..ClipMotion::default()
-                    })),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("animates the clip");
-        let clips = flatten::flatten_timeline(editor.project(), None);
+        use crate::test_doc::{Doc, at, long, video};
+        use concat_doc::commands::{Command, ItemPatch};
+        use concat_doc::model::{Motion, Move};
+        let mut doc = Doc::new();
+        let media = doc.media(video("/nowhere/clip.mp4", 4.0, (64, 36), false));
+        let item = doc.item(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        doc.apply(Command::UpdateClip {
+            item,
+            patch: ItemPatch {
+                motion: Some(Motion {
+                    enter: Some(Move {
+                        name: "slide-left".into(),
+                        len: long(1.0),
+                    }),
+                    exit: Some(Move {
+                        name: "fade".into(),
+                        len: long(1.0),
+                    }),
+                    repeat: None,
+                }),
+                ..ItemPatch::default()
+            },
+        });
+        let clips = doc.flat();
         assert!(
             clips[0].motion.is_some(),
             "the motion reaches the flattened clip"
@@ -4145,10 +4119,10 @@ mod tests {
     /// them again from the cut (audit 2026-11-15, E3).
     #[test]
     fn a_transitions_stand_ins_hold_their_clips_moves_and_keys_at_the_cut() {
-        use concat_project::model::{ClipMotion, ClipMove};
+        use concat_core::motion::{Motion as ClipMotion, Move, Moving};
         let moving = |kind: &str| {
-            Some(ClipMove {
-                kind: kind.into(),
+            Some(Moving {
+                kind: Move::parse(kind).expect("a move"),
                 seconds: 0.5,
             })
         };
@@ -4292,29 +4266,33 @@ mod tests {
     /// as one, its package, knobs and length intact, on its own lane.
     #[test]
     fn a_documents_transition_clip_is_flattened_with_its_package() {
-        use concat_project::{Command, Editor};
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTransitionClip {
-                track_id: None,
-                start: 3.0,
-                duration: Some(0.8),
-                transition_id: "concat.push".into(),
-                name: "Push".into(),
-            })
-            .expect("placed")
-            .created_id
-            .expect("an id");
-        let lane = {
-            let timeline = editor.project().active();
-            let clip = timeline.clip(&id).expect("exists");
-            timeline
-                .tracks
-                .iter()
-                .position(|track| track.id == clip.track_id)
-                .expect("its lane")
-        };
-        let flat = flatten::flatten_timeline(editor.project(), None);
+        use crate::test_doc::{Doc, at, long, video};
+        use concat_doc::commands::Command;
+        let mut doc = Doc::new();
+        let media = doc.media(video("/a.mp4", 10.0, (64, 36), false));
+        doc.apply(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        let id = doc.item(Command::AddTransitionClip {
+            start: at(3.0),
+            len: Some(long(0.8)),
+            package: "concat.push".into(),
+            name: "Push".into(),
+            lane: None,
+        });
+        let showing = doc.0.view.showing.expect("a timeline");
+        let lane_of = doc.0.items.get(id).expect("exists").lane;
+        let lane = doc
+            .0
+            .lanes
+            .index()
+            .of(showing)
+            .position(|(lane, _)| lane == lane_of)
+            .expect("its lane");
+        let flat = doc.flat();
         let transition = flat
             .iter()
             .find(|clip| clip.kind == ClipKind::Transition)
@@ -4750,9 +4728,8 @@ mod tests {
     fn a_fresh_adjustment_layer_changes_nothing_on_the_monitor_or_in_the_export() {
         use concat_core::frame::Frame;
         use concat_media::{EncodeOptions, Encoder, FrameSink};
-        use concat_project::commands::{ClipPatch, NewMedia};
-        use concat_project::model::MediaKind;
-        use concat_project::{Command, Editor};
+        use crate::test_doc::{Doc, at, long, video};
+        use concat_doc::commands::{Command, ItemPatch};
 
         let (width, height) = (64_u32, 64_u32);
         let path = std::env::temp_dir().join(format!(
@@ -4788,52 +4765,24 @@ mod tests {
             return; // no renderer here
         };
 
-        let mut editor = Editor::new();
-        let media_id = editor
-            .apply(Command::AddMedia {
-                item: NewMedia {
-                    path: path.to_string_lossy().into_owned(),
-                    name: "gradient.mp4".into(),
-                    duration: Some(2.0),
-                    kind: MediaKind::Video,
-                    width: Some(width),
-                    height: Some(height),
-                    frame_rate: None,
-                    frame_rate_fraction: None,
-                    video_codec: None,
-                    audio_codec: None,
-                    has_audio: false,
-                    audio_tracks: Vec::new(),
-                    origin: None,
-                    color_space: Default::default(),
-                },
-            })
-            .expect("adds media")
-            .created_id
-            .expect("an id");
-        let track_id = editor.project().timelines[0].tracks[0].id.clone();
-        editor
-            .apply(Command::AddClip {
-                media_id,
-                track_id,
-                start: 0.0,
-                ripple: false,
-            })
-            .expect("adds the footage");
-        let plain = flatten::flatten_timeline(editor.project(), None);
-        let layer_id = editor
-            .apply(Command::AddLayerClip {
-                track_id: None,
-                start: 0.0,
-                duration: Some(2.0),
-                effect_id: "concat.adjust".into(),
-                name: "Adjustment".into(),
-                sound: false,
-            })
-            .expect("adds the layer")
-            .created_id
-            .expect("an id");
-        let fresh = flatten::flatten_timeline(editor.project(), None);
+        let mut doc = Doc::new();
+        let media = doc.media(video(&path.to_string_lossy(), 2.0, (width, height), false));
+        doc.apply(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        let plain = doc.flat();
+        let layer_id = doc.item(Command::AddLayerClip {
+            start: at(0.0),
+            len: Some(long(2.0)),
+            package: "concat.adjust".into(),
+            name: "Adjustment".into(),
+            sound: false,
+            lane: None,
+        });
+        let fresh = doc.flat();
         assert!(
             fresh
                 .iter()
@@ -4884,18 +4833,33 @@ mod tests {
         );
 
         // A stop up: the picture changes, the same on both.
-        let mut graded = AppliedFilter::new("concat.adjust");
-        graded.params.insert("exposure".into(), 1.0);
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: layer_id,
-                patch: ClipPatch {
-                    video_effects: Some(vec![graded]),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("grades the layer");
-        let (monitor, export) = both(flatten::flatten_timeline(editor.project(), None));
+        let mut effects: Vec<concat_doc::model::Effect> = doc
+            .0
+            .items
+            .get(layer_id)
+            .expect("the layer")
+            .effects
+            .iter()
+            .filter_map(concat_doc::model::Entry::known)
+            .cloned()
+            .collect();
+        if effects.is_empty() {
+            effects.push(concat_doc::model::Effect::new(
+                concat_doc::commands::placeholder(),
+                "concat.adjust",
+            ));
+        }
+        effects[0]
+            .params
+            .insert("exposure".into(), concat_doc::model::Param::fixed(Some(1.0)));
+        doc.apply(Command::UpdateClip {
+            item: layer_id,
+            patch: ItemPatch {
+                effects: Some(effects),
+                ..ItemPatch::default()
+            },
+        });
+        let (monitor, export) = both(doc.flat());
         eprintln!(
             "a stop up moves the picture by {} at most; monitor and export differ by {}",
             furthest(&before, &monitor),

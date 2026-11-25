@@ -33,6 +33,15 @@ use std::sync::atomic::AtomicBool;
 use concat_core::animate::Track as GainTrack;
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
+use concat_doc::commands::{
+    ClipMove, Command, Edge, Framing, ItemPatch, KeyProperty, LaneFlag, SpeedPoint, placeholder,
+};
+use concat_doc::model::{
+    Background, Blend, Color, ColorRange, Content, Crop, CutIn, Ease, Effect, EffectId, Entry,
+    Frame as DocFrame, Item, ItemId, LaneId, MediaId, Model, Param, SequenceId, Speed, TimeMap,
+    Title,
+};
+use concat_doc::{AnyId, Document, Tick, TickDur, TickLen, TypedId};
 use concat_host::dirs::AppDirs;
 use concat_host::export::{self, ExportSpec};
 use concat_host::session::Session;
@@ -42,11 +51,6 @@ use concat_media::audio::{self as sound, AudioClip};
 use concat_media::{
     AudioDecoder, AudioOptions, DecodeOptions, Decoder, EncodeOptions, Encoder,
     Error as MediaError, FrameSink, FrameSource, HwDevice, RateMode, SampleFormat, VideoCodec,
-};
-use concat_project::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
-use concat_project::model::{
-    AppliedFilter, ColorRange, Crop, KeyEase, KeyProperty, SpeedPoint, TextStyle, Transition,
-    VideoSettings,
 };
 
 /// The sample rate every source and every export carries.
@@ -468,15 +472,26 @@ struct Studio {
     range: concat_media::ColorRange,
 }
 
+/// What a test reads of one clip, in seconds.
+#[derive(Clone, Debug, PartialEq)]
+struct ClipView {
+    start: f64,
+    duration: f64,
+    source_start: f64,
+    speed: f64,
+    volume: f64,
+    track_id: LaneId,
+}
+
 impl Studio {
-    fn new(root: &Path, name: &str, video: VideoSettings) -> Studio {
+    fn new(root: &Path, name: &str, frame: DocFrame) -> Studio {
         let info = projects::create(
             root.to_str().expect("utf-8"),
             name,
-            video.width,
-            video.height,
-            video.rate_num,
-            video.rate_den,
+            frame.width.get(),
+            frame.height.get(),
+            i64::from(frame.rate.num()),
+            i64::from(frame.rate.den()),
             [0, 0, 0, 255],
         )
         .expect("creates the project");
@@ -493,49 +508,109 @@ impl Studio {
     }
 
     /// Imports a file as the window does: probed, then added.
-    fn import(&mut self, path: &Path) -> String {
+    fn import(&mut self, path: &Path) -> MediaId {
         let summary = media::probe(path.to_str().expect("utf-8"))
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-        self.apply(Command::AddMedia {
-            item: summary.to_new_media(),
+        self.made_as(Command::AddMedia {
+            media: summary.to_new_media(),
         })
-        .expect("an imported file has an id")
     }
 
     /// Applies one edit. An edit the model refuses is a failure here: the
     /// script only asks for what the window lets a person ask for.
-    fn apply(&mut self, command: Command) -> Option<String> {
+    fn apply(&mut self, command: Command) -> Option<AnyId> {
         let what = format!("{command:?}");
         self.session
-            .apply(command)
+            .apply(&command)
             .unwrap_or_else(|error| panic!("{what}: {error}"))
-            .created_id
+            .applied
+            .created
     }
 
-    fn project(&self) -> &concat_project::model::Project {
-        self.session.project()
+    /// Applies an edit that makes a clip, and gives its id.
+    fn made(&mut self, command: Command) -> ItemId {
+        self.made_as(command)
     }
 
-    fn clip(&self, id: &str) -> &concat_project::model::Clip {
+    /// Applies an edit that makes something, and gives its id.
+    fn made_as<I: TypedId>(&mut self, command: Command) -> I {
+        self.apply(command)
+            .and_then(|id| id.typed())
+            .expect("the edit made one")
+    }
+
+    /// The document as it stands.
+    fn project(&self) -> Document<Model> {
+        self.session.document()
+    }
+
+    /// The timeline showing.
+    fn showing(&self) -> SequenceId {
+        self.session.showing().expect("a timeline shows")
+    }
+
+    /// The lanes of the timeline showing, from the bottom.
+    fn lanes(&self) -> Vec<LaneId> {
+        let document = self.project();
+        let lanes = document.lanes.index().of(self.showing()).map(|(id, _)| id);
+        lanes.collect()
+    }
+
+    fn item(&self, id: ItemId) -> std::sync::Arc<Item> {
         self.project()
-            .active()
-            .clips
-            .iter()
-            .find(|clip| clip.id == id)
+            .items
+            .get(id)
+            .cloned()
             .unwrap_or_else(|| panic!("clip {id} is on the timeline"))
     }
 
-    fn clip_ids(&self) -> Vec<String> {
-        self.project()
-            .active()
-            .clips
-            .iter()
-            .map(|clip| clip.id.clone())
-            .collect()
+    fn clip(&self, id: &ItemId) -> ClipView {
+        let item = self.item(*id);
+        let (source_start, speed) = match &item.content {
+            Content::Media(cut) => (
+                cut.time
+                    .source_of(item.offset)
+                    .map_or(0.0, Tick::display_seconds),
+                match &cut.time {
+                    TimeMap::Linear { speed, .. } => speed.display(),
+                    _ => {
+                        let to = cut
+                            .time
+                            .source_of(item.offset + item.len)
+                            .map_or(0.0, Tick::display_seconds);
+                        (to - cut
+                            .time
+                            .source_of(item.offset)
+                            .map_or(0.0, Tick::display_seconds))
+                            / seconds(item.len)
+                    }
+                },
+            ),
+            _ => (0.0, 1.0),
+        };
+        ClipView {
+            start: item.start.display_seconds(),
+            duration: seconds(item.len),
+            source_start,
+            speed,
+            volume: item.sound.volume.value,
+            track_id: item.lane,
+        }
+    }
+
+    /// Every clip of the timeline showing, lane by lane from the bottom
+    /// and in time order on each.
+    fn clip_ids(&self) -> Vec<ItemId> {
+        let document = self.project();
+        let mut ids = Vec::new();
+        for lane in self.lanes() {
+            ids.extend(document.items.index().on_lane(lane).map(|(id, _, _)| id));
+        }
+        ids
     }
 
     /// The clips added by `edit`, in timeline order.
-    fn clips_made_by(&mut self, edit: Command) -> Vec<String> {
+    fn clips_made_by(&mut self, edit: Command) -> Vec<ItemId> {
         let before = self.clip_ids();
         self.apply(edit);
         self.clip_ids()
@@ -544,14 +619,40 @@ impl Studio {
             .collect()
     }
 
-    /// Where the active timeline ends: the last clip's end.
+    /// Where the timeline showing ends: the last clip's end.
     fn end(&self) -> f64 {
-        self.project()
-            .active()
-            .clips
-            .iter()
-            .map(|clip| clip.start + clip.duration)
+        self.clip_ids()
+            .into_iter()
+            .map(|id| {
+                let clip = self.clip(&id);
+                clip.start + clip.duration
+            })
             .fold(0.0, f64::max)
+    }
+
+    /// The project as saved, opened again.
+    fn reopen(&self) -> Session {
+        let info = projects::open(self.session.path()).expect("the manifest reads");
+        Session::open_info(&info).expect("the saved project reopens")
+    }
+
+    /// Where a share of a clip is, on its content time: what a key is put
+    /// at.
+    fn key_at(&self, id: ItemId, share: f64) -> Tick {
+        let item = self.item(id);
+        let into = (item.len.get() as f64 * share).round() as i64;
+        Tick::new(item.offset.get() + into)
+    }
+
+    /// The id of the `index`th effect of a clip's picture chain.
+    fn effect_id(&self, id: ItemId, index: usize) -> EffectId {
+        self.item(id)
+            .effects
+            .iter()
+            .filter_map(Entry::known)
+            .nth(index)
+            .map(|effect| effect.id)
+            .expect("the effect is on the clip")
     }
 
     /// Exports at the timeline's own rate.
@@ -568,12 +669,11 @@ impl Studio {
         self.count += 1;
         let label = format!("{:02} {label}", self.count).replace('/', "-");
         // Each export names itself before it starts and again once the
-        // file is written, so a run that hangs (every_edit_still_exports
-        // on Windows CI, at the time of writing) says which edit and which
+        // file is written, so a run that hangs says which edit and which
         // half: the render, or the reopen and read-back after it. Shown
         // with --nocapture, or under a failure.
         eprintln!("{label}: exporting");
-        let settings = self.session.settings();
+        let frame = self.session.frame();
         let spec = ExportSpec {
             output: self
                 .exports
@@ -591,7 +691,11 @@ impl Studio {
         };
         let titles = self
             .titles
-            .clips(self.session.project(), settings.width, settings.height)
+            .clips(
+                &self.session.document(),
+                frame.width.get(),
+                frame.height.get(),
+            )
             .into_iter()
             .map(|title| title.clip)
             .collect();
@@ -606,8 +710,7 @@ impl Studio {
         eprintln!("{label}: written, reading it back");
 
         self.session.save(None).expect("saves the project");
-        let reopened = Session::open(self.session.path(), self.session.settings())
-            .unwrap_or_else(|error| panic!("{label}: the saved project does not reopen: {error}"));
+        let reopened = self.reopen();
         assert!(
             reopened.flattened_clips() == self.session.flattened_clips(),
             "{label}: the project flattens differently after a save and reopen"
@@ -618,6 +721,39 @@ impl Studio {
             Path::new(&written),
             (request.rate_num, request.rate_den),
         )
+    }
+}
+
+/// A place, in seconds.
+fn at(seconds: f64) -> Tick {
+    Tick::from_display_seconds(seconds).expect("a place")
+}
+
+/// A distance, in seconds.
+fn by(seconds: f64) -> TickDur {
+    TickDur::from_display_seconds(seconds).expect("a distance")
+}
+
+/// A length, in seconds.
+fn long(seconds: f64) -> TickLen {
+    TickLen::try_from(at(seconds).get()).expect("a length")
+}
+
+/// A length's seconds.
+fn seconds(len: TickLen) -> f64 {
+    TickDur::from(len).display_seconds()
+}
+
+/// A pace.
+fn pace(speed: f64) -> Speed {
+    concat_doc::commands::speed_from_decimal(speed).expect("a pace")
+}
+
+/// A transition on the cut into a clip: its package, its length.
+fn cut_in(package: &str, length: f64) -> CutIn {
+    CutIn {
+        effect: Effect::new(placeholder(), package),
+        len: long(length),
     }
 }
 
@@ -643,23 +779,29 @@ impl Drop for Scratch {
     }
 }
 
-fn effect(id: &str) -> AppliedFilter {
-    AppliedFilter {
-        id: id.to_owned(),
-        params: Default::default(),
-        enabled: true,
-        keys: Default::default(),
-    }
+/// A link to a package, every knob at its default, given an id of the
+/// document's own when it lands on a clip.
+fn effect(id: &str) -> Effect {
+    Effect::new(placeholder(), id)
 }
 
-fn video(width: u32, height: u32, rate_num: i64, rate_den: i64) -> VideoSettings {
-    VideoSettings {
-        canvas: [0, 0, 0, 255],
-        width,
-        height,
-        rate_num,
-        rate_den,
-        color_space: Default::default(),
+/// A link with knobs set.
+fn effect_with(id: &str, knobs: &[(&str, f64)]) -> Effect {
+    let mut effect = effect(id);
+    for (name, value) in knobs {
+        effect
+            .params
+            .insert((*name).to_owned(), Param::fixed(Some(*value)));
+    }
+    effect
+}
+
+fn video(width: u32, height: u32, rate_num: i64, rate_den: i64) -> DocFrame {
+    DocFrame {
+        width: std::num::NonZeroU32::new(width).expect("a width"),
+        height: std::num::NonZeroU32::new(height).expect("a height"),
+        rate: concat_doc::Rate::new(rate_num as u32, rate_den as u32).expect("a rate"),
+        ..DocFrame::hd()
     }
 }
 
@@ -676,8 +818,8 @@ fn one_clip_exports_whole_at_every_rate() {
     let mut studio = Studio::new(scratch.path(), "Rates", video(WIDTH, HEIGHT, 30, 1));
     let peek = studio.import(&sources.peek);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: peek,
-        start: 0.0,
+        media: peek,
+        start: at(0.0),
     });
 
     for (num, den) in [
@@ -721,8 +863,8 @@ fn an_export_draws_on_a_lent_compositor() {
     let mut studio = Studio::new(scratch.path(), "Lent", video(WIDTH, HEIGHT, 30, 1));
     let media = studio.import(&source);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: media,
-        start: 0.0,
+        media,
+        start: at(0.0),
     });
     let spec = ExportSpec {
         output: scratch
@@ -772,20 +914,18 @@ fn crop_and_flips_reach_the_picture() {
 
     let mut studio = Studio::new(scratch.path(), "Geometry", video(WIDTH, HEIGHT, 30, 1));
     let media = studio.import(&path);
-    let clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: media,
-            start: 0.0,
-        })
-        .expect("the clip has an id");
+    let clip = studio.made(Command::AddClipAtFirstFree {
+        media,
+        start: at(0.0),
+    });
     let set = |studio: &mut Studio, crop: Option<Crop>, flip_h: bool, flip_v: bool| {
         studio.apply(Command::UpdateClip {
-            clip_id: clip.clone(),
-            patch: ClipPatch {
+            item: clip,
+            patch: ItemPatch {
                 crop: Some(crop),
                 flip_h: Some(flip_h),
                 flip_v: Some(flip_v),
-                ..ClipPatch::default()
+                ..ItemPatch::default()
             },
         });
     };
@@ -872,7 +1012,6 @@ fn crop_and_flips_reach_the_picture() {
 /// fill then takes the bars away altogether.
 #[test]
 fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
-    use concat_project::model::{Background, Framing};
     let scratch = Scratch::new("background");
     let path = scratch.path().join("quadrants.mp4");
     quadrants(&path);
@@ -882,13 +1021,11 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
 
     let mut studio = Studio::new(scratch.path(), "Background", video(width, height, 30, 1));
     let media = studio.import(&path);
-    let clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: media,
-            start: 0.0,
-        })
-        .expect("the clip has an id");
-    let timeline_id = studio.project().active_timeline_id.clone();
+    let clip = studio.made(Command::AddClipAtFirstFree {
+        media,
+        start: at(0.0),
+    });
+    let timeline_id = studio.showing();
     // The picture is 90x51 across the middle of the frame: its quadrants
     // either side of (0.5, 0.5), the bars above 0.34 and below 0.66.
     let picture = [
@@ -941,17 +1078,12 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
 
     let set = |studio: &mut Studio, background: Background| {
         studio.apply(Command::SetTimelineBackground {
-            timeline_id: timeline_id.clone(),
+            sequence: timeline_id,
             background,
         });
     };
     let teal = [30, 160, 140];
-    set(
-        &mut studio,
-        Background::Color {
-            color: "#1ea08c".to_owned(),
-        },
-    );
+    set(&mut studio, Background::Color(Color::rgb(0x1e, 0xa0, 0x8c)));
     let coloured = studio.export("a colour background");
     coloured.expect_colours(1.0, &picture);
     coloured.expect_colours(1.0, &[((0.5, 0.1), teal), ((0.5, 0.9), teal)]);
@@ -987,10 +1119,10 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
 
     // The clip's own black over the timeline's blur.
     studio.apply(Command::UpdateClip {
-        clip_id: clip.clone(),
-        patch: ClipPatch {
+        item: clip,
+        patch: ItemPatch {
             background: Some(Some(Background::None)),
-            ..ClipPatch::default()
+            ..ItemPatch::default()
         },
     });
     studio
@@ -999,9 +1131,9 @@ fn a_background_fills_the_bars_in_the_export_and_the_monitor() {
 
     // Filled, the picture is the frame: no bars to fill.
     studio.apply(Command::FrameClip {
-        clip_id: clip,
+        item: clip,
         framing: Framing::Fill,
-        at: 0.0,
+        at: at(0.0),
     });
     let filled = studio.export("filled");
     filled.expect_colours(
@@ -1061,50 +1193,42 @@ fn fades_and_wipes_reach_the_picture() {
     let mut studio = Studio::new(scratch.path(), "Transitions", video(WIDTH, HEIGHT, 30, 1));
     let red_media = studio.import(&red_path);
     let blue_media = studio.import(&blue_path);
-    let first = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: red_media,
-            start: 0.0,
-        })
-        .expect("the clip has an id");
-    let track = studio.project().active().tracks[0].id.clone();
-    let second = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: blue_media,
-            start: 3.0,
-        })
-        .expect("the clip has an id");
+    let first = studio.made(Command::AddClipAtFirstFree {
+        media: red_media,
+        start: at(0.0),
+    });
+    let track = studio.lanes()[0];
+    let second = studio.made(Command::AddClipAtFirstFree {
+        media: blue_media,
+        start: at(3.0),
+    });
     // A second of handle at the head of the blue clip, for an overlap to
     // take, and the red one ending at 2 s, where the blue one then starts.
     studio.apply(Command::TrimClip {
-        clip_id: second.clone(),
-        edge: TrimEdge::Start,
-        delta: 1.0,
+        item: second,
+        edge: Edge::Head,
+        delta: by(1.0),
         ripple: false,
     });
     studio.apply(Command::TrimClip {
-        clip_id: first.clone(),
-        edge: TrimEdge::End,
-        delta: -1.0,
+        item: first,
+        edge: Edge::Tail,
+        delta: by(-1.0),
         ripple: false,
     });
     studio.apply(Command::MoveClips {
         moves: vec![ClipMove {
-            clip_id: second.clone(),
-            start: 2.0,
-            track_id: track,
+            item: second,
+            start: at(2.0),
+            lane: Some(track),
         }],
     });
     let with = |studio: &mut Studio, kind: &str| {
         studio.apply(Command::UpdateClip {
-            clip_id: second.clone(),
-            patch: ClipPatch {
-                transition_in: Some(Some(Transition {
-                    id: kind.to_owned(),
-                    duration: 1.0,
-                    params: Default::default(),
-                })),
-                ..ClipPatch::default()
+            item: second,
+            patch: ItemPatch {
+                cut_in: Some(Some(cut_in(kind, 1.0))),
+                ..ItemPatch::default()
             },
         });
         studio.export(&format!("transition {kind}"))
@@ -1204,8 +1328,8 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
     let mut studio = Studio::new(scratch.path(), "HLG", video(WIDTH, HEIGHT, 30, 1));
     let media = studio.import(&path);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: media,
-        start: 0.0,
+        media,
+        start: at(0.0),
     });
     let exported = studio.export("an HLG clip");
     let [r, g, b] = exported.colour_at(0.5);
@@ -1282,13 +1406,23 @@ fn an_hlg_timeline_exports_as_hdr_or_sdr() {
     let mut studio = Studio::new(scratch.path(), "HLG out", video(WIDTH, HEIGHT, 30, 1));
     let media = studio.import(&path);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: media,
-        start: 0.0,
+        media,
+        start: at(0.0),
+    });
+    // The document's commands do not yet turn a timeline HLG with its
+    // first HDR clip, as the window's import did; the timeline is set to
+    // HLG here, which is what the import would have made it.
+    let sequence = studio.showing();
+    let mut hlg = studio.session.frame();
+    hlg.color = concat_doc::model::ColorSpace::Hlg;
+    studio.apply(Command::SetTimelineVideo {
+        sequence,
+        frame: hlg,
     });
     assert_eq!(
-        studio.project().active().video.color_space,
-        concat_project::model::ColorSpace::Hlg,
-        "the timeline turned HLG with its first HDR clip"
+        studio.session.frame().color,
+        concat_doc::model::ColorSpace::Hlg,
+        "the timeline is HLG"
     );
 
     let written = |hdr: bool, codec: VideoCodec| {
@@ -1360,8 +1494,8 @@ fn a_colour_range_named_on_the_media_reaches_the_export() {
     let mut studio = Studio::new(scratch.path(), "Range", video(WIDTH, HEIGHT, 30, 1));
     let peek = studio.import(&sources.peek);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: peek.clone(),
-        start: 0.0,
+        media: peek,
+        start: at(0.0),
     });
 
     let as_tagged = studio.export("as tagged");
@@ -1373,7 +1507,7 @@ fn a_colour_range_named_on_the_media_reaches_the_export() {
     // from the middle, so the colour of the second is no longer the colour
     // of the second. The file is unchanged; only its reading is.
     studio.apply(Command::SetMediaColorRange {
-        media_id: peek.clone(),
+        media: peek,
         range: Some(ColorRange::Full),
     });
     let stretched = studio.export("read as full range");
@@ -1390,14 +1524,14 @@ fn a_colour_range_named_on_the_media_reaches_the_export() {
 
     // Named what it really is, the picture is what the tag gave.
     studio.apply(Command::SetMediaColorRange {
-        media_id: peek.clone(),
+        media: peek,
         range: Some(ColorRange::Limited),
     });
     studio.export("read as limited").expect_second(3.5, 3);
 
     // Cleared, the tag is read again.
     studio.apply(Command::SetMediaColorRange {
-        media_id: peek,
+        media: peek,
         range: None,
     });
     studio.export("as tagged again").expect_second(3.5, 3);
@@ -1430,18 +1564,14 @@ fn every_edit_still_exports() {
 
     // Two clips on one track: the screen recording, then the camera with a
     // gap before it, so the edits below have room.
-    let peek_clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: peek.clone(),
-            start: 0.0,
-        })
-        .expect("the clip has an id");
-    let cam_clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: cam,
-            start: 12.0,
-        })
-        .expect("the clip has an id");
+    let peek_clip = studio.made(Command::AddClipAtFirstFree {
+        media: peek,
+        start: at(0.0),
+    });
+    let cam_clip = studio.made(Command::AddClipAtFirstFree {
+        media: cam,
+        start: at(12.0),
+    });
     let exported = studio.export("two clips");
     exported.expect_length(16.0);
     exported.expect_sound(16.0);
@@ -1455,8 +1585,8 @@ fn every_edit_still_exports() {
     // Split, trim the tail's head off, slide it back to close the gap,
     // then drop the head.
     let mut pieces = studio.clips_made_by(Command::SplitClips {
-        clip_ids: vec![peek_clip.clone()],
-        time: 2.0,
+        items: vec![peek_clip],
+        at: at(2.0),
     });
     assert_eq!(pieces.len(), 1, "a split makes one new clip");
     let tail = pieces.remove(0);
@@ -1466,9 +1596,9 @@ fn every_edit_still_exports() {
     exported.expect_second(2.5, 2);
 
     studio.apply(Command::TrimClip {
-        clip_id: tail.clone(),
-        edge: TrimEdge::Start,
-        delta: 0.5,
+        item: tail,
+        edge: Edge::Head,
+        delta: by(0.5),
         ripple: false,
     });
     let exported = studio.export("trimmed");
@@ -1476,12 +1606,12 @@ fn every_edit_still_exports() {
     exported.expect_second(2.75, 2);
     exported.expect_second(5.75, 5);
 
-    let track = studio.clip(&tail).track_id.clone();
+    let track = studio.clip(&tail).track_id;
     studio.apply(Command::MoveClips {
         moves: vec![ClipMove {
-            clip_id: tail.clone(),
-            start: 2.0,
-            track_id: track.clone(),
+            item: tail,
+            start: at(2.0),
+            lane: Some(track),
         }],
     });
     let exported = studio.export("moved");
@@ -1492,7 +1622,7 @@ fn every_edit_still_exports() {
 
     studio.apply(Command::RemoveClips {
         ripple: false,
-        clip_ids: vec![peek_clip.clone()],
+        items: vec![peek_clip],
     });
     let exported = studio.export("head removed");
     exported.expect_length(16.0);
@@ -1502,8 +1632,8 @@ fn every_edit_still_exports() {
     // Retimed: twice as fast, then half speed with the pitch riding, then
     // on a curve, then undone back to half speed.
     studio.apply(Command::SetClipSpeed {
-        clip_id: tail.clone(),
-        speed: 2.0,
+        item: tail,
+        speed: pace(2.0),
         ripple: false,
     });
     let exported = studio.export("double speed");
@@ -1516,15 +1646,15 @@ fn every_edit_still_exports() {
     exported.expect_tone(2.25);
 
     studio.apply(Command::UpdateClip {
-        clip_id: tail.clone(),
-        patch: ClipPatch {
-            preserve_pitch: Some(false),
-            ..ClipPatch::default()
+        item: tail,
+        patch: ItemPatch {
+            keep_pitch: Some(false),
+            ..ItemPatch::default()
         },
     });
     studio.apply(Command::SetClipSpeed {
-        clip_id: tail.clone(),
-        speed: 0.5,
+        item: tail,
+        speed: pace(0.5),
         ripple: false,
     });
     let exported = studio.export("half speed");
@@ -1533,7 +1663,7 @@ fn every_edit_still_exports() {
     exported.expect_sound(16.0);
 
     studio.apply(Command::SetClipSpeedCurve {
-        clip_id: tail.clone(),
+        item: tail,
         curve: Some(vec![
             SpeedPoint {
                 at: 0.0,
@@ -1575,9 +1705,9 @@ fn every_edit_still_exports() {
         .to_new_media();
     let before = studio.end();
     let made = studio.clips_made_by(Command::FreezeFrame {
-        clip_id: tail.clone(),
-        time: 4.0,
-        duration: Some(1.0),
+        item: tail,
+        at: at(4.0),
+        len: Some(long(1.0)),
         still: Some(frozen_media),
     });
     assert!(!made.is_empty(), "a freeze adds the still");
@@ -1601,15 +1731,15 @@ fn every_edit_still_exports() {
     };
     studio.apply(Command::MoveClips {
         moves: vec![ClipMove {
-            clip_id: cam_clip.clone(),
-            start: piece_end,
-            track_id: track.clone(),
+            item: cam_clip,
+            start: at(piece_end),
+            lane: Some(track),
         }],
     });
     studio.apply(Command::TrimClip {
-        clip_id: cam_clip.clone(),
-        edge: TrimEdge::Start,
-        delta: 1.0,
+        item: cam_clip,
+        edge: Edge::Head,
+        delta: by(1.0),
         ripple: false,
     });
     for kind in [
@@ -1623,14 +1753,10 @@ fn every_edit_still_exports() {
         "something-new",
     ] {
         studio.apply(Command::UpdateClip {
-            clip_id: cam_clip.clone(),
-            patch: ClipPatch {
-                transition_in: Some(Some(Transition {
-                    id: kind.to_owned(),
-                    duration: 0.5,
-                    params: Default::default(),
-                })),
-                ..ClipPatch::default()
+            item: cam_clip,
+            patch: ItemPatch {
+                cut_in: Some(Some(cut_in(kind, 0.5))),
+                ..ItemPatch::default()
             },
         });
         let end = studio.end();
@@ -1639,20 +1765,20 @@ fn every_edit_still_exports() {
         exported.expect_sound(end);
     }
     studio.apply(Command::UpdateClip {
-        clip_id: cam_clip.clone(),
-        patch: ClipPatch {
-            transition_in: Some(None),
-            ..ClipPatch::default()
+        item: cam_clip,
+        patch: ItemPatch {
+            cut_in: Some(None),
+            ..ItemPatch::default()
         },
     });
 
     // Effects on the picture and the sound, with and without keys.
     studio.apply(Command::UpdateClip {
-        clip_id: cam_clip.clone(),
-        patch: ClipPatch {
-            video_effects: Some(vec![effect("concat.vhs"), effect("concat.film-grain")]),
+        item: cam_clip,
+        patch: ItemPatch {
+            effects: Some(vec![effect("concat.vhs"), effect("concat.film-grain")]),
             filters: Some(vec![effect("concat.bass")]),
-            ..ClipPatch::default()
+            ..ItemPatch::default()
         },
     });
     let end = studio.end();
@@ -1660,22 +1786,24 @@ fn every_edit_still_exports() {
     exported.expect_length(end);
     exported.expect_sound(end);
 
-    for (at, value) in [(0.0, 0.0), (1.0, 100.0)] {
+    let vhs = studio.effect_id(cam_clip, 0);
+    for (share, value) in [(0.0, 0.0), (1.0, 100.0)] {
+        let when = studio.key_at(cam_clip, share);
         studio.apply(Command::SetEffectKey {
-            clip_id: cam_clip.clone(),
-            entry: 0,
-            key: "bleed".to_owned(),
-            at,
+            item: cam_clip,
+            effect: vhs,
+            param: "bleed".to_owned(),
+            at: when,
             value,
-            ease: KeyEase::default(),
+            ease: Ease::LINEAR,
         });
     }
     let exported = studio.export("effect keys");
     exported.expect_length(end);
     studio.apply(Command::ClearEffectKeys {
-        clip_id: cam_clip.clone(),
-        entry: 0,
-        key: "bleed".to_owned(),
+        item: cam_clip,
+        effect: vhs,
+        param: "bleed".to_owned(),
     });
 
     for (property, from, to) in [
@@ -1687,13 +1815,14 @@ fn every_edit_still_exports() {
         (KeyProperty::StretchY, 0.5, 1.0),
         (KeyProperty::Volume, 1.0, 0.0),
     ] {
-        for (at, value) in [(0.0, from), (1.0, to)] {
+        for (share, value) in [(0.0, from), (1.0, to)] {
+            let when = studio.key_at(cam_clip, share);
             studio.apply(Command::SetClipKey {
-                clip_id: cam_clip.clone(),
+                item: cam_clip,
                 property,
-                at,
+                at: when,
                 value,
-                ease: KeyEase::default(),
+                ease: Ease::LINEAR,
             });
         }
     }
@@ -1710,14 +1839,14 @@ fn every_edit_still_exports() {
         KeyProperty::Volume,
     ] {
         studio.apply(Command::ClearClipKeys {
-            clip_id: cam_clip.clone(),
+            item: cam_clip,
             property,
         });
     }
 
     // The transform, the crop, the flips, a blend, opacity, fades, gain.
     studio.apply(Command::SetClipTransform {
-        clip_id: cam_clip.clone(),
+        item: cam_clip,
         scale: Some(0.6),
         offset_x: Some(0.1),
         offset_y: Some(-0.1),
@@ -1726,8 +1855,8 @@ fn every_edit_still_exports() {
         stretch_y: Some(0.9),
     });
     studio.apply(Command::UpdateClip {
-        clip_id: cam_clip.clone(),
-        patch: ClipPatch {
+        item: cam_clip,
+        patch: ItemPatch {
             crop: Some(Some(Crop {
                 left: 0.1,
                 top: 0.1,
@@ -1736,12 +1865,12 @@ fn every_edit_still_exports() {
             })),
             flip_h: Some(true),
             flip_v: Some(true),
-            blend: Some("screen".to_owned()),
+            blend: Some(Blend::Screen),
             opacity: Some(0.7),
-            fade_in: Some(0.5),
-            fade_out: Some(0.5),
+            fade_in: Some(by(0.5)),
+            fade_out: Some(by(0.5)),
             volume: Some(0.5),
-            ..ClipPatch::default()
+            ..ItemPatch::default()
         },
     });
     let exported = studio.export("transform crop blend fades");
@@ -1759,10 +1888,10 @@ fn every_edit_still_exports() {
         eprintln!("a software adapter only, and CONCAT_REQUIRE_GPU is not set; no glow layer");
     } else {
         studio.apply(Command::AddLayerClip {
-            track_id: None,
-            start: 2.0,
-            duration: Some(3.0),
-            effect_id: "concat.glow".to_owned(),
+            lane: None,
+            start: at(2.0),
+            len: Some(long(3.0)),
+            package: "concat.glow".to_owned(),
             name: "Glow".to_owned(),
             sound: false,
         });
@@ -1771,13 +1900,13 @@ fn every_edit_still_exports() {
     }
     studio.apply(Command::AddTextClip {
         above: false,
-        track_id: None,
-        start: 3.0,
-        style: Some(TextStyle {
+        lane: None,
+        start: at(3.0),
+        title: Some(Title {
             content: "Hello".to_owned(),
-            ..TextStyle::default()
+            ..Title::default()
         }),
-        duration: Some(2.0),
+        len: Some(long(2.0)),
         offset_y: None,
     });
     let exported = studio.export("title");
@@ -1787,12 +1916,12 @@ fn every_edit_still_exports() {
     // A photograph, a silent clip, sound-only clips on their own track:
     // the AAC the mix writes and a plain PCM file.
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: still_media,
-        start: 17.0,
+        media: still_media,
+        start: at(17.0),
     });
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: silent,
-        start: 22.0,
+        media: silent,
+        start: at(22.0),
     });
     let end = studio.end();
     let exported = studio.export("still and silent clip");
@@ -1801,19 +1930,17 @@ fn every_edit_still_exports() {
     exported.expect_second(23.5, 1);
     exported.expect_quiet(19.0);
 
-    let sound_track = studio
-        .apply(Command::AddTrack { bottom: false })
-        .expect("a new track has an id");
+    let sound_track = studio.made_as::<LaneId>(Command::AddTrack { bottom: false });
     studio.apply(Command::AddClip {
-        media_id: aac,
-        track_id: sound_track.clone(),
-        start: 17.0,
+        media: aac,
+        lane: sound_track,
+        start: at(17.0),
         ripple: false,
     });
     studio.apply(Command::AddClip {
-        media_id: wav,
-        track_id: sound_track.clone(),
-        start: 23.0,
+        media: wav,
+        lane: sound_track,
+        start: at(23.0),
         ripple: false,
     });
     let end = studio.end();
@@ -1825,29 +1952,25 @@ fn every_edit_still_exports() {
     exported.expect_tone(24.5);
 
     // The camera's sound detached to its own clip, then put back.
-    studio.apply(Command::DetachAudio {
-        clip_id: cam_clip.clone(),
-    });
+    studio.apply(Command::DetachAudio { item: cam_clip });
     let exported = studio.export("detached audio");
     exported.expect_length(end);
     exported.expect_sound(end);
-    studio.apply(Command::ReattachAudio {
-        clip_id: cam_clip.clone(),
-    });
+    studio.apply(Command::ReattachAudio { item: cam_clip });
     let exported = studio.export("reattached audio");
     exported.expect_sound(end);
 
     // A muted track, then a hidden one, then both back.
     studio.apply(Command::SetTrackFlag {
-        track_id: sound_track.clone(),
-        flag: TrackFlag::Muted,
+        lane: sound_track,
+        flag: LaneFlag::Muted,
         value: true,
     });
     let exported = studio.export("muted track");
     exported.expect_quiet(18.5);
     studio.apply(Command::SetTrackFlag {
-        track_id: track.clone(),
-        flag: TrackFlag::Visible,
+        lane: track,
+        flag: LaneFlag::Visible,
         value: false,
     });
     let exported = studio.export("hidden track");
@@ -1855,13 +1978,13 @@ fn every_edit_still_exports() {
     exported.expect_black(2.25);
     exported.expect_black(19.0);
     studio.apply(Command::SetTrackFlag {
-        track_id: track.clone(),
-        flag: TrackFlag::Visible,
+        lane: track,
+        flag: LaneFlag::Visible,
         value: true,
     });
     studio.apply(Command::SetTrackFlag {
-        track_id: sound_track,
-        flag: TrackFlag::Muted,
+        lane: sound_track,
+        flag: LaneFlag::Muted,
         value: false,
     });
 
@@ -1876,19 +1999,15 @@ fn every_edit_still_exports() {
     }
 
     // A second timeline of its own frame and rate, exported active.
-    let second = studio
-        .apply(Command::AddTimeline)
-        .expect("a new timeline has an id");
+    let second = studio.made_as::<SequenceId>(Command::AddTimeline);
     studio.apply(Command::SetTimelineVideo {
-        timeline_id: second.clone(),
-        video: video(96, 54, 60, 1),
+        sequence: second,
+        frame: video(96, 54, 60, 1),
     });
-    studio.apply(Command::SelectTimeline {
-        timeline_id: second,
-    });
+    studio.apply(Command::SelectTimeline { sequence: second });
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: peek,
-        start: 0.0,
+        media: peek,
+        start: at(0.0),
     });
     let exported = studio.export("second timeline at 60");
     exported.expect_length(6.0);
@@ -1912,8 +2031,8 @@ fn the_edges_export_too() {
     let mut studio = Studio::new(scratch.path(), "Still", video(WIDTH, HEIGHT, 30, 1));
     let still_media = studio.import(&sources.still);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: still_media,
-        start: 0.0,
+        media: still_media,
+        start: at(0.0),
     });
     let end = studio.end();
     let exported = studio.export("only a still");
@@ -1925,8 +2044,8 @@ fn the_edges_export_too() {
     let mut studio = Studio::new(scratch.path(), "Sound", video(WIDTH, HEIGHT, 30, 1));
     let wav = studio.import(&sources.wav);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: wav,
-        start: 0.5,
+        media: wav,
+        start: at(0.5),
     });
     let end = studio.end();
     let exported = studio.export("only sound");
@@ -1938,18 +2057,16 @@ fn the_edges_export_too() {
 
     let mut studio = Studio::new(scratch.path(), "Short", video(WIDTH, HEIGHT, 30, 1));
     let cam = studio.import(&sources.cam);
-    let clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: cam.clone(),
-            start: 0.0,
-        })
-        .expect("the clip has an id");
+    let clip = studio.made(Command::AddClipAtFirstFree {
+        media: cam,
+        start: at(0.0),
+    });
     // One frame long, at the very end of the media - and, since a trim
     // of the head keeps the tail where it was, at the end of the timeline.
     studio.apply(Command::TrimClip {
-        clip_id: clip.clone(),
-        edge: TrimEdge::Start,
-        delta: 4.0 - 1.0 / 30.0,
+        item: clip,
+        edge: Edge::Head,
+        delta: by(4.0 - 1.0 / 30.0),
         ripple: false,
     });
     let length = studio.clip(&clip).duration;
@@ -1967,21 +2084,19 @@ fn the_edges_export_too() {
     // decoders reach the end of the file long before the clip ends.
     let mut studio = Studio::new(scratch.path(), "Slow", video(WIDTH, HEIGHT, 30, 1));
     let cam = studio.import(&sources.cam);
-    let clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: cam,
-            start: 0.0,
-        })
-        .expect("the clip has an id");
+    let clip = studio.made(Command::AddClipAtFirstFree {
+        media: cam,
+        start: at(0.0),
+    });
     studio.apply(Command::TrimClip {
-        clip_id: clip.clone(),
-        edge: TrimEdge::Start,
-        delta: 3.0,
+        item: clip,
+        edge: Edge::Head,
+        delta: by(3.0),
         ripple: false,
     });
     studio.apply(Command::SetClipSpeed {
-        clip_id: clip.clone(),
-        speed: 0.125,
+        item: clip,
+        speed: pace(0.125),
         ripple: false,
     });
     let start = studio.clip(&clip).start;
@@ -2021,19 +2136,17 @@ fn cuts_between_frames_leave_no_black_frame() {
                 video(WIDTH, HEIGHT, num, den),
             );
             let media = studio.import(source);
-            let first = studio
-                .apply(Command::AddClipAtFirstFree {
-                    media_id: media,
-                    start: 0.0,
-                })
-                .expect("the clip has an id");
+            let first = studio.made(Command::AddClipAtFirstFree {
+                media,
+                start: at(0.0),
+            });
             // Cuts between frames at every rate here, at fractions of a
             // frame that round both ways.
-            for at in [0.513, 1.029, 1.546, 2.07, 2.581] {
-                if at < seconds - 0.2 {
+            for cut in [0.513, 1.029, 1.546, 2.07, 2.581] {
+                if cut < seconds - 0.2 {
                     studio.apply(Command::SplitClips {
-                        clip_ids: studio.clip_ids(),
-                        time: at,
+                        items: studio.clip_ids(),
+                        at: at(cut),
                     });
                 }
             }
@@ -2041,12 +2154,12 @@ fn cuts_between_frames_leave_no_black_frame() {
             // by it, so its start, length and in-point all fall off the
             // grid by different amounts.
             studio.apply(Command::TrimClip {
-                clip_id: first,
-                edge: TrimEdge::End,
-                delta: -0.0123,
+                item: first,
+                edge: Edge::Tail,
+                delta: by(-0.0123),
                 ripple: true,
             });
-            let clips = studio.project().active().clips.clone();
+            let clips: Vec<ClipView> = studio.clip_ids().iter().map(|id| studio.clip(id)).collect();
             for pair in clips.windows(2) {
                 assert!(
                     (pair[0].start + pair[0].duration - pair[1].start).abs() < 1e-9,
@@ -2163,12 +2276,10 @@ fn shots_whose_sound_outlasts_their_picture_leave_no_black_frame() {
         let media = studio.import(&shot);
         let mut end = 0.0;
         for _ in 0..12 {
-            let id = studio
-                .apply(Command::AddClipAtFirstFree {
-                    media_id: media.clone(),
-                    start: end,
-                })
-                .expect("the clip has an id");
+            let id = studio.made(Command::AddClipAtFirstFree {
+                media,
+                start: at(end),
+            });
             let clip = studio.clip(&id);
             end = clip.start + clip.duration;
         }
@@ -2326,20 +2437,18 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     let peek = studio.import(&sources.peek);
     let cam = studio.import(&sources.cam);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id: peek,
-        start: 0.0,
+        media: peek,
+        start: at(0.0),
     });
-    let clip = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: cam,
-            start: 6.0,
-        })
-        .expect("the clip has an id");
+    let clip = studio.made(Command::AddClipAtFirstFree {
+        media: cam,
+        start: at(6.0),
+    });
     // A retimed clip on the device: the pacing sits on top of it exactly
     // as it does the CPU.
     studio.apply(Command::SetClipSpeed {
-        clip_id: clip.clone(),
-        speed: 2.0,
+        item: clip,
+        speed: pace(2.0),
         ripple: false,
     });
     let start = studio.clip(&clip).start;
@@ -2376,34 +2485,26 @@ fn a_sound_layer_treats_the_mix_for_its_span_alone() {
     clock_wav(&wav, 6);
     let mut studio = Studio::new(scratch.path(), "Sound layer", video(WIDTH, HEIGHT, 30, 1));
     let clock = studio.import(&wav);
-    let lanes: Vec<String> = studio
-        .project()
-        .active()
-        .tracks
-        .iter()
-        .map(|track| track.id.clone())
-        .collect();
+    let lanes: Vec<LaneId> = studio.lanes();
     for lane in &lanes[..2] {
         studio.apply(Command::AddClip {
-            media_id: clock.clone(),
-            track_id: lane.clone(),
-            start: 0.0,
+            media: clock,
+            lane: *lane,
+            start: at(0.0),
             ripple: false,
         });
     }
     let plain = studio.export("no layer");
     plain.expect_sound(6.0);
 
-    let layer = studio
-        .apply(Command::AddLayerClip {
-            track_id: None,
-            start: 2.0,
-            duration: Some(2.0),
-            effect_id: "concat.underwater".to_owned(),
-            name: "Underwater".to_owned(),
-            sound: true,
-        })
-        .expect("a layer has an id");
+    let layer = studio.made(Command::AddLayerClip {
+        lane: None,
+        start: at(2.0),
+        len: Some(long(2.0)),
+        package: "concat.underwater".to_owned(),
+        name: "Underwater".to_owned(),
+        sound: true,
+    });
     let treated = studio.export("sound layer");
     treated.expect_length(6.0);
     treated.expect_sound(6.0);
@@ -2441,10 +2542,10 @@ fn a_sound_layer_treats_the_mix_for_its_span_alone() {
     treated.expect_tone(5.5);
 
     // A muted lane silences the layer as it silences a clip.
-    let lane = studio.clip(&layer).track_id.clone();
+    let lane = studio.clip(&layer).track_id;
     studio.apply(Command::SetTrackFlag {
-        track_id: lane,
-        flag: TrackFlag::Muted,
+        lane,
+        flag: LaneFlag::Muted,
         value: true,
     });
     let muted = studio.export("sound layer muted");
@@ -2562,44 +2663,44 @@ fn consolidation_after_pause_removal_preserves_picture_sound_and_undo() {
     let mut studio = Studio::new(scratch.path(), "Merged", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&sources.peek);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id,
-        start: 0.0,
+        media: media_id,
+        start: at(0.0),
     });
     for time in [1.0, 2.0, 3.0, 5.0] {
         studio.apply(Command::SplitClips {
-            clip_ids: studio.clip_ids(),
-            time,
+            items: studio.clip_ids(),
+            at: at(time),
         });
     }
     let removed = studio
-        .project()
-        .active()
-        .clips
-        .iter()
-        .filter(|clip| clip.source_start == 1.0 || clip.source_start == 3.0)
-        .map(|clip| clip.id.clone())
+        .clip_ids()
+        .into_iter()
+        .filter(|id| {
+            let clip = studio.clip(id);
+            (clip.source_start - 1.0).abs() < 1e-9 || (clip.source_start - 3.0).abs() < 1e-9
+        })
         .collect();
     studio.apply(Command::RemoveClips {
-        clip_ids: removed,
+        items: removed,
         ripple: true,
     });
     let ids = studio.clip_ids();
     assert_eq!(ids.len(), 3);
     for id in &ids {
         studio.apply(Command::UpdateClip {
-            clip_id: id.clone(),
-            patch: ClipPatch {
+            item: *id,
+            patch: ItemPatch {
                 volume: Some(0.6),
-                ..Default::default()
+                ..ItemPatch::default()
             },
         });
     }
     let before = studio.project().clone();
-    let plan = Consolidation::new(studio.project(), &ids).expect("valid selection");
+    let plan = Consolidation::new(&studio.project(), &ids).expect("valid selection");
     let folder = Path::new(studio.session.path()).join("media");
     std::fs::create_dir_all(&folder).unwrap();
     let output = folder.join("merged.mp4");
-    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    let request = plan.request(&studio.project(), Path::new(studio.session.path()), &output);
     export::run(&request, &AtomicBool::new(false), |_| {}).expect("renders merged media");
     let exported = Exported::read("merged media", &output, (30, 1));
     exported.expect_length(3.0);
@@ -2615,11 +2716,11 @@ fn consolidation_after_pause_removal_preserves_picture_sound_and_undo() {
         .unwrap()
         .to_new_media();
     let command = plan
-        .replacement(studio.project(), item)
+        .replacement(&studio.project(), item)
         .expect("inputs unchanged");
     studio.apply(command);
     assert_eq!(studio.clip_ids().len(), 1);
-    let merged = &studio.project().active().clips[0];
+    let merged = studio.clip(&studio.clip_ids()[0]);
     assert_eq!(
         (merged.volume, merged.speed, merged.source_start),
         (1.0, 1.0, 0.0)
@@ -2632,7 +2733,7 @@ fn consolidation_after_pause_removal_preserves_picture_sound_and_undo() {
     final_export.expect_second(2.5, 5);
     final_export.expect_tone(2.5);
     studio.session.undo();
-    assert_eq!(studio.project(), &before);
+    assert!(studio.project().same_content(&before));
     studio.session.redo();
     assert_eq!(studio.clip_ids().len(), 1);
 
@@ -2659,25 +2760,23 @@ fn consolidation_of_silent_fractional_frames_covers_the_original_span() {
     picture(&source, FrameRate::THIRTY, 3, VideoCodec::H264);
     let mut studio = Studio::new(scratch.path(), "Fractional", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 0.0,
-        })
-        .unwrap();
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(0.0),
+    });
     studio.apply(Command::TrimClip {
-        clip_id: id,
-        edge: TrimEdge::End,
-        delta: -1.92,
+        item: id,
+        edge: Edge::Tail,
+        delta: by(-1.92),
         ripple: false,
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 0.54,
+        items: studio.clip_ids(),
+        at: at(0.54),
     });
-    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let plan = Consolidation::new(&studio.project(), &studio.clip_ids()).unwrap();
     let output = scratch.path().join("merged.mp4");
-    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    let request = plan.request(&studio.project(), Path::new(studio.session.path()), &output);
     export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
     let exported = Exported::read("fractional source", &output, (30, 1));
     exported.expect_length(1.1); // 33 frames cover the original 1.08 seconds.
@@ -2685,8 +2784,8 @@ fn consolidation_of_silent_fractional_frames_covers_the_original_span() {
     let item = media::probe(output.to_str().unwrap())
         .unwrap()
         .to_new_media();
-    studio.apply(plan.replacement(studio.project(), item).unwrap());
-    assert!((studio.project().active().clips[0].duration - 1.08).abs() < 1e-9);
+    studio.apply(plan.replacement(&studio.project(), item).unwrap());
+    assert!((studio.clip(&studio.clip_ids()[0]).duration - 1.08).abs() < 1e-9);
 }
 
 #[test]
@@ -2723,34 +2822,28 @@ fn consolidation_preserves_the_timeline_clock_of_animated_effects() {
     encoder.finish().unwrap();
     let mut studio = Studio::new(scratch.path(), "Clock", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 5.0,
-        })
-        .unwrap();
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(5.0),
+    });
     studio.apply(Command::UpdateClip {
-        clip_id: id,
-        patch: ClipPatch {
-            video_effects: Some(vec![AppliedFilter {
-                id: "concat.bloom-pulse".into(),
-                params: [("amount".into(), 100.0), ("speed".into(), 2.0)]
-                    .into_iter()
-                    .collect(),
-                enabled: true,
-                keys: Default::default(),
-            }]),
-            ..Default::default()
+        item: id,
+        patch: ItemPatch {
+            effects: Some(vec![effect_with(
+                "concat.bloom-pulse",
+                &[("amount", 100.0), ("speed", 2.0)],
+            )]),
+            ..ItemPatch::default()
         },
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 6.0,
+        items: studio.clip_ids(),
+        at: at(6.0),
     });
     let baseline = studio.export("before consolidation");
-    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let plan = Consolidation::new(&studio.project(), &studio.clip_ids()).unwrap();
     let output = scratch.path().join("merged.mp4");
-    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    let request = plan.request(&studio.project(), Path::new(studio.session.path()), &output);
     assert_eq!(request.effect_time_offset, 5.0);
     export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
     let baked = Exported::read("baked effect", &output, (30, 1));
@@ -2775,28 +2868,26 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
     picture(&source, FrameRate::THIRTY, 3, VideoCodec::H264);
     let mut studio = Studio::new(scratch.path(), "Grid", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 5.01,
-        })
-        .unwrap();
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(5.01),
+    });
     studio.apply(Command::TrimClip {
-        clip_id: id,
-        edge: TrimEdge::End,
-        delta: -0.98,
+        item: id,
+        edge: Edge::Tail,
+        delta: by(-0.98),
         ripple: false,
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 5.05,
+        items: studio.clip_ids(),
+        at: at(5.05),
     });
     // JSON parsing can normalize a raw subframe float by one ULP. Compare
     // actual persisted renders here, not the generic helper's exact f64
     // equality assertion; the boundary being tested is the video frame grid.
     let draw = |studio: &mut Studio, label: &str| {
         studio.session.save(None).unwrap();
-        let reopened = Session::open(studio.session.path(), studio.session.settings()).unwrap();
+        let reopened = studio.reopen();
         let output = studio.exports.join(format!("{label}.mp4"));
         let request = export::request(
             &reopened,
@@ -2812,15 +2903,15 @@ fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
         Exported::read(label, &output, (30, 1))
     };
     let baseline = draw(&mut studio, "original-frame-grid");
-    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let plan = Consolidation::new(&studio.project(), &studio.clip_ids()).unwrap();
     let output = scratch.path().join("merged.mp4");
-    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    let request = plan.request(&studio.project(), Path::new(studio.session.path()), &output);
     export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
     let baked = Exported::read("rebased grid", &output, (30, 1));
     let item = media::probe(output.to_str().unwrap())
         .unwrap()
         .to_new_media();
-    studio.apply(plan.replacement(studio.project(), item).unwrap());
+    studio.apply(plan.replacement(&studio.project(), item).unwrap());
     let final_export = draw(&mut studio, "adopted-frame-grid");
     assert_eq!(final_export.frames.len(), baseline.frames.len());
     for frame in [0, 1, 2, 3, 4, 30, 60] {

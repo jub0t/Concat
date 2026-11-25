@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 
 use concat_export::{ClipKind, ExportClip};
 use concat_host::preview::{FrameSpec, Monitor};
-use concat_project::DocumentSettings;
 
 fn env<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
@@ -82,14 +81,7 @@ fn playback_feel() {
         }
     }
     let clips = Arc::new(clips);
-    let settings = DocumentSettings {
-        name: "feel".into(),
-        width: 1920,
-        height: 1080,
-        rate_num: 30,
-        rate_den: 1,
-        canvas: [0, 0, 0, 255],
-    };
+    let settings = concat_doc::model::Frame::hd();
     let monitor = Monitor::new();
     let spec_at = move |time: f64| FrameSpec {
         time,

@@ -23,15 +23,13 @@ fn counted(scratch: &Scratch, name: &str) -> (Studio, ExportRequest, PathBuf) {
     counting(&source);
     let mut studio = Studio::new(scratch.path(), name, video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let track_id = studio.project().active().tracks[0].id.clone();
-    studio
-        .apply(Command::AddClip {
-            media_id,
-            track_id,
-            start: 0.0,
-            ripple: false,
-        })
-        .expect("a clip");
+    let track_id = studio.lanes()[0];
+    studio.made(Command::AddClip {
+        media: media_id,
+        lane: track_id,
+        start: at(0.0),
+        ripple: false,
+    });
     let output = studio.exports.join(format!("{name}.mp4"));
     let spec = ExportSpec {
         output: output.to_string_lossy().into_owned(),
@@ -111,13 +109,13 @@ fn the_parts_of_another_edit_are_not_taken_up() {
     ));
 
     // The edit changes: the clip moves later, and the timeline with it.
-    let clip = studio.clip_ids()[0].clone();
-    let track_id = studio.project().active().tracks[0].id.clone();
+    let clip = studio.clip_ids()[0];
+    let track_id = studio.lanes()[0];
     studio.apply(Command::MoveClips {
         moves: vec![ClipMove {
-            clip_id: clip,
-            start: 0.5,
-            track_id,
+            item: clip,
+            start: at(0.5),
+            lane: Some(track_id),
         }],
     });
     let spec = ExportSpec {
