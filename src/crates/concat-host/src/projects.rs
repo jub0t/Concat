@@ -155,8 +155,17 @@ pub fn create(
         ));
     }
 
-    std::fs::create_dir_all(&root)
-        .map_err(|error| format!("could not create {}: {error}", root.display()))?;
+    std::fs::create_dir_all(&root).map_err(|error| {
+        // create_dir_all makes any missing folder itself, so a NotFound
+        // from it is not a folder that is missing: it is a write refused
+        // in that disguise, which is how a sandboxed location reports a
+        // block (#598). Name the write that failed, not a missing file.
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!("could not write to {}: {error}", location)
+        } else {
+            format!("could not create {}: {error}", root.display())
+        }
+    })?;
 
     // Settings only: a fresh project has no edit yet. The full document -
     // timelines included - is written by the session's save from the first
