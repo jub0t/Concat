@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.zoom-pulse"
+name = "Zoom Pulse"
+kind = "effect"
+category = "Shake"
+order = 6
+intensity = "amount"
+description = "The picture punches in on every beat of a tempo and eases back out, streaked by the speed of the zoom."
+
+[[param]]
+key = "bpm"
+label = "Tempo"
+unit = "BPM"
+min = 40
+max = 240
+step = 1
+default = 120
+
+[[param]]
+key = "amount"
+label = "Zoom"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 45
+
+[[param]]
+key = "blur"
+label = "Motion Blur"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[wgsl]
+entry = "effect.wgsl"
+
+[card]
+moment = 0.03

@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.lens-flare"
+name = "Lens Flare"
+kind = "effect"
+category = "Light"
+shelves = ["Featured"]
+order = 10
+intensity = "amount"
+description = "A bright light shining into the lens: a glowing source, a streak across it, a faint ring, and reflections strung through the middle of the frame."
+
+[[param]]
+key = "amount"
+label = "Brightness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[[param]]
+key = "x"
+label = "Light X"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 72
+
+[[param]]
+key = "y"
+label = "Light Y"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 26
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[wgsl]
+entry = "effect.wgsl"

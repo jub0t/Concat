@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.vhs-tracking"
+name = "VHS Tracking"
+kind = "effect"
+category = "Retro"
+shelves = ["Glitch"]
+order = 2
+intensity = "wear"
+description = "A worn tape playing back: the picture wobbles, a band of torn lines rolls down the frame, colours smear and the bottom edge frays."
+
+[[param]]
+key = "wear"
+label = "Wear"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "tracking"
+label = "Rolling Band"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "noise"
+label = "Noise"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[wgsl]
+entry = "effect.wgsl"

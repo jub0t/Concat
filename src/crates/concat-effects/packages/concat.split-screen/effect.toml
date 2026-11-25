@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.split-screen"
+name = "Split Screen"
+kind = "effect"
+category = "Split & Mirror"
+order = 1
+description = "The picture repeated in tiles: two side by side or stacked, three, four or nine, with a gap between them."
+
+[[param]]
+key = "tiles"
+label = "Tiles"
+type = "enum"
+values = [0, 1, 2, 3, 4, 5]
+labels = ["Two Across", "Two Down", "Three Across", "Three Down", "Four", "Nine"]
+default = 4
+min = 0
+max = 5
+
+[[param]]
+key = "gap"
+label = "Gap"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 25
+
+[[param]]
+key = "colour"
+label = "Gap Colour"
+type = "color"
+min = 0
+max = 4294967295
+default = 255
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.light-leak"
+name = "Light Leak"
+kind = "effect"
+category = "Light"
+shelves = ["Film"]
+order = 11
+intensity = "amount"
+description = "Warm light spilling in at the edges of the frame, drifting and swelling slowly as on film that let the light in."
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 30
+
+[[param]]
+key = "colour"
+label = "Colour"
+type = "enum"
+values = [0, 1, 2, 3]
+labels = ["Amber", "Rose", "Gold", "Teal"]
+default = 0
+min = 0
+max = 3
+
+[wgsl]
+entry = "effect.wgsl"

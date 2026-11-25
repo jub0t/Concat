@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.old-film"
+name = "Old Film"
+kind = "effect"
+category = "Film"
+shelves = ["Retro"]
+order = 1
+intensity = "age"
+description = "Film run through an old projector: faded warm colour, grain, dark corners, a frame that weaves and flickers, scratches and dust."
+
+[[param]]
+key = "age"
+label = "Age"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "scratches"
+label = "Scratches and Dust"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 50
+
+[[param]]
+key = "grain"
+label = "Grain"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 45
+
+[wgsl]
+entry = "effect.wgsl"

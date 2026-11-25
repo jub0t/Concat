@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.kaleidoscope"
+name = "Kaleidoscope"
+kind = "effect"
+category = "Split & Mirror"
+order = 3
+intensity = "zoom"
+description = "The picture reflected round the centre into a ring of mirrored slices that can turn slowly."
+
+[[param]]
+key = "pieces"
+label = "Slices"
+type = "int"
+min = 3
+max = 16
+step = 1
+default = 6
+
+[[param]]
+key = "spin"
+label = "Turn Speed"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 15
+
+[[param]]
+key = "zoom"
+label = "Zoom"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 30
+
+[wgsl]
+entry = "effect.wgsl"

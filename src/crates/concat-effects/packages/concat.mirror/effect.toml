@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.mirror"
+name = "Mirror"
+kind = "effect"
+category = "Split & Mirror"
+order = 2
+description = "One half of the picture reflected onto the other, or one quarter into all four corners."
+
+[[param]]
+key = "mode"
+label = "Mirror"
+type = "enum"
+values = [0, 1, 2, 3, 4]
+labels = ["Left onto Right", "Right onto Left", "Top onto Bottom", "Bottom onto Top", "Four Ways"]
+default = 0
+min = 0
+max = 4
+
+[wgsl]
+entry = "effect.wgsl"
