@@ -117,6 +117,11 @@ enum Command {
         /// card's own moment - to look at a moving effect instant by instant.
         #[arg(long)]
         moment: Option<f64>,
+        /// A knob set over the card's own, as `key=value`, e.g.
+        /// `--set direction=2`: to look at each of a package's choices.
+        /// Repeatable.
+        #[arg(long = "set", value_parser = knob)]
+        set: Vec<(String, f64)>,
     },
 
     /// Check effect packages before sharing them: load each folder the way
@@ -190,7 +195,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             height,
             progress,
             moment,
-        } => preview(&input, &output, &effect, (width, height), progress, moment),
+            set,
+        } => preview(
+            &input,
+            &output,
+            &effect,
+            (width, height),
+            progress,
+            moment,
+            &set,
+        ),
         Command::Check { path } => check(&path),
     }
 }
@@ -310,6 +324,7 @@ fn preview(
     (width, height): (u32, u32),
     progress: Option<f64>,
     moment: Option<f64>,
+    set: &[(String, f64)],
 ) -> Result<(), Box<dyn Error>> {
     let catalogue = concat_effects::Catalogue::builtin();
     let mut package = catalogue
@@ -331,6 +346,12 @@ fn preview(
         }
         card.moment = Some(moment.max(0.0));
     }
+    for (key, value) in set {
+        if package.manifest.owner(key).is_none() {
+            return Err(format!("{effect} has no knob {key}").into());
+        }
+        card.params.insert(key.clone(), *value);
+    }
     package.manifest.card = Some(card);
     let card = concat_host::cards::Card::of(catalogue, &package, Path::new(""))
         .ok_or_else(|| format!("{effect} draws no picture to make a card of"))?;
@@ -340,6 +361,18 @@ fn preview(
     painter.draw_to(&card, output)?;
     println!("{} -> {}", package.id(), output.display());
     Ok(())
+}
+
+/// A `--set` argument, `key=value`.
+fn knob(text: &str) -> Result<(String, f64), String> {
+    let (key, value) = text
+        .split_once('=')
+        .ok_or_else(|| format!("{text}: a knob is set as key=value"))?;
+    let value = value
+        .trim()
+        .parse::<f64>()
+        .map_err(|error| format!("{text}: {error}"))?;
+    Ok((key.trim().to_owned(), value))
 }
 
 /// Every package at `path` through the loader and its fixtures, one line
