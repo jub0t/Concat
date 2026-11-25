@@ -5,7 +5,7 @@
 
 use crate::id::TypedId;
 use crate::model::{
-    Background, CaptionLook, Content, Frame, Item, ItemId, LaneId, Media, MediaId, Sequence,
+    Background, CaptionLook, Content, Cover, Frame, Item, ItemId, LaneId, Media, MediaId, Sequence,
     SequenceId,
 };
 use crate::time::Tick;
@@ -76,6 +76,9 @@ impl Ed<'_> {
             self.d
                 .sequences
                 .update(id, |s| s.background = Background::None)?;
+        }
+        if matches!(self.d.cover, Some(Cover::Picture { media: cover }) if cover == media) {
+            self.d.cover = None;
         }
         self.d.media.remove(media)?;
         for sequence in sequences {

@@ -314,8 +314,9 @@ pub enum Command {
         media: Media,
     },
     /// `removeMedia`: a file out of the bin, with every clip cut from it
-    /// on every sequence, every enhanced copy of it a clip shows, and
-    /// every background it is. An unknown file is nothing.
+    /// on every sequence, every enhanced copy of it a clip shows, every
+    /// background it is, and the cover if it is the cover. An unknown
+    /// file is nothing.
     RemoveMedia {
         /// The file.
         media: MediaId,

@@ -349,7 +349,14 @@ fn remove_media_takes_its_clips_and_backgrounds() {
             background: Background::Image(b),
         },
     );
+    exec(
+        &mut h,
+        Command::SetCover {
+            cover: Some(Cover::Picture { media: b }),
+        },
+    );
     exec(&mut h, Command::RemoveMedia { media: b });
+    assert_eq!(m(&h).cover, None);
     assert_eq!(item(&h, keep).picture.background, None);
     assert_eq!(
         m(&h).sequences.get(showing(&h)).unwrap().background,
