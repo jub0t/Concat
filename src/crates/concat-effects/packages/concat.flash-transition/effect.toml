@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.flash-transition"
+name = "Flash"
+kind = "transition"
+category = "Light"
+shelves = ["Featured", "Basic"]
+order = 1
+description = "A quick burst of light hides the cut: the last shot blows out and the next one comes out of the glare."
+
+[[param]]
+key = "colour"
+label = "Colour"
+type = "enum"
+values = [0, 1, 2]
+labels = ["White", "Warm", "Cool"]
+default = 0
+min = 0
+max = 2
+
+[[param]]
+key = "strength"
+label = "Brightness"
+unit = "%"
+min = 20
+max = 100
+step = 1
+default = 100
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadewhite"
+fallback = "cross-fade"
+
+[card]
+progress = 0.42

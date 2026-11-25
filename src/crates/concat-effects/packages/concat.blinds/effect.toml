@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.blinds"
+name = "Blinds"
+kind = "transition"
+category = "Wipe"
+order = 21
+description = "The frame turns over in strips like window blinds, one after another, the next shot on their backs."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+values = [0, 1]
+labels = ["Across", "Down"]
+default = 0
+min = 0
+max = 1
+
+[[param]]
+key = "count"
+label = "Strips"
+type = "int"
+min = 3
+max = 24
+step = 1
+default = 8
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

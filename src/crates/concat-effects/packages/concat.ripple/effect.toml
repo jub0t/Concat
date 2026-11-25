@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.ripple"
+name = "Ripple"
+kind = "transition"
+category = "Distort"
+order = 20
+description = "Rings run out from the middle as if a stone hit water, and the next shot spreads out behind them."
+
+[[param]]
+key = "strength"
+label = "Strength"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[transition]
+entry = "effect.wgsl"
+xfade = "circleopen"
+fallback = "cross-fade"

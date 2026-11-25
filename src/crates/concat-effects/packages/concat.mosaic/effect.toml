@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.mosaic"
+name = "Mosaic"
+kind = "transition"
+category = "Dissolve"
+order = 20
+description = "The last shot breaks into growing squares that turn over one by one to the next, then sharpen back into a picture."
+
+[[param]]
+key = "size"
+label = "Tile Size"
+unit = "%"
+min = 2
+max = 20
+step = 1
+default = 8
+
+[transition]
+entry = "effect.wgsl"
+xfade = "pixelize"
+fallback = "cross-fade"
