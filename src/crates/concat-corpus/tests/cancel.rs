@@ -7,12 +7,15 @@
 //!
 //! The timeline is ten minutes of two tones under a black picture at ten
 //! frames a second: small enough to draw quickly on a software adapter,
-//! long enough that its sound takes seconds to mix, which is the stage a
-//! Cancel used to wait out. The export is run once to its end, so there is
+//! long enough that its sound takes seconds to mix, which a Cancel used to
+//! wait out. The sound mixes alongside the picture from the export's start,
+//! so a cancel at its first sign of life or half way through the picture
+//! lands in the mix as well. The export is run once to its end, so there is
 //! a finished file where the cancelled ones would write theirs; then it is
 //! run again and cancelled at a chosen moment - its first sign of life,
-//! half way through the picture, as the sound begins to mix, as the two
-//! are joined - and held each time to the same four things.
+//! half way through the picture, in what is left of the mix once the
+//! picture is drawn, as the two are joined - and held each time to the same
+//! four things.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -252,10 +255,11 @@ fn a_cancelled_export_lets_go_within_a_second_at_every_stage() {
         At::Stage("muxing"),
     ] {
         let Some((took, ended)) = bench.cancel_at(at) else {
-            // Only the join is short enough to be over before a cancel
-            // lands; anywhere else the moment was missed.
+            // The join is short enough to be over before a cancel lands,
+            // and the mix comes as a stage of its own only when it outlasts
+            // the picture; anywhere else the moment was missed.
             assert!(
-                matches!(at, At::Stage("muxing")),
+                matches!(at, At::Stage("muxing" | "mixing audio")),
                 "the export finished before {at:?} came"
             );
             eprintln!("{at:?}: finished before the cancel landed");
