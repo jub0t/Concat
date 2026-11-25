@@ -187,6 +187,11 @@ impl Book {
         })
     }
 
+    /// How many jobs are running: begun and not yet finished.
+    pub(crate) fn running(&self) -> usize {
+        self.inner().running.len()
+    }
+
     /// Raises every running job's stop flag. How many there were.
     pub(crate) fn cancel_all(&self) -> usize {
         let inner = self.inner();
@@ -266,13 +271,16 @@ mod tests {
     fn cancel_all_raises_only_the_running_flags_and_a_cancel_is_its_own_state() {
         let book = Book::default();
         let flag = begun(&book, "j1");
+        assert_eq!(book.running(), 1);
         assert_eq!(book.cancel_all(), 1);
         assert!(flag.load(Ordering::Relaxed));
+        assert_eq!(book.running(), 1, "running until it says it ended");
         book.record(&Event::ExportFailed {
             job: "j1".to_owned(),
             path: "/p".to_owned(),
             error: ApiError::new(ErrorCode::Cancelled, "The export was cancelled"),
         });
+        assert_eq!(book.running(), 0);
         assert_eq!(book.status("j1").expect("known").state, JobState::Cancelled);
     }
 

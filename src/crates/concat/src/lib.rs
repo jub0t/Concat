@@ -2482,6 +2482,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
+    app.on_settings_server_apply(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerApply { stop_jobs: false }));
+    }));
+    app.on_settings_server_revert(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerRevert));
+    }));
     app.on_settings_check_updates(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::CheckUpdates));
     }));

@@ -271,6 +271,12 @@ pub struct Stopper {
 }
 
 impl Stopper {
+    /// How many jobs this API started are running now: what a stop would
+    /// cancel, for a front end that asks before it stops them.
+    pub fn running(&self) -> usize {
+        self.book.running()
+    }
+
     /// Asks every job this API started to stop at its next frame - its
     /// own and no other, even where the export slot is shared with a
     /// window. Each then ends with [`ErrorCode::Cancelled`]. How many

@@ -143,7 +143,7 @@ mod tests {
         let wrong = Client::connect(address, "not the token, not at all", Duration::from_secs(5));
         assert!(wrong.is_err());
         let mut client =
-            Client::connect(address, server.token(), Duration::from_secs(5)).expect("in");
+            Client::connect(address, &server.token(), Duration::from_secs(5)).expect("in");
         let version = client.call(&Request::Version).expect("answers");
         assert_eq!(version["apiVersion"], concat_api::API_VERSION);
         let location = scratch.path().to_string_lossy().into_owned();

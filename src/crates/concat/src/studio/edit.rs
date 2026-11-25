@@ -88,6 +88,11 @@ impl Studio {
                     .map(|session| std::path::PathBuf::from(session.path()));
                 crate::panes::settings::restart(project);
             }
+            Some(Confirm::StopServerJobs { .. }) => {
+                self.handle(crate::panes::Msg::Settings(
+                    crate::panes::settings::SettingsMsg::ServerApply { stop_jobs: true },
+                ));
+            }
             Some(Confirm::QuitWithoutSaving { .. }) => {
                 crate::closing("by Quit without saving");
                 log::warn!(
@@ -149,6 +154,17 @@ impl Studio {
                 cancel: t("settings.restartLater").into(),
                 calm: true,
                 glyph: crate::ui::Glyph::Reset,
+            },
+            Confirm::StopServerJobs { jobs } => crate::ui::ConfirmData {
+                open: true,
+                title: t("settings.stopJobsTitle").into(),
+                message: match jobs {
+                    1 => t("settings.stopJobsOne"),
+                    many => tf("settings.stopJobsMany", &[many]),
+                }
+                .into(),
+                action: t("settings.applyAndStop").into(),
+                ..Default::default()
             },
         }
     }

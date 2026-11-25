@@ -30,7 +30,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Status};
 
 use crate::throttle::{Peer, Throttle};
-use crate::{Hub, token};
+use crate::{Hub, Key, token};
 
 /// The generated messages and service.
 pub mod proto {
@@ -130,7 +130,7 @@ fn encode_event(event: &Event) -> proto::Event {
 pub(crate) fn serve(
     address: SocketAddr,
     hub: Hub,
-    token: String,
+    token: Key,
     stop: Arc<AtomicBool>,
     throttle: Arc<Throttle>,
 ) -> Result<(SocketAddr, JoinHandle<()>), String> {
@@ -179,12 +179,14 @@ pub(crate) fn serve(
 
 /// The check every call passes through: the token as a bearer, compared
 /// in constant time, from an address the throttle is not holding back.
+/// The token is read at each call, so one changed while the server runs
+/// holds from the next call on.
 fn bearer(
-    token: String,
+    token: Key,
     throttle: Arc<Throttle>,
 ) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {
-    let expected = format!("Bearer {token}");
     move |request: Request<()>| {
+        let expected = format!("Bearer {}", crate::current(&token));
         let peer = request
             .remote_addr()
             .map(|address| Peer::Ip(address.ip()))
@@ -256,7 +258,7 @@ mod tests {
                     method: "version".to_owned(),
                     params: String::new(),
                 },
-                server.token(),
+                &server.token(),
             ))
             .await
             .expect("answers")
@@ -277,7 +279,7 @@ mod tests {
                     method: "project.get".to_owned(),
                     params: r#"{"path":"/none"}"#.to_owned(),
                 },
-                server.token(),
+                &server.token(),
             ))
             .await
             .expect("answers")
@@ -317,6 +319,16 @@ mod tests {
                 .await
                 .is_ok()
         );
+
+        // Changed while it runs: the next call presents the new one.
+        let next = "another test token, longer still 9kR";
+        server.set_token(Some(next)).expect("taken");
+        let refused = client
+            .call(with_bearer(version(), crate::tests::TOKEN))
+            .await
+            .expect_err("the old token");
+        assert_eq!(refused.code(), tonic::Code::Unauthenticated);
+        assert!(client.call(with_bearer(version(), next)).await.is_ok());
         drop(client);
         tokio::task::spawn_blocking(move || server.stop())
             .await

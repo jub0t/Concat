@@ -42,7 +42,7 @@ use concat_api::{ApiError, Done, ErrorCode, Reply, Response};
 use serde_json::Value;
 
 use crate::throttle::{Peer, Throttle};
-use crate::{Connections, Hub, Subscriber, token};
+use crate::{Connections, Hub, Key, Subscriber, token};
 
 /// The longest line a caller may send once it is in: a document-sized
 /// edit fits, a buffer grown to whatever arrives does not.
@@ -120,7 +120,9 @@ impl Socket for std::os::unix::net::UnixStream {
 #[derive(Clone)]
 pub(crate) struct Door {
     pub(crate) hub: Hub,
-    pub(crate) token: String,
+    /// Read at each handshake, so a token changed while the server runs
+    /// holds from the next caller on.
+    pub(crate) token: Key,
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) connections: Connections,
     pub(crate) seats: Arc<AtomicUsize>,
@@ -264,7 +266,7 @@ fn connection<S: Socket>(mut stream: S, door: Door, id: u64, peer: Peer, pending
         // drops, and nothing else was ever held for it.
         return;
     };
-    let (call, outcome) = handshake(&first, &door.token);
+    let (call, outcome) = handshake(&first, &crate::current(&door.token));
     if let Err(error) = outcome {
         door.throttle.failed(peer);
         refuse(stream, call, error.code, error.message);
@@ -495,7 +497,7 @@ mod tests {
         /// A connection with the server's token presented, ready to call.
         fn connect(server: &crate::Server) -> Client {
             let mut client = Client::reach(server);
-            let welcomed = client.auth(server.token());
+            let welcomed = client.auth(&server.token());
             assert_eq!(welcomed["result"], serde_json::json!({}), "{welcomed}");
             client
         }
@@ -572,7 +574,7 @@ mod tests {
             .collect();
         assert_eq!(server.connections(), MAX_CONNECTIONS);
         let mut late = Client::reach(&server);
-        let refused = late.auth(server.token());
+        let refused = late.auth(&server.token());
         assert_eq!(refused["error"]["data"]["code"], "busy", "{refused}");
         assert!(late.closed());
         drop(seated);

@@ -7,6 +7,9 @@
 //! Everything on the sheet is a preference or follows from one, so most
 //! messages do three things: change the pane, write the preference, and
 //! apply it - to the downloaders, to the server, to the words on screen.
+//! The server's address and token are the exception: what is typed there
+//! is a draft, checked as it is typed and applied only on Apply, because
+//! applying can stop what callers are running (see [`super::server_edit`]).
 //! The model lists are the one part with a worker behind them: a download
 //! reports as [`SettingsMsg::ModelProgress`] and ends as
 //! [`SettingsMsg::ModelFinished`], and the lists are rebuilt from what is
@@ -26,7 +29,7 @@ use crate::close_window;
 use crate::host::{on_ui, spawn_long};
 use crate::i18n::{self, t, tf};
 use crate::keymap;
-use crate::panes::Msg;
+use crate::panes::{Msg, server_edit};
 use crate::platform;
 use crate::prefs;
 use crate::studio::Studio;
@@ -72,10 +75,19 @@ pub enum SettingsMsg {
     ServerEnabledChanged(bool),
     /// The address half of where the server listens; the port is its own
     /// field, so a person types "127.0.0.1" and "7420" and never a colon.
+    /// These four change the page's draft and nothing else.
     ServerHostEdited(String),
     ServerPortEdited(i32),
     ServerTokenEdited(String),
     ServerTokenGenerated,
+    /// The draft put into effect. `stop_jobs` is the person's answer to
+    /// being told that a restart stops the jobs callers are running:
+    /// without it, a restart with jobs running asks first.
+    ServerApply {
+        stop_jobs: bool,
+    },
+    /// The draft dropped: the fields show what is in effect again.
+    ServerRevert,
     /// Make this the model the engine uses.
     ModelActivated(String),
     ModelDownload(String),
@@ -128,6 +140,9 @@ pub enum SettingsMsg {
 
 /// The Version page's index in the column of pages.
 const VERSION_PAGE: i32 = 6;
+/// The Scripts and apps page's index: leaving it drops what was typed
+/// there and not applied.
+const SERVER_PAGE: i32 = 4;
 /// The Shortcuts page's index, which the launch screen's Keyboard
 /// shortcuts card opens the sheet on.
 pub const SHORTCUTS_PAGE: i32 = 7;
@@ -222,6 +237,19 @@ fn failure_line(failure: &concat_host::models::Failure) -> String {
     }
 }
 
+/// A field's note on the Scripts and apps page, as the page says it
+/// beside the field; empty for none.
+fn note_line(note: Option<server_edit::Note>) -> String {
+    match note {
+        None => String::new(),
+        Some(server_edit::Note::NotAnAddress) => t("settings.addressNote"),
+        Some(server_edit::Note::NotAPort) => t("settings.portNote"),
+        Some(server_edit::Note::WeakToken) => {
+            tf("settings.tokenNote", &[&concat_server::MIN_TOKEN_CHARS])
+        }
+    }
+}
+
 /// The models of a kind that are on disk, in the settings' order: the
 /// rows of a sheet's model list.
 pub fn installed(models: &[ModelState]) -> Vec<&ModelState> {
@@ -248,6 +276,12 @@ pub struct SettingsPane {
     /// Why the server is not running when the switch is on: the bind that
     /// failed. Empty while it runs, or is off.
     pub server_error: String,
+    /// The Scripts and apps page's address, port and token as typed and
+    /// not yet applied.
+    server_draft: server_edit::Draft,
+    /// Why the last Apply did not take: the new address could not be
+    /// listened on. The draft stays, and so does what was in effect.
+    server_apply_error: String,
     /// The transcriber models, installed or not.
     pub transcribers: Vec<ModelState>,
     /// The voice models, installed or not.
@@ -298,6 +332,7 @@ impl SettingsPane {
                 self.refresh(studio);
             }
             SettingsMsg::Open => {
+                self.drop_server_draft();
                 self.refresh(studio);
                 self.open = true;
             }
@@ -307,8 +342,15 @@ impl SettingsPane {
                 // with the sheet.
                 self.capturing = None;
                 self.open = false;
+                self.drop_server_draft();
             }
             SettingsMsg::PageChanged(index) => {
+                // What was typed on the server's page and not applied goes
+                // with the page: an edit that waited out of sight would be
+                // applied, later, by someone who forgot it was there.
+                if index != SERVER_PAGE {
+                    self.drop_server_draft();
+                }
                 self.tab = index;
                 // The Version page looks for the releases the first time it
                 // is opened in a run, so it has something to say and to list
@@ -445,33 +487,33 @@ impl SettingsPane {
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
+            // A keystroke at a time, and only the draft: nothing is saved
+            // and the server runs on until Apply.
             SettingsMsg::ServerHostEdited(text) => {
-                let (_, port) = split_listen(&studio.prefs.server.listen);
-                studio.prefs.server.listen = join_listen(&text, port);
-                // A keystroke at a time: detail.
-                log::debug!("settings: Address {}", studio.prefs.server.listen);
-                studio.prefs.save(&studio.host.dirs);
-                self.apply_server(studio);
+                log::debug!("settings: Address edited to {text:?}");
+                self.server_draft.host = Some(text);
+                self.server_apply_error.clear();
             }
             SettingsMsg::ServerPortEdited(port) => {
-                let (host, _) = split_listen(&studio.prefs.server.listen);
-                studio.prefs.server.listen = join_listen(&host, port.clamp(0, 65535) as u16);
-                log::debug!("settings: Address {}", studio.prefs.server.listen);
-                studio.prefs.save(&studio.host.dirs);
-                self.apply_server(studio);
+                log::debug!("settings: Port edited to {port}");
+                self.server_draft.port = Some(port);
+                self.server_apply_error.clear();
             }
             SettingsMsg::ServerTokenEdited(text) => {
                 // Never the token itself.
                 log::debug!("settings: Token edited");
-                studio.prefs.server.token = text.trim().to_owned();
-                studio.prefs.save(&studio.host.dirs);
-                self.apply_server(studio);
+                self.server_draft.token = Some(text);
+                self.server_apply_error.clear();
             }
             SettingsMsg::ServerTokenGenerated => {
-                log::info!("settings: Token new");
-                studio.prefs.server.token = new_token();
-                studio.prefs.save(&studio.host.dirs);
-                self.apply_server(studio);
+                log::info!("settings: New token");
+                self.server_draft.token = Some(new_token());
+                self.server_apply_error.clear();
+            }
+            SettingsMsg::ServerApply { stop_jobs } => self.apply_server_draft(studio, stop_jobs),
+            SettingsMsg::ServerRevert => {
+                log::info!("settings: Revert");
+                self.drop_server_draft();
             }
             SettingsMsg::ModelActivated(id) => {
                 if self.is_transcriber(&id) {
@@ -768,11 +810,147 @@ impl SettingsPane {
         );
     }
 
-    /// Starts or stops the API's server to match the preferences. A server
-    /// already running is stopped first, so an edited address or token
-    /// takes effect; a bind that fails turns the switch back off and says
-    /// why on the page.
+    /// Drops what was typed on the server's page and not applied.
+    fn drop_server_draft(&mut self) {
+        self.server_draft = server_edit::Draft::default();
+        self.server_apply_error.clear();
+    }
+
+    /// The server's address and token as they are in effect, which the
+    /// draft is shown over and compared with.
+    fn server_applied(studio: &Studio) -> (String, String) {
+        let prefs = &studio.prefs.server;
+        let token = match &studio.host.server {
+            // A token the server minted for itself is shown where a
+            // chosen one would be typed: it is how a caller gets in.
+            Some(server) if prefs.token.is_empty() => server.token(),
+            _ => prefs.token.clone(),
+        };
+        (prefs.listen.clone(), token)
+    }
+
+    /// Apply: the draft checked once more, and then put into effect with
+    /// as little stopped as it takes - nothing for a token, a restart only
+    /// for an address the server does not listen on, and that asked about
+    /// first while callers have jobs running.
+    fn apply_server_draft(&mut self, studio: &mut Studio, stop_jobs: bool) {
+        let (listen, token) = Self::server_applied(studio);
+        let applied = server_edit::Applied {
+            listen: &listen,
+            token: &token,
+        };
+        let plan = match self.server_draft.plan(applied) {
+            Ok(Some(plan)) => plan,
+            Ok(None) => {
+                self.drop_server_draft();
+                return;
+            }
+            // The button is not pressable while a field is wrong; a press
+            // that arrives anyway saves nothing.
+            Err(note) => {
+                log::debug!("settings: Apply refused, {note:?}");
+                return;
+            }
+        };
+        let state = match (&studio.host.server, studio.prefs.server.enabled) {
+            (Some(_), _) => server_edit::Server::Running,
+            (None, true) => server_edit::Server::Failed,
+            (None, false) => server_edit::Server::Off,
+        };
+        let step = server_edit::step(state, &plan);
+        let jobs = studio
+            .host
+            .server
+            .as_ref()
+            .map_or(0, concat_server::Server::running_jobs);
+        if step == server_edit::Step::Restart && jobs > 0 && !stop_jobs {
+            log::info!("settings: Apply asks first, {jobs} running jobs would stop");
+            studio.confirm = Some(crate::studio::Confirm::StopServerJobs { jobs });
+            return;
+        }
+        log::info!(
+            "settings: Apply, {}{}",
+            if plan.moved {
+                format!("address {}", plan.listen)
+            } else {
+                "same address".to_owned()
+            },
+            if plan.token.is_some() {
+                ", new token"
+            } else {
+                ""
+            }
+        );
+        let before = studio.prefs.server.clone();
+        studio.prefs.server.listen.clone_from(&plan.listen);
+        if let Some(token) = &plan.token {
+            studio.prefs.server.token.clone_from(token);
+        }
+        match step {
+            server_edit::Step::Save => {}
+            server_edit::Step::SwapToken => {
+                let Some(server) = &studio.host.server else {
+                    return;
+                };
+                let chosen = Some(studio.prefs.server.token.as_str()).filter(|t| !t.is_empty());
+                if let Err(error) = server.set_token(chosen) {
+                    // Checked as typed, so not expected; nothing changed.
+                    log::warn!("settings: the token was not taken, {error}");
+                    studio.prefs.server = before;
+                    self.server_apply_error = error;
+                    return;
+                }
+                log::info!(
+                    "server: the token changed while it runs; {} callers already in stay in, and {} running jobs run on",
+                    server.connections(),
+                    server.running_jobs()
+                );
+                // Said, because a token is often changed to shut someone
+                // out, and changing it does not hang up who is in already:
+                // the switch does.
+                studio.notify(&t("settings.tokenApplied"), false);
+            }
+            server_edit::Step::Restart | server_edit::Step::Start => {
+                let restarting = studio.host.server.is_some();
+                if jobs > 0 {
+                    log::info!("server: restarting for a new address stops {jobs} running jobs");
+                }
+                if let Err(error) = self.restart_server(studio) {
+                    // The new address could not be listened on: what was
+                    // in effect comes back, and the draft stays to be
+                    // corrected, with why beside Apply.
+                    log::warn!("server: could not listen on {}: {error}", plan.listen);
+                    studio.prefs.server = before;
+                    if restarting {
+                        let _ = self.restart_server(studio);
+                    }
+                    self.server_apply_error = error;
+                    return;
+                }
+                if let Some(address) = studio.host.server.as_ref().and_then(|s| s.json_addr()) {
+                    log::info!("server: restarted, listening on {address}");
+                }
+            }
+        }
+        studio.prefs.save(&studio.host.dirs);
+        self.drop_server_draft();
+    }
+
+    /// Starts or stops the API's server to match the preferences, as the
+    /// switch and the launch do. A bind that fails turns the switch back
+    /// off and says why on the page.
     fn apply_server(&mut self, studio: &mut Studio) {
+        if let Err(error) = self.restart_server(studio) {
+            studio.prefs.server.enabled = false;
+            studio.prefs.save(&studio.host.dirs);
+            studio.notify(&error, true);
+        }
+    }
+
+    /// The server stopped, if one runs, and started again on the
+    /// preferences if the switch is on. Why it could not start, if it
+    /// could not; the page's line under the switch says so either way.
+    fn restart_server(&mut self, studio: &mut Studio) -> Result<(), String> {
         // Detached: the address is free again when this returns, and a
         // call or an export the old server was in the middle of is
         // cancelled and finished off the event loop, not waited for on it.
@@ -785,14 +963,14 @@ impl SettingsPane {
         let dirs = studio.host.dirs.clone();
         let prefs = &studio.prefs.server;
         if !prefs.enabled {
-            return;
+            return Ok(());
         }
-        // A token being typed is weak until it is long enough; the switch
-        // stays on and the server waits for it, rather than the switch
-        // flipping off at the first keystroke.
+        // Only a preferences file from before Apply checked the token, or
+        // one edited by hand, can hold a weak one: the switch stays on and
+        // the page says what the token needs.
         if !prefs.token.is_empty() && concat_server::check_token(&prefs.token).is_err() {
             self.server_error = tf("settings.tokenTooWeak", &[&concat_server::MIN_TOKEN_CHARS]);
-            return;
+            return Ok(());
         }
         let started = prefs
             .listen
@@ -819,12 +997,13 @@ impl SettingsPane {
                 })
             });
         match started {
-            Ok(server) => studio.host.server = Some(server),
+            Ok(server) => {
+                studio.host.server = Some(server);
+                Ok(())
+            }
             Err(error) => {
-                studio.prefs.server.enabled = false;
-                studio.prefs.save(&studio.host.dirs);
                 self.server_error = error.clone();
-                studio.notify(&error, true);
+                Err(error)
             }
         }
     }
@@ -990,6 +1169,13 @@ impl SettingsPane {
 
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> SettingsData {
+        let (listen, token) = Self::server_applied(studio);
+        let applied = server_edit::Applied {
+            listen: &listen,
+            token: &token,
+        };
+        let server_host = self.server_draft.host(applied);
+        let server_notes = self.server_draft.notes(applied);
         SettingsData {
             open: self.open,
             tab: self.tab,
@@ -1026,21 +1212,22 @@ impl SettingsPane {
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,
-            server_host: split_listen(&studio.prefs.server.listen).0.into(),
-            server_port: i32::from(split_listen(&studio.prefs.server.listen).1),
-            server_token: match &studio.host.server {
-                // A token the server minted for itself is shown where a
-                // chosen one would be typed: it is how a caller gets in.
-                Some(server) if studio.prefs.server.token.is_empty() => server.token().into(),
-                _ => studio.prefs.server.token.as_str().into(),
-            },
+            server_host: server_host.as_str().into(),
+            server_port: self.server_draft.port(applied),
+            server_token: self.server_draft.token(applied).into(),
+            server_host_note: note_line(server_notes[0]).into(),
+            server_port_note: note_line(server_notes[1]).into(),
+            server_token_note: note_line(server_notes[2]).into(),
+            server_pending: self.server_draft.pending(applied),
+            server_can_apply: matches!(self.server_draft.plan(applied), Ok(Some(_))),
+            server_apply_error: self.server_apply_error.as_str().into(),
             server_status: self.server_status(studio).into(),
             server_state: match &studio.host.server {
                 Some(_) => 1,
                 None if !self.server_error.is_empty() => 2,
                 None => 0,
             },
-            server_local: is_loopback(&split_listen(&studio.prefs.server.listen).0),
+            server_local: is_loopback(&server_host),
             disk: {
                 let on_disk: Vec<&ModelState> = installed(&self.transcribers)
                     .into_iter()

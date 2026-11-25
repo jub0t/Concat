@@ -378,8 +378,9 @@ pub struct ServerPrefs {
     pub enabled: bool,
     /// The TCP address JSON-RPC lines are served on.
     pub listen: String,
-    /// What a connection presents first. Empty means none, which the
-    /// server only allows on loopback.
+    /// What a connection presents first. Empty means none chosen: the
+    /// server makes one up each time it starts. Only ever a token that
+    /// passed the check, since Apply refuses one that does not.
     pub token: String,
 }
 
