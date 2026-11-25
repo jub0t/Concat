@@ -118,6 +118,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod commands;
 pub mod document;
 pub mod file;
 pub mod history;
