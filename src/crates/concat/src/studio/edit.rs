@@ -216,8 +216,10 @@ impl Studio {
                     .iter()
                     .filter(|clip| clip.track_id == lane.id)
                     .map(|clip| match clip.kind {
-                        model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
-                        model::ClipKind::Audio => LANE_MEDIUM,
+                        model::ClipKind::Video => LANE_LARGE,
+                        // A still's strip is one frame over and over, which
+                        // reads as well at a sound's height as at a video's.
+                        model::ClipKind::Image | model::ClipKind::Audio => LANE_MEDIUM,
                         // A title is its name strip alone; a layer has no
                         // picture at all; a shape's name says what it is.
                         // None needs a body's height.
