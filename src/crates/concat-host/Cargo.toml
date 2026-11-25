@@ -21,6 +21,7 @@ concat-worker.workspace = true
 concat-log.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
+concat-doc.workspace = true
 concat-export.workspace = true
 # The lanes every job that computes is handed to, sized to the machine.
 concat-sched.workspace = true
