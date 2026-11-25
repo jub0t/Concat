@@ -788,46 +788,31 @@ impl<'n, 'a> Reading<'n, 'a> {
     /// Makes the document: the count raised past every id the file
     /// holds, and what breaks a rule set aside until nothing does.
     fn settle(&mut self) -> Result<Document<Model>, Refused> {
-        let below = self
-            .cx
-            .unseen
-            .iter()
-            .any(|(writer, count)| *count > self.mint.issued(*writer));
-        if below {
-            let raised = self
-                .mint
-                .counts()
-                .chain(self.cx.unseen.iter().map(|(w, c)| (*w, *c)));
-            self.mint = Mint::resume(raised.collect::<Vec<_>>()).unwrap_or_default();
-            self.cx.notes.push(Note {
-                place: String::new(),
-                what: "the count new ids are made from was below ids the file holds; it now \
-                       goes on past them"
-                    .into(),
-            });
-        }
-        let mut raised = false;
+        let unseen: Vec<(Writer, u64)> = self.cx.unseen.iter().map(|(w, c)| (*w, *c)).collect();
+        let mut raised = self.raise(unseen, false);
         // Each round sets aside at least one thing, or gives up.
         loop {
             let model = self.model.clone();
             match Document::load(model, self.mint.clone(), Revision::default()) {
-                Ok(document) => return Ok(document),
+                Ok(document) => {
+                    // What was set aside on the way is unread text too.
+                    let unseen = self.cx.unseen.iter().map(|(w, c)| (*w, *c)).collect();
+                    if self.raise(unseen, raised) {
+                        let model = document.tables().clone();
+                        return Ok(Document::assemble(
+                            model,
+                            self.mint.clone(),
+                            Revision::default(),
+                        ));
+                    }
+                    return Ok(document);
+                }
                 Err(Rejected::Unminted(ids)) => {
-                    let counts: Vec<(Writer, u64)> = ids
+                    let counts = ids
                         .iter()
                         .map(|id| (id.raw().writer(), id.raw().counter()))
-                        .chain(self.mint.counts())
                         .collect();
-                    self.mint = Mint::resume(counts).unwrap_or_default();
-                    if !raised && !below {
-                        self.cx.notes.push(Note {
-                            place: String::new(),
-                            what: "the count new ids are made from was below ids the file \
-                                   holds; it now goes on past them"
-                                .into(),
-                        });
-                    }
-                    raised = true;
+                    raised |= self.raise(counts, raised);
                 }
                 Err(Rejected::Invalid(broken)) => {
                     if !self.set_aside(&broken) {
@@ -839,6 +824,30 @@ impl<'n, 'a> Reading<'n, 'a> {
                 }
             }
         }
+    }
+
+    /// Raises the count past these counts, if it is below any, and says
+    /// so unless it was said; whether it was raised.
+    fn raise(&mut self, counts: Vec<(Writer, u64)>, said: bool) -> bool {
+        let below = counts
+            .iter()
+            .any(|(writer, count)| *count > self.mint.issued(*writer));
+        if !below {
+            return false;
+        }
+        // Every count is one an id can have: it was read from one.
+        if let Ok(mint) = Mint::resume(self.mint.counts().chain(counts)) {
+            self.mint = mint;
+        }
+        if !said {
+            self.cx.notes.push(Note {
+                place: String::new(),
+                what: "the count new ids are made from was below ids the file holds; it now \
+                       goes on past them"
+                    .into(),
+            });
+        }
+        true
     }
 
     /// Sets aside what breaks each rule; whether anything was.

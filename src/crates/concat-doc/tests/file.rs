@@ -219,8 +219,11 @@ fn a_font_added_twice_and_a_tab_of_nothing_are_set_aside_and_written_back() {
         [
             "the fonts: a font is kept as it was and not opened: the font file /fonts/inter.ttf is added twice",
             "the view: a tab is kept as it was and not opened: `view.tabs` names tl999, which is not in the file or was set aside",
+            // The tab set aside names an id: it is never made.
+            "the count new ids are made from was below ids the file holds; it now goes on past them",
         ]
     );
+    assert_eq!(back.mint().issued(concat_doc::Writer::LOCAL), 999);
     // Written back where they came from, and set aside again the same.
     let again = file::write(&back);
     assert!(
@@ -453,6 +456,27 @@ fn every_kind_of_thing_a_document_holds_reads_back_as_it_was() {
     let back = open(&text);
     assert_eq!(back.tables(), doc.tables());
     assert_eq!(file::write(&back), text);
+}
+
+#[test]
+fn an_id_named_by_what_is_set_aside_is_never_made_again() {
+    let fx = fixture();
+    // An item on a lane the file does not have: set aside for it, and
+    // the lane's id with it.
+    let item = "\"items\":{\n  \"c20\":{\"lane\":\"t950\",\"start\":0,\"len\":1,\"content\":\"layer\"}\n}";
+    let text = file::write(&fx.doc).replace("\"items\":{}", item);
+    let (back, notes) = open_saying(&text);
+    assert_eq!(back.held.len(), 1);
+    assert!(
+        back.mint().issued(concat_doc::Writer::LOCAL) >= 950,
+        "{notes:?}"
+    );
+    assert_eq!(
+        notes.first().map(String::as_str),
+        Some(
+            "the count new ids are made from was below ids the file holds; it now goes on past them"
+        )
+    );
 }
 
 #[test]
