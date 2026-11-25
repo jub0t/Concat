@@ -864,12 +864,29 @@ impl Api {
                 .into_iter()
                 .filter(|(_, request)| !Stabilizers::outstanding(request).is_empty())
                 .collect();
-        let titles = self.title_clips(session, width, height);
-        let mut request = export::request(session, &host_spec, titles);
-        request.width = width;
-        request.height = height;
-        request.rate_num = rate_num;
-        request.rate_den = rate_den;
+        // In a worker where this program serves them, as the window's own
+        // exports are: a crash there is an `export.failed` for the caller,
+        // not this process gone (#762). The worker paints the titles.
+        let render = match concat_host::export_apart::program() {
+            Some(_) => Render::Apart(Box::new(concat_host::export_apart::Order::new(
+                session.project().clone(),
+                project_dir.clone(),
+                &host_spec,
+                width,
+                height,
+                rate_num,
+                rate_den,
+            ))),
+            None => {
+                let titles = self.title_clips(session, width, height);
+                let mut request = export::request(session, &host_spec, titles);
+                request.width = width;
+                request.height = height;
+                request.rate_num = rate_num;
+                request.rate_den = rate_den;
+                Render::Here(Box::new(request))
+            }
+        };
 
         let slot = self
             .exporter
@@ -887,7 +904,9 @@ impl Api {
         let job = ExportJob {
             name: started.job.clone(),
             path: started.path.clone(),
-            request,
+            render,
+            width,
+            height,
             masks,
             cutouts: Arc::clone(&self.cutouts),
             steadies,
@@ -1817,11 +1836,22 @@ impl Jobs {
     }
 }
 
+/// Where an export is drawn.
+enum Render {
+    /// In this process, from the request made here.
+    Here(Box<ExportRequest>),
+    /// In a worker of [`concat_host::export_apart::program`], from the
+    /// order it makes its request from; in this process if none starts.
+    Apart(Box<concat_host::export_apart::Order>),
+}
+
 /// An export in flight: everything its thread needs, owned.
 struct ExportJob {
     name: String,
     path: String,
-    request: ExportRequest,
+    render: Render,
+    width: u32,
+    height: u32,
     masks: Vec<(String, AnalyseRequest)>,
     cutouts: Arc<Cutouts>,
     steadies: Vec<(String, StabilizeRequest)>,
@@ -1836,18 +1866,14 @@ impl ExportJob {
         let outcome = self
             .masks(&slot)
             .and_then(|()| self.steadies(&slot))
-            .and_then(|()| {
-                export::run(&self.request, slot.cancel_flag(), |progress| {
-                    (self.events)(Event::progress(&self.name, &self.path, progress));
-                })
-            });
+            .and_then(|()| self.draw(&slot));
         let event = match outcome {
             Ok(output) => Event::ExportDone {
                 job: self.name.clone(),
                 path: self.path.clone(),
                 output,
-                width: self.request.width,
-                height: self.request.height,
+                width: self.width,
+                height: self.height,
             },
             // Which of the two it was is the job's own answer: the flag
             // may be raised a moment after a failure, and a failure's words
@@ -1864,6 +1890,32 @@ impl ExportJob {
             },
         };
         (self.events)(event);
+    }
+
+    /// The render itself, where [`Render`] says.
+    fn draw(&self, slot: &concat_host::jobs::Job) -> Result<String, Halt> {
+        let mut progress = |progress: export::Progress| {
+            (self.events)(Event::progress(&self.name, &self.path, progress));
+        };
+        let order = match &self.render {
+            Render::Here(request) => {
+                return export::run(request, slot.cancel_flag(), progress);
+            }
+            Render::Apart(order) => order,
+        };
+        // The idle preview decoders let go first, as the window's export
+        // does: the chip has few decoder sessions, and the worker's own
+        // decoders need them.
+        concat_host::scheduler()
+            .pool()
+            .close_idle(std::time::Duration::ZERO);
+        if let Some(program) = concat_host::export_apart::program()
+            && let Some(result) =
+                concat_host::export_apart::run(program, order, slot.cancel_flag(), &mut progress)
+        {
+            return result;
+        }
+        concat_host::export_apart::run_here(order, slot.cancel_flag(), &mut progress)
     }
 
     /// Runs every cutout analysis the timeline still needs, one after the

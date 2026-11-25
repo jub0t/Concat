@@ -1248,7 +1248,9 @@ dependencies = [
  "concat-media",
  "concat-render",
  "concat-server",
+ "concat-worker",
  "log",
+ "png 0.17.16",
  "serde_json",
 ]
 

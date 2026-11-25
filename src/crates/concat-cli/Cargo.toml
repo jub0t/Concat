@@ -24,10 +24,15 @@ serde_json.workspace = true
 # packages and runs their probes.
 concat-effects.workspace = true
 concat-host.workspace = true
+concat-worker.workspace = true
 clap.workspace = true
 # What `api` and `serve` could not load, on standard error with the
 # engine's own lines.
 log = "0.4"
+
+[dev-dependencies]
+# The still the worker tests put on the timeline.
+png = "0.17"
 
 [features]
 # `serve --grpc`. Off by default; see concat-server.

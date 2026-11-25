@@ -140,7 +140,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     // say nothing. No file, so scripted runs never push the window's own
     // logs out of the folder.
     let _ = concat_host::logs::open_console(None);
+    // An export of its own API's, in a process of its own: started as
+    // `concat-cli --worker export` by the `api` and `serve` commands below,
+    // so a crash in the render is an `export.failed` for their caller and
+    // not their process gone (#762).
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some(concat_worker::FLAG) {
+        let job = args.next().unwrap_or_default();
+        let table = [concat_worker::entry::<concat_host::export_apart::Export>()];
+        std::process::exit(concat_worker::serve(&table, &job));
+    }
     let command = Cli::parse().command;
+    if matches!(command, Command::Api { .. } | Command::Serve { .. })
+        && let Ok(program) = std::env::current_exe()
+    {
+        concat_host::export_apart::serve_from(program);
+    }
     // The imported effects and looks, for the commands that draw an edit
     // through the API: without them an edit that uses one exported without
     // it. Without the window's shader trial, which needs its device.

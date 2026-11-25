@@ -564,8 +564,9 @@ impl ExportPane {
                 };
                 // In a process of its own, on a device of its own, where
                 // the machine can start one: a driver, decoder or encoder
-                // that crashes there costs the export one try, drawn again
-                // on the CPU, and never the editor (#868, #824). The
+                // that crashes there costs the export, and never the
+                // editor (#868, #824); a crash in the driver costs one
+                // try, drawn again on the CPU (#762). The
                 // titles are painted there too. Where no helper starts - a
                 // phone, a sandbox that forbids it - or when
                 // CONCAT_EXPORT_IN_PROCESS is set, the export runs here, as

@@ -51,6 +51,12 @@ fn main() -> Result<(), slint::PlatformError> {
         ];
         std::process::exit(concat_worker::serve(&table, job));
     }
+    // This program serves export workers (the table above), so the
+    // exports its API starts - an agent's, a script's - run in one too, as
+    // the Export sheet's do (#762).
+    if let Ok(program) = std::env::current_exe() {
+        concat_host::export_apart::serve_from(program);
+    }
     if launch == Ok(Launch::ProbeEncoders) {
         concat_media::encode::apart::answer();
         return Ok(());
