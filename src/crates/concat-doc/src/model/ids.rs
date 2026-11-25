@@ -64,28 +64,71 @@ impl From<&str> for Raw {
     }
 }
 
-/// The fields of a record that this build does not know, by name, in
-/// the order the file had them, each as its text.
+/// What a record of a file held that this build does not know, kept to
+/// be written back: its unknown fields, and what the file marked as
+/// worked out from the rest of the record.
 ///
-/// A list and not a map: a file may say a name twice, and both are kept
-/// as they came. Whether such a field is safe to keep once the record
-/// it is in has been edited is for the file's format to say.
+/// A record is a row of a table (a file of the bin, a sequence, a lane,
+/// an item), an effect, a mask, a marker, or the document itself. The
+/// parts of a record - an item's `picture`, a key of its opacity - have
+/// no residual of their own: a field this build does not know inside
+/// one is the record's, named by its path from the record (see
+/// [`Residual::fields`]).
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
-pub struct Residual(pub Vec<(String, Raw)>);
+pub struct Residual {
+    /// The fields this build does not know, each as its text, in the
+    /// order the file had them, and kept however the record is edited.
+    ///
+    /// Each is named by its path from the record: `glow` for one of the
+    /// record's own fields, `picture/glow` for one inside its picture.
+    /// An element of a list is named by its tick for the keys of an
+    /// animated number and of a time map (`picture/scale/keys/0/tilt`),
+    /// by its index for a file's sound streams, and by its place in the
+    /// list otherwise, so that an unknown field of a key stays on that
+    /// key when the keys around it are edited. A `/` in a name is
+    /// written `~1` and a `~` is written `~0`, so a path has one reading.
+    ///
+    /// A list and not a map: a file may say a name twice, and both are
+    /// kept as they came.
+    pub fields: Vec<(String, Raw)>,
+    /// What the file marked as derived: worked out from the rest of the
+    /// record by a build that knew how. Kept while this build leaves the
+    /// record as it read it, and dropped once it changes the record,
+    /// since this build cannot work it out again.
+    pub derived: Option<Derived>,
+}
 
 impl Residual {
     /// Whether there is nothing here.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.fields.is_empty() && self.derived.is_none()
     }
 
     /// About how many bytes it holds.
     pub fn weight(&self) -> usize {
-        self.0
+        let fields: usize = self
+            .fields
             .iter()
             .map(|(name, raw)| name.len() + raw.0.len() + 48)
-            .sum()
+            .sum();
+        fields + self.derived.as_ref().map_or(0, |d| d.raw.0.len() + 32)
     }
+}
+
+/// What a record of a file marked as derived from the rest of it: its
+/// text, and a seal of the record as it was read.
+///
+/// The seal is a hash of the record as this build writes it, worked out
+/// when it was read and never saved. When the record is written, the
+/// seal is worked out again: the same, and the record is as it was read,
+/// so what was derived from it still holds and is written back; not, and
+/// it is dropped. After the unsafe-to-copy chunks of PNG.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct Derived {
+    /// The text, as the file had it.
+    pub raw: Raw,
+    /// The record as it was read, in short.
+    pub seal: u64,
 }
 
 /// One entry of a list in a file: one this build read, or the text of

@@ -218,7 +218,8 @@ pub use animated::{Animated, Ease, Key};
 pub use check::{Rule, Violation};
 pub use effect::{Effect, Mask, MaskMode, MaskShape, MaskSource, Param};
 pub use ids::{
-    EffectId, Entry, HeldId, ItemId, LaneId, MarkerId, MaskId, MediaId, Raw, Residual, SequenceId,
+    Derived, EffectId, Entry, HeldId, ItemId, LaneId, MarkerId, MaskId, MediaId, Raw, Residual,
+    SequenceId,
 };
 pub use index::{Derive, Indexed, ItemIndex, Items, LaneIndex, Lanes, SequenceIndex, Sequences};
 pub use item::{

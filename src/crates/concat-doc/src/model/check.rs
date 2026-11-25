@@ -506,7 +506,11 @@ pub(crate) fn media(cx: &mut Check<'_>) {
         cx.items.extend(after.items.index().using_media(*media));
     }
     for (sequence, held) in after.sequences.iter() {
-        if held.background.media().is_some_and(|m| touched.contains(&m)) {
+        if held
+            .background
+            .media()
+            .is_some_and(|m| touched.contains(&m))
+        {
             cx.background(sequence.any(), "background", &held.background);
         }
     }

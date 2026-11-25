@@ -12,11 +12,11 @@ use std::collections::BTreeMap;
 
 use concat_doc::model::{
     Animated, Background, BrushTool, CaptionLook, Color, Content, Cover, Crop, Cutout, CutoutMode,
-    Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind,
-    Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw,
-    Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke,
-    Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
-    VoiceMix,
+    Derived, Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link,
+    LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey,
+    Param, Raw, Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize,
+    Stroke, Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation,
+    VoiceKind, VoiceMix,
 };
 use concat_doc::{
     ChangeSet, Document, Entry as HistoryEntry, History, Origin, Recorded, Rejected, Tick, TickDur,
@@ -2665,6 +2665,31 @@ fn clip_holding_everything(fx: &mut Fixture) -> ItemId {
 fn a_copy_of_an_item_holds_ids_of_its_own() {
     let mut fx = fixture();
     let clip = clip_holding_everything(&mut fx);
+    // With what a newer build wrote: an effect this build could not read,
+    // fields it does not know, and what was derived from the clip and
+    // from its effect.
+    let derived = || {
+        Some(Derived {
+            raw: Raw::from("{\"thumb\":\"c99\"}"),
+            seal: 7,
+        })
+    };
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(clip, |item| {
+                item.effects.push(Entry::Unread(Raw::from(
+                    "{\"id\":\"fx98\",\"needs\":[\"x\"]}",
+                )));
+                item.residual.fields.push(("glow".into(), Raw::from("1")));
+                item.residual.derived = derived();
+                if let Entry::Known(effect) = &mut item.effects[0] {
+                    effect.residual.derived = derived();
+                    effect.residual.fields.push(("tilt".into(), Raw::from("2")));
+                }
+            })
+            .unwrap();
+    });
     let source = Item::clone(fx.doc.items.get(clip).unwrap());
     let laid_after = |mut copy: Item| {
         copy.start = at(2.0);
@@ -2701,6 +2726,14 @@ fn a_copy_of_an_item_holds_ids_of_its_own() {
     }
     let mask = copy.masks[0].known().unwrap().id;
     assert_eq!(copy.effects[0].known().unwrap().mask, Some(mask));
+    // What it cannot make new ids for or work out again is left behind;
+    // the fields it does not know go with it.
+    assert_eq!(copy.effects.len(), 1, "the unread effect stays behind");
+    assert_eq!(copy.residual.derived, None);
+    assert_eq!(copy.residual.fields, source.residual.fields);
+    let effect = copy.effects[0].known().unwrap();
+    assert_eq!(effect.residual.derived, None);
+    assert_eq!(effect.residual.fields, [("tilt".into(), Raw::from("2"))]);
     // Everything else is the clip's.
     let mut same = Item::clone(copy);
     same.start = source.start;
