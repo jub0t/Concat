@@ -406,13 +406,68 @@ fn a_background_that_is_not_a_still_is_refused() {
             to: missing.unwrap().any()
         }
     }));
-    // Of a still, it stands.
-    apply(&fx.doc, |draft| {
+    // The cover's picture, of a video and of nothing.
+    let cover = |broken: Vec<Violation>, rule: Rule| {
+        let wanted = Violation { id: None, rule };
+        assert!(broken.contains(&wanted), "wanted {wanted} in {broken:?}");
+    };
+    cover(
+        refused(&fx.doc, |draft| {
+            draft.cover = Some(Cover::Picture { media: fx.video });
+        }),
+        Rule::WrongKind {
+            what: "cover",
+            to: fx.video.any(),
+        },
+    );
+    let mut missing = None;
+    let broken = refused(&fx.doc, |draft| {
+        let gone: MediaId = draft.mint().unwrap();
+        draft.cover = Some(Cover::Picture { media: gone });
+        missing = Some(gone);
+    });
+    cover(
+        broken,
+        Rule::Dangling {
+            what: "cover",
+            to: missing.unwrap().any(),
+        },
+    );
+    // Of a still, each stands.
+    fx.doc = apply(&fx.doc, |draft| {
         draft
             .sequences
             .update(fx.seq, |s| s.background = Background::Image(fx.still))
             .unwrap();
+        draft.cover = Some(Cover::Picture { media: fx.still });
     });
+    // And a still found on a second look to be a video is no longer one,
+    // behind a sequence or as the cover.
+    let broken = refused(&fx.doc, |draft| {
+        draft
+            .media
+            .update(fx.still, |file| {
+                file.kind = concat_doc::model::MediaKind::Video
+            })
+            .unwrap();
+    });
+    assert!(
+        broken.contains(&Violation {
+            id: Some(fx.seq.any()),
+            rule: Rule::WrongKind {
+                what: "background",
+                to: fx.still.any()
+            }
+        }),
+        "{broken:?}"
+    );
+    cover(
+        broken,
+        Rule::WrongKind {
+            what: "cover",
+            to: fx.still.any(),
+        },
+    );
 }
 
 /// A picture and its detached sound, on the two lanes.
@@ -566,6 +621,31 @@ fn removing_a_file_in_use_is_refused() {
             "{id} in {broken:?}"
         );
     }
+    // Shown as the cover.
+    let covered = apply(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Picture { media: fx.still });
+        draft
+            .sequences
+            .update(fx.seq, |s| s.background = Background::None)
+            .unwrap();
+        draft
+            .items
+            .update(clip, |item| item.picture.background = None)
+            .unwrap();
+    });
+    let broken = refused(&covered, |draft| {
+        draft.media.remove(fx.still).unwrap();
+    });
+    assert_eq!(
+        broken,
+        [Violation {
+            id: None,
+            rule: Rule::Dangling {
+                what: "cover",
+                to: fx.still.any()
+            }
+        }]
+    );
     // With its items, the file may go.
     apply(&fx.doc, |draft| {
         draft.items.remove(clip).unwrap();
@@ -2490,13 +2570,8 @@ fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
         history.record(commit, HistoryEntry::new(vec![], (), ())),
         Ok(Recorded::Step)
     );
-    // A picture of its own instead, then none: each a step.
-    for cover in [
-        Some(Cover::Picture {
-            path: "/covers/a.png".into(),
-        }),
-        None,
-    ] {
+    // A still of the bin instead, then none: each a step.
+    for cover in [Some(Cover::Picture { media: fx.still }), None] {
         let mut draft = history.current().begin("Set cover", Origin(0));
         draft.cover = cover;
         let commit = draft.commit().unwrap();
@@ -2534,9 +2609,7 @@ fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
     let undone = history.undo().unwrap();
     assert_eq!(
         undone.document.cover,
-        Some(Cover::Picture {
-            path: "/covers/a.png".into()
-        })
+        Some(Cover::Picture { media: fx.still })
     );
     let undone = history.undo().unwrap();
     assert_eq!(undone.document.cover, Some(Cover::Frame { into: dur(2.0) }));

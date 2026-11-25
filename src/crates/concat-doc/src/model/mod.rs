@@ -71,14 +71,15 @@
 //! 4. The file a cut is of exists. *a_cut_of_no_file_is_refused*
 //! 5. The sequence an item nests exists. *a_nest_of_no_sequence_is_refused*
 //! 6. An enhanced copy exists. *an_enhanced_copy_that_is_not_there_is_refused*
-//! 7. A background still, of a sequence or of an item, exists and is not
-//!    a video or a recording. *a_background_that_is_not_a_still_is_refused*
+//! 7. A background still, of a sequence or of an item, and the cover's
+//!    picture, exist and are not a video or a recording.
+//!    *a_background_that_is_not_a_still_is_refused*
 //! 8. What an item is tied to exists. *a_link_to_nothing_is_refused*
 //! 9. The mask an effect works inside is one of the same item's.
 //!    *an_effect_on_a_mask_of_another_item_is_refused*
 //! 10. The sequence showing, and every tab, exist. *a_view_of_no_sequence_is_refused*
-//! 11. A file is not taken out of the bin while an item or a sequence
-//!     names it. *removing_a_file_in_use_is_refused*
+//! 11. A file is not taken out of the bin while an item, a sequence or
+//!     the cover names it. *removing_a_file_in_use_is_refused*
 //! 12. A sequence is not taken out while a lane is in it or an item
 //!     nests it. *removing_a_sequence_in_use_is_refused*
 //! 13. A lane is not taken out while an item is on it.

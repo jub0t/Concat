@@ -254,6 +254,9 @@ pub(crate) struct Check<'a> {
     /// Sequences whose transitions are to be checked again for what is
     /// beneath them: those whose stack of lanes changed.
     stacks: BTreeSet<SequenceId>,
+    /// Whether the cover is to be checked again although it did not
+    /// change: the file it shows changed or went.
+    cover: bool,
 }
 
 impl<'a> Check<'a> {
@@ -266,6 +269,7 @@ impl<'a> Check<'a> {
             items: BTreeSet::new(),
             lanes: BTreeSet::new(),
             stacks: BTreeSet::new(),
+            cover: false,
         }
     }
 
@@ -486,27 +490,28 @@ pub(crate) fn media(cx: &mut Check<'_>) {
     }
     // What names a file that changed or went is put in question: an item
     // may take from it what it no longer has, or name it when it is gone.
-    let touched = changes
+    // So are a sequence's background and the cover: a still re-probed
+    // as a video is no longer a still.
+    let touched: BTreeSet<MediaId> = changes
         .replaced
         .iter()
         .map(|r| r.id)
-        .chain(changes.removed.iter().map(|(id, _)| *id));
-    let after = cx.after;
-    for media in touched {
-        cx.items.extend(after.items.index().using_media(media));
+        .chain(changes.removed.iter().map(|(id, _)| *id))
+        .collect();
+    if touched.is_empty() {
+        return;
     }
-    for (id, _) in &changes.removed {
-        for (sequence, held) in after.sequences.iter() {
-            if held.background.media() == Some(*id) {
-                cx.fault(
-                    sequence,
-                    Rule::Dangling {
-                        what: "background",
-                        to: id.any(),
-                    },
-                );
-            }
+    let after = cx.after;
+    for media in &touched {
+        cx.items.extend(after.items.index().using_media(*media));
+    }
+    for (sequence, held) in after.sequences.iter() {
+        if held.background.media().is_some_and(|m| touched.contains(&m)) {
+            cx.background(sequence.any(), "background", &held.background);
         }
+    }
+    if let Some(Cover::Picture { media }) = &after.cover {
+        cx.cover |= touched.contains(media);
     }
 }
 
@@ -1290,19 +1295,28 @@ pub(crate) fn fonts(cx: &mut Check<'_>) {
 }
 
 pub(crate) fn cover(cx: &mut Check<'_>) {
-    if cx.changes.cover.is_none() {
+    if cx.changes.cover.is_none() && !cx.cover {
         return;
     }
-    if let Some(Cover::Frame { into }) = cx.after.cover {
-        let rule = if !dur_in_range(into) {
-            Rule::OutOfRange { what: "cover" }
-        } else if into < TickDur::ZERO {
-            Rule::Negative { what: "cover" }
-        } else {
-            return;
-        };
-        cx.found.push(Violation { id: None, rule });
-    }
+    let rule = match cx.after.cover {
+        Some(Cover::Frame { into }) if !dur_in_range(into) => Rule::OutOfRange { what: "cover" },
+        Some(Cover::Frame { into }) if into < TickDur::ZERO => Rule::Negative { what: "cover" },
+        Some(Cover::Picture { media }) => match cx.after.media.get(media) {
+            None => Rule::Dangling {
+                what: "cover",
+                to: media.any(),
+            },
+            Some(file) if matches!(file.kind, MediaKind::Video | MediaKind::Audio) => {
+                Rule::WrongKind {
+                    what: "cover",
+                    to: media.any(),
+                }
+            }
+            Some(_) => return,
+        },
+        _ => return,
+    };
+    cx.found.push(Violation { id: None, rule });
 }
 
 pub(crate) fn view(cx: &mut Check<'_>) {
