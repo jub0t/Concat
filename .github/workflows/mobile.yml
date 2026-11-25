@@ -84,12 +84,13 @@ on:
   workflow_dispatch:
 
 # Keyed by the calling workflow too, so a call from a release never shares
-# a group with a pull request's run. A pull request's run, or a push's, is
-# superseded by the next push; a release's, or one started by hand, runs
-# to the end.
+# a group with a pull request's run. A pull request's run is superseded by
+# the next push. A push's run is left to finish, so a busy day of pushes to
+# main still ends with a finished phone build: GitHub keeps one waiting run
+# per group and drops the older waiting ones, so at most two run in turn.
 concurrency:
   group: mobile-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

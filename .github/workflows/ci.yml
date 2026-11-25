@@ -164,6 +164,7 @@ jobs:
           set -o pipefail
           cargo clippy --workspace --exclude concat --all-targets -- -D warnings 2>&1 | tee clippy.log
       - name: Clippy (the window)
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         working-directory: src
         run: |
@@ -175,6 +176,7 @@ jobs:
       # memory; the run below finds everything already built.
       # A cold cache, one build job at a time, has run past 25 minutes.
       - name: Build the tests
+        if: ${{ !cancelled() }}
         id: build-tests
         timeout-minutes: 50
         working-directory: src
@@ -188,6 +190,7 @@ jobs:
       # report and the log are kept when it fails (the last step). The
       # corpus is left to the step after this one.
       - name: Run the tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: src
         env:
@@ -222,6 +225,7 @@ jobs:
           exit "$status"
       # nextest does not run the examples in the documentation; cargo does.
       - name: Run the documentation's examples
+        if: ${{ !cancelled() }}
         timeout-minutes: 10
         working-directory: src
         env:
@@ -230,12 +234,14 @@ jobs:
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
       - name: Clippy (gRPC)
+        if: ${{ !cancelled() }}
         timeout-minutes: 10
         working-directory: src
         run: |
           set -o pipefail
           cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings 2>&1 | tee clippy-grpc.log
       - name: Run the gRPC tests
+        if: ${{ !cancelled() }}
         timeout-minutes: 10
         working-directory: src
         run: |
