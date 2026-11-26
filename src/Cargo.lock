@@ -1348,6 +1348,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-import"
+version = "0.2.12"
+dependencies = [
+ "concat-doc",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "concat-log"
 version = "0.2.12"
 dependencies = [
