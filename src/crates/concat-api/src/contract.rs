@@ -7,7 +7,7 @@
 //! it, every release carries it, and the developer docs are built from
 //! it, so the reference cannot drift from the build it describes.
 
-use concat_host::session::EditorView;
+use crate::message::EditorView;
 use concat_host::{ProjectInfo, media::MediaSummary, templates::TemplateInfo};
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
