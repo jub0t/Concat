@@ -22,10 +22,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use concat_doc::model::Frame;
 use concat_export::ExportClip;
 use concat_host::playback::Playback;
-use concat_project::DocumentSettings;
-use concat_project::model::ColorSpace;
 
 use crate::Stats;
 
@@ -46,8 +45,7 @@ enum Msg {
     },
     Edit {
         clips: Arc<Vec<ExportClip>>,
-        settings: DocumentSettings,
-        color: ColorSpace,
+        frame: Frame,
     },
     Playing {
         on: bool,
@@ -59,8 +57,15 @@ enum Msg {
 /// The edit as the monitor draws it.
 struct Doc {
     clips: Arc<Vec<ExportClip>>,
-    settings: DocumentSettings,
-    color: ColorSpace,
+    /// The frame of the sequence showing.
+    frame: Frame,
+}
+
+impl Doc {
+    /// The frame's size in pixels.
+    fn size(&self) -> (u32, u32) {
+        (self.frame.width.get(), self.frame.height.get())
+    }
 }
 
 /// The render thread, as the engine holds it.
@@ -130,12 +135,8 @@ impl Handle {
     }
 
     /// A new edit to draw.
-    pub fn edit(&self, clips: Arc<Vec<ExportClip>>, settings: DocumentSettings, color: ColorSpace) {
-        self.send(Msg::Edit {
-            clips,
-            settings,
-            color,
-        });
+    pub fn edit(&self, clips: Arc<Vec<ExportClip>>, frame: Frame) {
+        self.send(Msg::Edit { clips, frame });
     }
 
     /// Playback started or stopped.
@@ -251,20 +252,12 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
                     let since = pending.map_or(sent, |(_, first)| first);
                     pending = Some((at, since));
                 }
-                Msg::Edit {
-                    clips,
-                    settings,
-                    color,
-                } => {
+                Msg::Edit { clips, frame } => {
                     duration = clips
                         .iter()
                         .map(|clip| clip.start + clip.duration)
                         .fold(0.0, f64::max);
-                    doc = Some(Doc {
-                        clips,
-                        settings,
-                        color,
-                    });
+                    doc = Some(Doc { clips, frame });
                     if pending.is_none() {
                         pending = Some((playback.position_now(), Instant::now()));
                     }
@@ -311,7 +304,7 @@ fn run(rx: mpsc::Receiver<Msg>, playback: Arc<Playback>, stats: Arc<Mutex<Stats>
         let (Some(drawing), Some(doc)) = (target.as_mut(), doc.as_ref()) else {
             continue;
         };
-        let fps = (doc.settings.rate_num as f64 / doc.settings.rate_den.max(1) as f64).max(1.0);
+        let fps = doc.frame.rate.display_per_second().max(1.0);
         let interval = Duration::from_secs_f64(1.0 / fps);
 
         if playing {
@@ -394,14 +387,15 @@ fn note(stats: &mut Stats, drawn: &Drawn) {
 }
 
 fn spec(doc: &Doc, at: f64, size: (u32, u32), moving: bool) -> concat_host::preview::FrameSpec {
+    let canvas = doc.frame.canvas;
     concat_host::preview::FrameSpec {
         time: at,
         width: size.0,
         height: size.1,
         moving,
         proxy: false,
-        color_space: doc.color,
-        canvas: doc.settings.canvas,
+        color_space: concat_export::ColorSpace::of(&doc.frame.color),
+        canvas: [canvas.r, canvas.g, canvas.b, canvas.a],
         nearest: false,
     }
 }
@@ -596,15 +590,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
 
         pub fn prefetch(&self, doc: &Doc, at: f64) {
             let size = match self {
-                Target::Gpu(gpu) => fit(
-                    (doc.settings.width, doc.settings.height),
-                    (gpu.config.width, gpu.config.height),
-                ),
-                Target::Cpu(cpu) => fit((doc.settings.width, doc.settings.height), cpu.size),
+                Target::Gpu(gpu) => fit(doc.size(), (gpu.config.width, gpu.config.height)),
+                Target::Cpu(cpu) => fit(doc.size(), cpu.size),
             };
             self.monitor().prefetch(
                 Arc::clone(&doc.clips),
-                &doc.settings,
+                &doc.frame,
                 spec(doc, at, size, true),
                 8,
             );
@@ -836,10 +827,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             if self.gpu.lost.load(Ordering::Relaxed) {
                 return Err("the GPU device was lost".to_owned());
             }
-            let size = fit(
-                (doc.settings.width, doc.settings.height),
-                (self.config.width, self.config.height),
-            );
+            let size = fit(doc.size(), (self.config.width, self.config.height));
             let spec = spec(doc, at, size, moving);
             let started = Instant::now();
             // A frame that cannot be read is the footage's failure, not
@@ -847,7 +835,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
             let sources =
                 self.gpu
                     .monitor
-                    .frame_sources(Arc::clone(&doc.clips), &doc.settings, spec)?;
+                    .frame_sources(Arc::clone(&doc.clips), &doc.frame, spec)?;
             let decoded = started.elapsed();
             let drawing = Instant::now();
             let drawn = self.blit(doc, &sources, spec);
@@ -921,7 +909,8 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
                 });
                 // Letterboxed: the frame's shape, centred in the surface.
                 let (sw, sh) = (self.config.width as f32, self.config.height as f32);
-                let aspect = doc.settings.width.max(1) as f32 / doc.settings.height.max(1) as f32;
+                let (width, height) = doc.size();
+                let aspect = width as f32 / height as f32;
                 let (w, h) = if sw / sh > aspect {
                     (sh * aspect, sh)
                 } else {
@@ -977,12 +966,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
 
     impl CpuTarget {
         fn draw(&mut self, doc: &Doc, at: f64, moving: bool) -> Drawn {
-            let size = fit((doc.settings.width, doc.settings.height), self.size);
+            let size = fit(doc.size(), self.size);
             let spec = spec(doc, at, size, moving);
             let started = Instant::now();
             let rgba = self
                 .monitor
-                .frame(Arc::clone(&doc.clips), &doc.settings, spec)?;
+                .frame(Arc::clone(&doc.clips), &doc.frame, spec)?;
             let decoded = started.elapsed();
             let drawing = Instant::now();
             if self.geometry != size {

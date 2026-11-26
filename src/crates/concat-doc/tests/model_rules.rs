@@ -42,6 +42,17 @@ fn an_empty_document_is_valid() {
 }
 
 #[test]
+fn a_sequence_ends_where_its_last_item_does() {
+    let mut fx = fixture();
+    assert_eq!(fx.doc.end_of(fx.seq), Tick::ZERO, "nothing placed");
+    place(&mut fx.doc, cut(fx.low, 0.0, 4.0, fx.video));
+    place(&mut fx.doc, cut(fx.high, 2.0, 5.0, fx.song));
+    place(&mut fx.doc, cut(fx.low, 4.0, 1.0, fx.video));
+    assert_eq!(fx.doc.end_of(fx.seq), at(7.0), "the upper lane's is last");
+    assert_eq!(fx.doc.showing_end(), at(7.0), "it is the one showing");
+}
+
+#[test]
 fn a_change_to_nothing_is_no_revision_and_no_step() {
     let mut fx = fixture();
     let clip = place(&mut fx.doc, cut(fx.low, 0.0, 2.0, fx.video));

@@ -853,15 +853,7 @@ pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
 pub fn timeline_seconds(project: &str) -> Option<f64> {
     let document = crate::session::read_document(Path::new(project)).ok()??;
     let sequence = document.view.showing?;
-    let end = document
-        .lanes
-        .index()
-        .of(sequence)
-        .filter_map(|(lane, _)| document.items.index().on_lane(lane).last())
-        .map(|(_, _, end)| end)
-        .max()
-        .unwrap_or(concat_doc::Tick::ZERO);
-    Some(end.display_seconds())
+    Some(document.end_of(sequence).display_seconds())
 }
 
 /// Below this mean brightness, out of 255, a frame is a black one: a

@@ -858,7 +858,7 @@ impl Api {
         self.writable(&spec.output)?;
         let session = self.session(path)?;
         let document = session.document();
-        if timeline_end(&document) <= 0.0 {
+        if document.showing_end().display_seconds() <= 0.0 {
             return Err(ApiError::new(
                 ErrorCode::Refused,
                 "There is nothing on the timeline to export",
@@ -1075,7 +1075,7 @@ impl Api {
         let (width, height) = size.unwrap_or((frame.width.get(), frame.height.get()));
         let (width, height) = checked_size(width, height)?;
         let document = session.document();
-        let length = timeline_end(&document);
+        let length = document.showing_end().display_seconds();
         let pixels = match document.cover.clone() {
             Some(dm::Cover::Picture { media }) => {
                 let file = document
@@ -2082,21 +2082,6 @@ fn view_of(session: &Session, created: Option<AnyId>) -> EditorView {
 /// A document as the JSON its file is.
 fn document_json(document: &Document<Model>) -> serde_json::Value {
     serde_json::from_str(&concat_doc::file::write(document)).unwrap_or_default()
-}
-
-/// Where the sequence showing ends, in seconds: its last item's end.
-fn timeline_end(document: &Model) -> f64 {
-    let Some(sequence) = document.view.showing else {
-        return 0.0;
-    };
-    document
-        .lanes
-        .index()
-        .of(sequence)
-        .filter_map(|(lane, _)| document.items.index().on_lane(lane).last())
-        .map(|(_, _, end)| end)
-        .max()
-        .map_or(0.0, concat_doc::Tick::display_seconds)
 }
 
 /// What a clip is, as a file's clip: video, sound or still.

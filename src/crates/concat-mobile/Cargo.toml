@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 concat-api.workspace = true
 concat-core.workspace = true
 concat-host = { workspace = true, features = ["gpu"] }
-concat-project.workspace = true
+concat-doc.workspace = true
 concat-export.workspace = true
 concat-media.workspace = true
 concat-speech.workspace = true

@@ -213,6 +213,7 @@ pub mod sequence;
 use crate::document::{ChangePart, ChangeSet, Changed, Schema};
 use crate::id::{AnyId, RawId, TypedId};
 use crate::table::{AnyTable, Table, TableChanges};
+use crate::time::Tick;
 
 pub use animated::{Animated, Ease, Key};
 pub use check::{Rule, Violation};
@@ -383,6 +384,27 @@ model! {
         view: View, check::view;
         /// The document's own fields that this build does not know.
         residual: Residual, check::residual;
+    }
+}
+
+impl Model {
+    /// Where a sequence ends: where the last item on any of its lanes
+    /// does. Zero for a sequence with nothing on it.
+    pub fn end_of(&self, sequence: SequenceId) -> Tick {
+        self.lanes
+            .index()
+            .of(sequence)
+            .filter_map(|(lane, _)| self.items.index().on_lane(lane).last())
+            .map(|(_, _, end)| end)
+            .max()
+            .unwrap_or(Tick::ZERO)
+    }
+
+    /// Where the sequence showing ends; zero when none is showing.
+    pub fn showing_end(&self) -> Tick {
+        self.view
+            .showing
+            .map_or(Tick::ZERO, |sequence| self.end_of(sequence))
     }
 }
 
