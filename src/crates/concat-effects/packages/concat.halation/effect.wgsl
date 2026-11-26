@@ -57,6 +57,14 @@ fn bright(c: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(c.rgb * passed * c.a, c.a);
 }
 
+/// Sample and threshold a source pixel without implicit derivatives.
+fn source_at(uv: vec2<f32>) -> vec4<f32> {
+    // The radius sets a dynamic blur loop. Explicit LOD avoids derivative
+    // instructions inside that loop, which FXC cannot compile on D3D12.
+    let c = sample_level(uv);
+    return bright(c);
+}
+
 /// The bright light of the 4x4 block of layer pixels under `uv`: four
 /// bilinear fetches a layer pixel from its centre, each the mean of a 2x2.
 fn light(uv: vec2<f32>) -> vec4<f32> {
@@ -65,7 +73,7 @@ fn light(uv: vec2<f32>) -> vec4<f32> {
     for (var y = 0; y < 2; y++) {
         for (var x = 0; x < 2; x++) {
             let offset = vec2<f32>(f32(2 * x - 1), f32(2 * y - 1)) * px;
-            sum += bright(sample(uv + offset));
+            sum += source_at(uv + offset);
         }
     }
     return sum * 0.25;

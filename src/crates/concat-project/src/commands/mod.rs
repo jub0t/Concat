@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     AppliedFilter, AudioTrack, Background, BeatMarks, CaptionCue, CaptionLook, Clip, ClipKind,
     ClipMotion, ColorRange, ColorSpace, Cover, Crop, CustomFont, Cutout, CutoutMode, Enhanced,
-    Framing, KeyEase, KeyProperty, Mask, MediaItem, MediaKind, MediaOrigin, Project, RunStyle,
-    ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition,
+    Framing, KeyEase, KeyProperty, Mask, MediaChapter, MediaItem, MediaKind, MediaOrigin, Project,
+    RunStyle, ShapeStyle, SpeedPoint, Stabilize, Stroke, TextStyle, Timeline, Track, Transition,
     VideoSettings, VoiceMix,
 };
 
@@ -251,6 +251,9 @@ pub struct NewMedia {
     /// Defaulted so a caller from before the list can still add media.
     #[serde(default)]
     pub audio_tracks: Vec<AudioTrack>,
+    /// Chapters read from the source container, in source-file seconds.
+    #[serde(default)]
+    pub chapters: Vec<MediaChapter>,
     /// What made the file, when the editor did; see `MediaItem::origin`.
     /// Defaulted so an import, and a caller from before origins, says
     /// nothing.

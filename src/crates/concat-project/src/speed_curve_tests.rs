@@ -39,6 +39,7 @@ fn footage(path: &str, seconds: f64) -> NewMedia {
         audio_codec: Some("aac".to_owned()),
         has_audio: true,
         audio_tracks: Vec::new(),
+        chapters: Vec::new(),
         origin: None,
         color_space: Default::default(),
     }

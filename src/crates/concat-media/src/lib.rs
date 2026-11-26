@@ -37,6 +37,6 @@ pub use hardware::{HwDevice, HwPolicy, hardware_decode, set_hardware_decode};
 pub use peaks::{Peaks, Pyramid};
 pub use pool::{CacheStats, FrameCache, FrameRequest, Nearest, ReaderPool, SparseStill};
 pub use prefetch::{Cursor, Direction, Moment, Prefetcher, Priority};
-pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
+pub use probe::{AudioStream, Chapter, MediaInfo, VideoStream, probe};
 pub use samples::{AudioDecoder, AudioOptions, STRETCH_RATE, SampleFormat, Stretching};
 pub use treat::{fit, treat, treat_to};

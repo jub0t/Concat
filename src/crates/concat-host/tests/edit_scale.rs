@@ -55,6 +55,7 @@ fn project(captions: usize) -> (Editor, Vec<String>) {
                 audio_codec: None,
                 has_audio: true,
                 audio_tracks: Vec::new(),
+                chapters: Vec::new(),
                 origin: None,
                 color_space: Default::default(),
             },
