@@ -273,6 +273,17 @@ export component App inherits Window {
     callback threads-closed();
     callback threads-url-edited(url: string);
     callback threads-extract();
+    callback threads-select-frame(index: int);
+    callback threads-frame-author-edited(author: string);
+    callback threads-frame-text-edited(text: string);
+    callback threads-move-frame-up(index: int);
+    callback threads-move-frame-down(index: int);
+    callback threads-remove-frame(index: int);
+    callback threads-add-custom-frame();
+    callback threads-add-next-comment();
+    callback threads-reset-frames();
+    callback threads-sort-changed(index: int);
+    callback threads-voice-rate-changed(index: int);
     callback threads-generate-voiceovers();
     callback threads-choose-meme();
     callback threads-remove-meme();
@@ -397,6 +408,7 @@ export component App inherits Window {
     callback export-ten-bit-changed(on: bool);
     callback export-hdr-changed(on: bool);
     callback export-bitrate-changed(mbps: float);
+    callback export-apply-tiktok-preset();
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -962,6 +974,17 @@ export component App inherits Window {
         closed => { root.threads-closed(); }
         url-edited(url) => { root.threads-url-edited(url); }
         extract => { root.threads-extract(); }
+        select-frame(index) => { root.threads-select-frame(index); }
+        frame-author-edited(author) => { root.threads-frame-author-edited(author); }
+        frame-text-edited(text) => { root.threads-frame-text-edited(text); }
+        move-frame-up(index) => { root.threads-move-frame-up(index); }
+        move-frame-down(index) => { root.threads-move-frame-down(index); }
+        remove-frame(index) => { root.threads-remove-frame(index); }
+        add-custom-frame => { root.threads-add-custom-frame(); }
+        add-next-comment => { root.threads-add-next-comment(); }
+        reset-frames => { root.threads-reset-frames(); }
+        sort-changed(index) => { root.threads-sort-changed(index); }
+        voice-rate-changed(index) => { root.threads-voice-rate-changed(index); }
         generate-voiceovers => { root.threads-generate-voiceovers(); }
         choose-meme => { root.threads-choose-meme(); }
         remove-meme => { root.threads-remove-meme(); }
@@ -993,6 +1016,7 @@ export component App inherits Window {
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
         hdr-changed(on) => { root.export-hdr-changed(on); }
         bitrate-changed(mbps) => { root.export-bitrate-changed(mbps); }
+        apply-tiktok-preset => { root.export-apply-tiktok-preset(); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }

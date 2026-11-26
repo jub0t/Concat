@@ -4,13 +4,19 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { ResizeBox } from "../primitives/resize-box.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Tip } from "../primitives/tooltip.slint";
 
 export struct ThreadsFrameData {
     label: string,
     author: string,
     text: string,
     likes: string,
+    replies: string,
+    voice-ready: bool,
+    voice-duration: string,
 }
 
 export struct ThreadsData {
@@ -24,7 +30,58 @@ export struct ThreadsData {
     error: string,
     title: string,
     source-url: string,
+    sort: int,
+    voice-rate: int,
+    selected-index: int,
+    selected-label: string,
+    selected-author: string,
+    selected-text: string,
+    selected-likes: string,
+    scene-revision: int,
+    remaining-comments: int,
     frames: [ThreadsFrameData],
+}
+
+component SceneIconButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <string> tip;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+
+    callback clicked();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+
+    width: 24px;
+    height: 24px;
+    border-radius: Theme.r-sm;
+    opacity: root.enabled ? 1.0 : 0.35;
+    background: root.danger && root.lit ? Theme.danger-wash
+        : root.lit ? Theme.field-hover
+        : Colors.transparent;
+    border-width: root.danger && root.lit ? 1px : 0px;
+    border-color: Theme.danger-edge;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: 12px;
+        tint: root.danger && root.lit ? Theme.danger
+            : root.lit ? Theme.fg
+            : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+
+    Tip {
+        text: root.tip;
+        active: root.lit && root.tip != "";
+    }
 }
 
 /// An additive entry point for the Threads quick-video workflow. It uses
@@ -34,6 +91,17 @@ export component ThreadsDialog inherits Modal {
 
     callback url-edited(url: string);
     callback extract();
+    callback select-frame(index: int);
+    callback frame-author-edited(author: string);
+    callback frame-text-edited(text: string);
+    callback move-frame-up(index: int);
+    callback move-frame-down(index: int);
+    callback remove-frame(index: int);
+    callback add-custom-frame();
+    callback add-next-comment();
+    callback reset-frames();
+    callback sort-changed(index: int);
+    callback voice-rate-changed(index: int);
     callback generate-voiceovers();
     callback choose-meme();
     callback remove-meme();
@@ -43,8 +111,27 @@ export component ThreadsDialog inherits Modal {
     title: I18n.t("threads.title");
     glyph: Glyph.film;
     dismissable: !root.data.running;
-    surface-width: 640px;
-    surface-height: 620px;
+    surface-width: 700px;
+    surface-height: 700px;
+
+    property <int> draft-revision: -1;
+    property <string> draft-author;
+    property <string> draft-text;
+    property <bool> typing-author;
+    property <bool> typing-text;
+
+    function sync-draft() {
+        if (root.data.scene-revision != root.draft-revision || !root.typing-author) {
+            root.draft-author = root.data.selected-author;
+        }
+        if (root.data.scene-revision != root.draft-revision || !root.typing-text) {
+            root.draft-text = root.data.selected-text;
+        }
+        root.draft-revision = root.data.scene-revision;
+    }
+
+    init => { root.sync-draft(); }
+    changed data => { root.sync-draft(); }
 
     VerticalLayout {
         // This form is mostly wrapping text and flexible controls. Give the
@@ -125,82 +212,280 @@ export component ThreadsDialog inherits Modal {
         if root.data.frames.length > 0: DialogSection {
             horizontal-stretch: 1;
             title: I18n.t1("threads.resultTitle", "\{root.data.frames.length}");
-            summary: root.data.title;
+            choices: [I18n.t("threads.sortLikes"), I18n.t("threads.sortReplies")];
+            choice: root.data.sort;
+            chose(index) => { root.sort-changed(index); }
 
             VerticalLayout {
                 spacing: 6px;
 
-                for frame in root.data.frames: Rectangle {
+                for frame[index] in root.data.frames: Rectangle {
+                    property <bool> is-selected: index == root.data.selected-index;
                     border-radius: Theme.r;
-                    background: Theme.field;
+                    background: is-selected ? Theme.accent-soft : Theme.field;
                     border-width: 1px;
-                    border-color: Theme.line;
-                    height: 82px;
+                    border-color: is-selected ? Theme.accent : Theme.line;
+                    height: 68px;
+
+                    // Declared first so action buttons inside the card take their own clicks.
+                    TouchArea {
+                        enabled: !root.data.running;
+                        mouse-cursor: !root.data.running ? MouseCursor.pointer : MouseCursor.default;
+                        clicked => { root.select-frame(index); }
+                    }
 
                     VerticalLayout {
                         padding-left: 12px;
-                        padding-right: 12px;
-                        padding-top: 8px;
-                        padding-bottom: 7px;
+                        padding-right: 8px;
+                        padding-top: 6px;
+                        padding-bottom: 6px;
                         spacing: 3px;
 
                         HorizontalLayout {
-                            spacing: 8px;
+                            spacing: 6px;
+
                             Text {
-                                text: frame.label;
-                                color: Theme.fg;
+                                text: "\{index + 1}. " + frame.label;
+                                color: is-selected ? Theme.accent : Theme.fg;
                                 font-size: Theme.fs;
                                 font-weight: Theme.weight-title;
+                                vertical-alignment: center;
                             }
                             Text {
                                 text: frame.author;
                                 color: Theme.fg-muted;
                                 font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                                overflow: elide;
                             }
-                            Rectangle { horizontal-stretch: 1; }
                             if frame.likes != "": Text {
-                                text: I18n.t1("threads.likes", frame.likes);
+                                text: "· " + I18n.t1("threads.likes", frame.likes);
                                 color: Theme.fg-dim;
                                 font-size: Theme.fs-xs;
+                                vertical-alignment: center;
+                            }
+                            if frame.voice-ready: HorizontalLayout {
+                                spacing: 3px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon { glyph: Glyph.check; size: 12px; tint: Theme.green; }
+                                }
+                                if frame.voice-duration != "": Text {
+                                    text: frame.voice-duration;
+                                    color: Theme.green;
+                                    font-family: Theme.font-technical;
+                                    font-size: Theme.fs-xs;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            SceneIconButton {
+                                glyph: Glyph.chevron-up;
+                                tip: I18n.t("threads.moveUp");
+                                enabled: !root.data.running && index > 0;
+                                clicked => { root.move-frame-up(index); }
+                            }
+                            SceneIconButton {
+                                glyph: Glyph.chevron-down;
+                                tip: I18n.t("threads.moveDown");
+                                enabled: !root.data.running && index + 1 < root.data.frames.length;
+                                clicked => { root.move-frame-down(index); }
+                            }
+                            SceneIconButton {
+                                glyph: Glyph.trash;
+                                tip: I18n.t("threads.removeScene");
+                                danger: true;
+                                enabled: !root.data.running && root.data.frames.length > 1;
+                                clicked => { root.remove-frame(index); }
                             }
                         }
 
                         Text {
-                            text: frame.text;
-                            color: Theme.fg-muted;
+                            text: frame.text == "" ? I18n.t("threads.sceneTextPlaceholder") : frame.text;
+                            color: frame.text == "" ? Theme.fg-dim : Theme.fg-muted;
                             font-size: Theme.fs-sm;
-                            wrap: word-wrap;
-                            max-height: 42px;
+                            overflow: elide;
                         }
                     }
                 }
 
                 HorizontalLayout {
-                    spacing: 8px;
-                    Icon { glyph: Glyph.sticker; size: 15px; tint: Theme.fg-dim; }
-                    Text {
-                        text: root.data.meme-file == ""
-                            ? I18n.t("threads.memeOptional")
-                            : root.data.meme-file;
-                        color: Theme.fg-muted;
-                        font-size: Theme.fs-sm;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                        vertical-alignment: center;
+                    spacing: 6px;
+                    padding-top: 2px;
+
+                    Button {
+                        glyph: Glyph.plus;
+                        label: I18n.t1("threads.addComment", "\{root.data.remaining-comments}");
+                        enabled: !root.data.running && root.data.remaining-comments > 0;
+                        clicked => { root.add-next-comment(); }
                     }
                     Button {
-                        glyph: Glyph.image;
-                        label: root.data.meme-file == ""
-                            ? I18n.t("threads.chooseMeme")
-                            : I18n.t("threads.changeMeme");
+                        glyph: Glyph.plus;
+                        label: I18n.t("threads.addCustom");
                         enabled: !root.data.running;
-                        clicked => { root.choose-meme(); }
+                        clicked => { root.add-custom-frame(); }
                     }
-                    if root.data.meme-file != "": Button {
-                        label: I18n.t("threads.removeMeme");
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        glyph: Glyph.reset;
+                        ghost: true;
+                        label: I18n.t("threads.resetScenes");
                         enabled: !root.data.running;
-                        clicked => { root.remove-meme(); }
+                        clicked => { root.reset-frames(); }
                     }
+                }
+
+                Rectangle {
+                    border-radius: Theme.r;
+                    background: Theme.raised;
+                    border-width: 1px;
+                    border-color: Theme.line;
+
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: I18n.t1("threads.editScene", root.data.selected-label);
+                                color: Theme.fg;
+                                font-size: Theme.fs;
+                                font-weight: Theme.weight-title;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text {
+                                text: I18n.t1("threads.chars", "\{root.draft-text.character-count}");
+                                color: Theme.fg-dim;
+                                font-family: Theme.font-technical;
+                                font-size: Theme.fs-xs;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        DialogRow {
+                            label: I18n.t("threads.author");
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+                                border-radius: Theme.r;
+                                background: Theme.field;
+                                border-width: 1px;
+                                border-color: author-input.has-focus ? Theme.accent : Theme.line;
+                                clip: true;
+
+                                TouchArea {
+                                    enabled: !root.data.running;
+                                    mouse-cursor: !root.data.running ? MouseCursor.text : MouseCursor.default;
+                                    clicked => { author-input.focus(); }
+                                }
+
+                                author-input := TextInput {
+                                    x: 10px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: parent.width - 20px;
+                                    height: self.preferred-height;
+                                    text <=> root.draft-author;
+                                    color: Theme.fg;
+                                    font-size: Theme.fs;
+                                    single-line: true;
+                                    enabled: !root.data.running;
+                                    selection-background-color: Theme.accent;
+                                    selection-foreground-color: Theme.on-accent;
+                                    changed has-focus => { root.typing-author = self.has-focus; }
+                                    edited => { root.frame-author-edited(self.text); }
+                                }
+                            }
+                        }
+
+                        text-box := ResizeBox {
+                            box-height: 76px;
+                            min-box: 56px;
+                            max-box: 160px;
+                            ground: Theme.field;
+                            pad-x: 10px;
+                            pad-y: 7px;
+                            content-height: scene-text.preferred-height;
+                            focused: scene-text.has-focus;
+
+                            scene-text := TextInput {
+                                x: 0;
+                                y: text-box.pad-y;
+                                width: parent.width;
+                                height: Math.max(self.preferred-height, text-box.view-height);
+                                cursor-position-changed(at) => { text-box.reveal(at.y, self.font-size * 1.4); }
+                                text <=> root.draft-text;
+                                color: Theme.fg;
+                                font-size: Theme.fs;
+                                single-line: false;
+                                wrap: word-wrap;
+                                enabled: !root.data.running;
+                                selection-background-color: Theme.accent;
+                                selection-foreground-color: Theme.on-accent;
+                                changed has-focus => { root.typing-text = self.has-focus; }
+                                edited => { root.frame-text-edited(self.text); }
+                            }
+
+                            if root.draft-text == "" && !scene-text.has-focus: Text {
+                                x: 0;
+                                y: text-box.pad-y;
+                                width: parent.width;
+                                text: I18n.t("threads.sceneTextPlaceholder");
+                                color: Theme.fg-dim;
+                                font-size: Theme.fs;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.data.frames.length > 0: DialogSection {
+            horizontal-stretch: 1;
+            title: I18n.t("threads.voiceAndMeme");
+
+            DialogRow {
+                label: I18n.t("threads.voiceSpeed");
+                SegmentedControl {
+                    options: ["1.0×", "1.15×", "1.25×", "1.35×"];
+                    current: root.data.voice-rate;
+                    enabled: !root.data.running;
+                    changed(index) => { root.voice-rate-changed(index); }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    Icon { glyph: Glyph.sticker; size: 15px; tint: Theme.fg-dim; }
+                }
+                Text {
+                    text: root.data.meme-file == ""
+                        ? I18n.t("threads.memeOptional")
+                        : root.data.meme-file;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+                Button {
+                    glyph: Glyph.image;
+                    label: root.data.meme-file == ""
+                        ? I18n.t("threads.chooseMeme")
+                        : I18n.t("threads.changeMeme");
+                    enabled: !root.data.running;
+                    clicked => { root.choose-meme(); }
+                }
+                if root.data.meme-file != "": Button {
+                    label: I18n.t("threads.removeMeme");
+                    enabled: !root.data.running;
+                    clicked => { root.remove-meme(); }
                 }
             }
         }
@@ -215,8 +500,12 @@ export component ThreadsDialog inherits Modal {
 
             VerticalLayout {
                 alignment: center;
+                padding: 24px;
                 spacing: 8px;
-                Icon { glyph: Glyph.link; size: 22px; tint: Theme.fg-dim; }
+                HorizontalLayout {
+                    alignment: center;
+                    Icon { glyph: Glyph.link; size: 22px; tint: Theme.fg-dim; }
+                }
                 Text {
                     text: I18n.t("threads.empty");
                     color: Theme.fg-muted;
@@ -227,11 +516,12 @@ export component ThreadsDialog inherits Modal {
             }
         }
 
-        Rectangle { vertical-stretch: 1; }
+        if root.data.frames.length > 0 || root.data.running || root.data.error != "": Rectangle { vertical-stretch: 1; }
 
         HorizontalLayout {
             horizontal-stretch: 1;
             alignment: end;
+            spacing: 8px;
             if root.data.frames.length > 0 && !root.data.voiceovers-ready: Button {
                 primary: true;
                 large: true;

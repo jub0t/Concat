@@ -525,6 +525,10 @@ impl StartPane {
                 studio.notify(&t("threads.memeImportPartial"), true);
             }
         }
+        let video = studio.project().active().video;
+        studio
+            .export
+            .apply_tiktok_preset_for_rate((video.rate_num, video.rate_den.max(1)));
     }
 
     /// Applies one message. The studio is the rest of the window; while

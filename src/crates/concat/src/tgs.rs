@@ -6,16 +6,41 @@
 //! Extraction stays in the existing TGS service for this first migration
 //! step. Concat owns what follows it: the native project, speech and render.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::time::Duration;
 
+/// Playback-speed presets accepted by the Hoài My Edge TTS endpoint.
+pub const VOICE_RATES: &[(&str, &str)] = &[
+    ("1.0×", "+0%"),
+    ("1.15×", "+15%"),
+    ("1.25×", "+25%"),
+    ("1.35×", "+35%"),
+];
+
+/// Returns `(label, edge_tts_rate)` for `index`, clamped to [`VOICE_RATES`].
+pub fn voice_rate_at(index: usize) -> (&'static str, &'static str) {
+    VOICE_RATES
+        .get(index)
+        .copied()
+        .unwrap_or(VOICE_RATES[1])
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommentSort {
+    #[default]
+    Likes,
+    Replies,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
+    pub id: String,
     pub label: String,
     pub author: String,
     pub text: String,
     pub likes: String,
+    pub replies: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +48,9 @@ pub struct Extraction {
     pub title: String,
     pub source_url: String,
     pub project_id: String,
+    pub post_frame: Frame,
+    pub pool_by_likes: Vec<Frame>,
+    pub pool_by_replies: Vec<Frame>,
     pub frames: Vec<Frame>,
 }
 
@@ -33,17 +61,171 @@ pub struct VoiceoverAudio {
     pub duration_seconds: f64,
 }
 
-/// Extract a post and its four highest-ranked top-level comments from the
-/// local TGS service. `progress` receives only meaningful stage changes so
-/// the window is not republished for every poll tick.
+/// Validates and normalizes a public Threads post, share, or short URL,
+/// stripping tracking query strings and fragments before sending to TGS.
+pub fn normalize_threads_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Enter a valid Threads post link.".to_owned());
+    }
+
+    let without_scheme = if let Some(rest) = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .or_else(|| trimmed.strip_prefix("HTTPS://"))
+        .or_else(|| trimmed.strip_prefix("HTTP://"))
+    {
+        rest
+    } else if trimmed.contains("://") {
+        return Err("Only Threads post links (threads.com or threads.net) are supported.".to_owned());
+    } else {
+        trimmed
+    };
+
+    let (host_raw, path_and_query) = without_scheme
+        .split_once('/')
+        .ok_or_else(|| "Enter a Threads post link, e.g. https://www.threads.com/@name/post/...".to_owned())?;
+    let host = host_raw.to_ascii_lowercase();
+    let canonical_host = match host.as_str() {
+        "threads.net" | "www.threads.net" | "m.threads.net" => "www.threads.net",
+        "threads.com" | "www.threads.com" | "m.threads.com" => "www.threads.com",
+        _ => {
+            return Err("Only Threads post links (threads.com or threads.net) are supported.".to_owned());
+        }
+    };
+
+    let path = path_and_query
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_matches('/');
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    let is_code = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    let is_username = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+    };
+
+    match segments.as_slice() {
+        [user, "post", code] if user.starts_with('@') && is_username(&user[1..]) && is_code(code) => {
+            Ok(format!("https://{canonical_host}/{user}/post/{code}"))
+        }
+        ["t", code] if is_code(code) => Ok(format!("https://{canonical_host}/t/{code}")),
+        ["share", code] if is_code(code) => Ok(format!("https://{canonical_host}/share/{code}")),
+        _ => Err("Link must point to a Threads post (/@name/post/..., /t/..., or /share/...).".to_owned()),
+    }
+}
+
+/// Selects the initial post frame and up to four top comments from `pool`,
+/// prioritizing substantive text over pure URL-only comments while falling back
+/// cleanly when fewer comments are available.
+pub fn default_frames(post: &Frame, pool: &[Frame]) -> Vec<Frame> {
+    let mut frames = Vec::with_capacity(5);
+    frames.push(post.clone());
+
+    let mut chosen: Vec<&Frame> = Vec::with_capacity(4);
+    for comment in pool {
+        if !is_link_only_comment(&comment.text) {
+            chosen.push(comment);
+            if chosen.len() == 4 {
+                break;
+            }
+        }
+    }
+    if chosen.len() < 4 {
+        for comment in pool {
+            if chosen.iter().any(|item| item.id == comment.id) {
+                continue;
+            }
+            chosen.push(comment);
+            if chosen.len() == 4 {
+                break;
+            }
+        }
+    }
+
+    for (index, comment) in chosen.into_iter().enumerate() {
+        let mut frame = comment.clone();
+        frame.label = format!("Comment {}", index + 1);
+        frames.push(frame);
+    }
+    frames
+}
+
+/// Returns the comment pool for `sort`.
+pub fn pool_for(extraction: &Extraction, sort: CommentSort) -> &[Frame] {
+    match sort {
+        CommentSort::Likes => &extraction.pool_by_likes,
+        CommentSort::Replies => &extraction.pool_by_replies,
+    }
+}
+
+/// Finds the next comment in `sort`'s pool that is not already in `extraction.frames`.
+pub fn next_pool_comment(extraction: &Extraction, sort: CommentSort) -> Option<Frame> {
+    let used: HashSet<&str> = extraction
+        .frames
+        .iter()
+        .map(|frame| frame.id.as_str())
+        .collect();
+    pool_for(extraction, sort)
+        .iter()
+        .find(|candidate| !used.contains(candidate.id.as_str()))
+        .cloned()
+        .map(|mut frame| {
+            let next_num = extraction
+                .frames
+                .iter()
+                .filter(|item| item.label.starts_with("Comment "))
+                .count()
+                + 1;
+            frame.label = format!("Comment {next_num}");
+            frame
+        })
+}
+
+/// Number of unused comments left in `sort`'s pool.
+pub fn remaining_pool_count(extraction: &Extraction, sort: CommentSort) -> usize {
+    let used: HashSet<&str> = extraction
+        .frames
+        .iter()
+        .map(|frame| frame.id.as_str())
+        .collect();
+    pool_for(extraction, sort)
+        .iter()
+        .filter(|candidate| !used.contains(candidate.id.as_str()))
+        .count()
+}
+
+fn is_link_only_comment(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    !words.is_empty()
+        && words
+            .iter()
+            .all(|word| word.starts_with("http://") || word.starts_with("https://"))
+}
+
+/// Extract a post and its top-level comments from the local TGS service.
+/// `progress` receives only meaningful stage changes so the window is not
+/// republished for every poll tick.
 pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Extraction, String> {
+    let normalized_url = normalize_threads_url(source_url)?;
     let base = std::env::var("TGS_API_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8000".to_owned())
         .trim_end_matches('/')
         .to_owned();
 
     let payload = serde_json::json!({
-        "source_url": source_url,
+        "source_url": normalized_url,
         "settings": {
             "max_comments": 30,
             "comment_sort_order": "top",
@@ -127,33 +309,72 @@ pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Ext
         .cloned()
         .unwrap_or_default();
     let curated = exported.get("curated_content");
-    let ranking = exported
-        .get("ranking_data")
-        .and_then(|data| data.get("by_likes"))
-        .and_then(|section| section.get("items"))
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let ranking_data = exported.get("ranking_data");
 
-    let mut frames = Vec::with_capacity(5);
     let post_text = curated
         .and_then(|value| value.get("edited_post_text"))
         .and_then(serde_json::Value::as_str)
         .filter(|text| !text.trim().is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| string(post, "text"));
-    frames.push(Frame {
+    let post_frame = Frame {
+        id: string(post, "id"),
         label: "Post".to_owned(),
         author: author(post),
         text: post_text,
         likes: engagement(post, "likes"),
-    });
+        replies: engagement(post, "replies"),
+    };
 
     let comment_by_id: HashMap<String, serde_json::Value> = comments
         .into_iter()
         .filter(|comment| string(comment, "type") == "comment")
         .map(|comment| (string(&comment, "id"), comment))
         .collect();
+    let edited = curated
+        .and_then(|value| value.get("edited_texts"))
+        .and_then(serde_json::Value::as_object);
+
+    let pool_by_likes = build_comment_pool(&comment_by_id, ranking_data, "by_likes", "likes", edited);
+    let pool_by_replies = build_comment_pool(&comment_by_id, ranking_data, "by_replies", "replies", edited);
+    let frames = default_frames(&post_frame, &pool_by_likes);
+
+    let title = exported
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("Threads quick video")
+        .to_owned();
+    let source_url = exported
+        .get("source_url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&normalized_url)
+        .to_owned();
+    Ok(Extraction {
+        title,
+        source_url,
+        project_id: project_id.to_owned(),
+        post_frame,
+        pool_by_likes,
+        pool_by_replies,
+        frames,
+    })
+}
+
+fn build_comment_pool(
+    comment_by_id: &HashMap<String, serde_json::Value>,
+    ranking_data: Option<&serde_json::Value>,
+    ranking_section: &str,
+    metric_key: &str,
+    edited: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Vec<Frame> {
+    let ranking = ranking_data
+        .and_then(|data| data.get(ranking_section))
+        .and_then(|section| section.get("items"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
     let mut ranked_ids: Vec<(i64, String)> = ranking
         .iter()
         .filter_map(|item| {
@@ -165,89 +386,78 @@ pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Ext
         .collect();
     ranked_ids.sort_by_key(|entry| entry.0);
 
-    let mut selected: Vec<serde_json::Value> = ranked_ids
+    let mut ordered: Vec<serde_json::Value> = ranked_ids
         .into_iter()
         .filter_map(|(_, id)| comment_by_id.get(&id).cloned())
-        .take(4)
         .collect();
-    if selected.len() < 4 {
-        let mut fallback: Vec<serde_json::Value> = comment_by_id.values().cloned().collect();
-        fallback.sort_by_key(|comment| {
-            std::cmp::Reverse(
-                comment
-                    .get("engagement")
-                    .and_then(|item| item.get("likes"))
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or_default(),
-            )
-        });
-        for comment in fallback {
-            if selected
-                .iter()
-                .any(|item| string(item, "id") == string(&comment, "id"))
-            {
-                continue;
-            }
-            selected.push(comment);
-            if selected.len() == 4 {
-                break;
-            }
-        }
-    }
 
-    let edited = curated
-        .and_then(|value| value.get("edited_texts"))
-        .and_then(serde_json::Value::as_object);
-    for (index, comment) in selected.into_iter().enumerate() {
-        let id = string(&comment, "id");
-        let text = edited
-            .and_then(|values| values.get(&id))
-            .and_then(serde_json::Value::as_str)
-            .filter(|text| !text.trim().is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| string(&comment, "text"));
-        frames.push(Frame {
-            label: format!("Comment {}", index + 1),
-            author: author(&comment),
-            text,
-            likes: engagement(&comment, "likes"),
-        });
-    }
+    let mut remaining: Vec<serde_json::Value> = comment_by_id
+        .values()
+        .filter(|comment| {
+            let id = string(comment, "id");
+            !ordered.iter().any(|existing| string(existing, "id") == id)
+        })
+        .cloned()
+        .collect();
+    remaining.sort_by_key(|comment| {
+        std::cmp::Reverse(
+            comment
+                .get("engagement")
+                .and_then(|item| item.get(metric_key))
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(-1),
+        )
+    });
+    ordered.extend(remaining);
 
-    let title = exported
-        .get("title")
-        .and_then(serde_json::Value::as_str)
-        .filter(|title| !title.trim().is_empty())
-        .unwrap_or("Threads quick video")
-        .to_owned();
-    let source_url = exported
-        .get("source_url")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(source_url)
-        .to_owned();
-    Ok(Extraction {
-        title,
-        source_url,
-        project_id: project_id.to_owned(),
-        frames,
-    })
+    ordered
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, comment)| {
+            let id = string(&comment, "id");
+            let text = edited
+                .and_then(|values| values.get(&id))
+                .and_then(serde_json::Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| string(&comment, "text"));
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some(Frame {
+                id,
+                label: format!("Comment {}", index + 1),
+                author: author(&comment),
+                text,
+                likes: engagement(&comment, "likes"),
+                replies: engagement(&comment, "replies"),
+            })
+        })
+        .collect()
 }
 
-/// Generates one Hoài My voiceover per extracted frame through TGS's existing
-/// voiceover endpoint and returns the audio bytes for import into Concat.
+/// Generates one Hoài My voiceover per requested `(frame_index, Frame)` through
+/// TGS's voiceover endpoint at `rate` (e.g. `"+15%"`), returning `(frame_index, audio)`.
 pub fn generate_voiceovers(
-    extraction: &Extraction,
+    project_id: &str,
+    frames: &[(usize, Frame)],
+    rate: &str,
     mut progress: impl FnMut(String),
-) -> Result<Vec<VoiceoverAudio>, String> {
+) -> Result<Vec<(usize, VoiceoverAudio)>, String> {
     let base = std::env::var("TGS_API_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8000".to_owned())
         .trim_end_matches('/')
         .to_owned();
-    let total = extraction.frames.len();
+    let rate = if VOICE_RATES.iter().any(|&(_, value)| value == rate) {
+        rate
+    } else {
+        "+0%"
+    };
+    let total = frames.len();
     let mut audio = Vec::with_capacity(total);
 
-    for (index, frame) in extraction.frames.iter().enumerate() {
-        progress(format!("Creating Hoài My voice {}/{}", index + 1, total));
+    for (step, (index, frame)) in frames.iter().enumerate() {
+        progress(format!("Creating Hoài My voice {}/{}", step + 1, total));
         let text = if frame.text.trim().is_empty() {
             format!("{} — {}", frame.label, frame.author)
         } else {
@@ -257,11 +467,11 @@ pub fn generate_voiceovers(
             "frame_id": format!("concat-frame-{}", index + 1),
             "text": text,
             "voice": "vi-VN-HoaiMyNeural",
-            "rate": "+0%"
+            "rate": rate
         });
         let generated = request_json(
             "POST",
-            &format!("{base}/api/v1/projects/{}/voiceover", extraction.project_id),
+            &format!("{base}/api/v1/projects/{project_id}/voiceover"),
             Some(&payload),
         )?;
         let track = generated
@@ -284,13 +494,16 @@ pub fn generate_voiceovers(
                 frame.label
             ));
         }
-        audio.push(VoiceoverAudio {
-            bytes,
-            duration_seconds: track
-                .get("duration_seconds")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or_default(),
-        });
+        audio.push((
+            *index,
+            VoiceoverAudio {
+                bytes,
+                duration_seconds: track
+                    .get("duration_seconds")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or_default(),
+            },
+        ));
     }
 
     Ok(audio)
@@ -382,4 +595,106 @@ fn engagement(value: &serde_json::Value, key: &str) -> String {
         .and_then(serde_json::Value::as_i64)
         .map(|count| count.to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_valid_threads_urls_and_strips_tracking() {
+        assert_eq!(
+            normalize_threads_url("https://www.threads.com/@alice/post/C123_abc?xmt=AQF99#top")
+                .unwrap(),
+            "https://www.threads.com/@alice/post/C123_abc"
+        );
+        assert_eq!(
+            normalize_threads_url("m.threads.net/@bob.vn/post/XYZ-1/").unwrap(),
+            "https://www.threads.net/@bob.vn/post/XYZ-1"
+        );
+        assert_eq!(
+            normalize_threads_url("http://threads.com/share/AbC123?foo=1").unwrap(),
+            "https://www.threads.com/share/AbC123"
+        );
+        assert_eq!(
+            normalize_threads_url("https://threads.net/t/Short99").unwrap(),
+            "https://www.threads.net/t/Short99"
+        );
+    }
+
+    #[test]
+    fn rejects_non_post_or_non_threads_urls() {
+        assert!(normalize_threads_url("").is_err());
+        assert!(normalize_threads_url("https://www.threads.com/@alice").is_err());
+        assert!(normalize_threads_url("https://example.com/@alice/post/123").is_err());
+        assert!(normalize_threads_url("ftp://www.threads.com/@alice/post/123").is_err());
+    }
+
+    #[test]
+    fn default_frames_prefers_non_link_comments_and_falls_back() {
+        let post = Frame {
+            id: "p1".into(),
+            label: "Post".into(),
+            author: "Author".into(),
+            text: "Main post".into(),
+            likes: "100".into(),
+            replies: "10".into(),
+        };
+        let pool = vec![
+            Frame {
+                id: "c1".into(),
+                label: "Comment 1".into(),
+                author: "Spam".into(),
+                text: "https://spam.example.com".into(),
+                likes: "99".into(),
+                replies: "0".into(),
+            },
+            Frame {
+                id: "c2".into(),
+                label: "Comment 2".into(),
+                author: "Real 1".into(),
+                text: "Quá hay!".into(),
+                likes: "50".into(),
+                replies: "5".into(),
+            },
+            Frame {
+                id: "c3".into(),
+                label: "Comment 3".into(),
+                author: "Real 2".into(),
+                text: "Chuẩn luôn".into(),
+                likes: "40".into(),
+                replies: "3".into(),
+            },
+            Frame {
+                id: "c4".into(),
+                label: "Comment 4".into(),
+                author: "Real 3".into(),
+                text: "Hóng tiếp".into(),
+                likes: "30".into(),
+                replies: "2".into(),
+            },
+            Frame {
+                id: "c5".into(),
+                label: "Comment 5".into(),
+                author: "Real 4".into(),
+                text: "Tuyệt vời".into(),
+                likes: "20".into(),
+                replies: "1".into(),
+            },
+        ];
+
+        let frames = default_frames(&post, &pool);
+        assert_eq!(frames.len(), 5);
+        assert_eq!(frames[0].id, "p1");
+        assert!(!frames.iter().any(|frame| frame.id == "c1"));
+        assert_eq!(frames[4].id, "c5");
+        assert_eq!(frames[4].label, "Comment 4");
+
+        // Fallback still includes link-only comment when fewer than 4 real comments exist.
+        let small_pool = vec![pool[0].clone(), pool[1].clone()];
+        let fallback = default_frames(&post, &small_pool);
+        assert_eq!(fallback.len(), 3);
+        assert_eq!(fallback[1].id, "c2");
+        assert_eq!(fallback[2].id, "c1");
+    }
 }
