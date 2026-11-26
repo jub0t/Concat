@@ -1224,10 +1224,10 @@ version = "0.2.12"
 dependencies = [
  "base64 0.22.1",
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-host",
- "concat-project",
  "concat-speech",
  "png 0.17.16",
  "schemars",
