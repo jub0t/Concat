@@ -3626,6 +3626,27 @@ mod tests {
     }
 
     #[test]
+    fn clip_disable_state_round_trips_and_undoes_as_a_batch() {
+        let (mut editor, _, clip_id) = fixture();
+        let toggle = Command::Batch {
+            commands: vec![Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    disabled: Some(true),
+                    ..Default::default()
+                },
+            }],
+        };
+        assert!(!editor.project().active().clips[0].disabled);
+        editor.apply(toggle).expect("disable clip");
+        assert!(editor.project().active().clips[0].disabled);
+        let restored = Editor::from_document(&editor.to_document(&settings())).expect("loads");
+        assert!(restored.project().active().clips[0].disabled);
+        assert!(editor.undo());
+        assert!(!editor.project().active().clips[0].disabled);
+    }
+
+    #[test]
     fn the_document_round_trips() {
         let (mut editor, _, clip_id) = fixture();
         editor

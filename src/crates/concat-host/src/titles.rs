@@ -424,7 +424,7 @@ impl Titles {
                 clip_id: clip.id.clone(),
                 clip: ExportClip {
                     path: path.to_string_lossy().into_owned(),
-                    hidden: !track.visible,
+                    hidden: clip.disabled || !track.visible,
                     muted: true,
                     volume: 0.0,
                     // A title's width and height keys go the way its

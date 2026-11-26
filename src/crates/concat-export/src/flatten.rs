@@ -64,7 +64,7 @@ pub fn flatten_timeline_in(
             // its opacity the strength and its fades the ramps.
             if clip.kind == ModelClipKind::Layer {
                 return Some(ExportClip {
-                    hidden: !track.visible,
+                    hidden: clip.disabled || !track.visible,
                     muted: true,
                     volume: 0.0,
                     fade_in: clip.fade_in,
@@ -83,7 +83,7 @@ pub fn flatten_timeline_in(
             if clip.kind == ModelClipKind::Transition {
                 let package = clip.video_effects.first()?;
                 return Some(ExportClip {
-                    hidden: !track.visible || !package.enabled,
+                    hidden: clip.disabled || !track.visible || !package.enabled,
                     muted: true,
                     volume: 0.0,
                     has_audio: Some(false),
@@ -102,7 +102,7 @@ pub fn flatten_timeline_in(
             if clip.kind == ModelClipKind::SoundLayer {
                 return Some(ExportClip {
                     hidden: true,
-                    muted: track.muted || clip.muted == Some(true),
+                    muted: clip.disabled || track.muted || clip.muted == Some(true),
                     volume: 0.0,
                     fade_in: clip.fade_in,
                     fade_out: clip.fade_out,
@@ -132,8 +132,8 @@ pub fn flatten_timeline_in(
                 audio_stream: clip.audio_stream,
                 color_range: media.color_range,
                 source_start: clip.source_start,
-                hidden: !track.visible,
-                muted: track.muted || clip.muted == Some(true),
+                hidden: clip.disabled || !track.visible,
+                muted: clip.disabled || track.muted || clip.muted == Some(true),
                 volume: export_base(clip, KeyProperty::Volume),
                 fade_in: clip.fade_in,
                 fade_out: clip.fade_out,
@@ -384,6 +384,29 @@ mod tests {
         assert_eq!(clip.has_audio, Some(true));
         assert_eq!(clip.filter_chain, "");
         assert!(clip.effects.is_empty());
+    }
+
+    #[test]
+    fn disabling_a_clip_preserves_its_span_and_settings() {
+        let (mut editor, _, clip_id) = project_with_clip();
+        let patch = |disabled| Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                disabled: Some(disabled),
+                volume: Some(0.65),
+                opacity: Some(0.8),
+                ..Default::default()
+            },
+        };
+        editor.apply(patch(true)).unwrap();
+        let flat = flatten_timeline(editor.project(), None);
+        let clip = &flat[0];
+        assert!(clip.hidden && clip.muted);
+        assert_eq!((clip.start, clip.duration), (1.0, 10.0));
+        assert_eq!((clip.volume, clip.opacity), (0.65, 0.8));
+        editor.apply(patch(false)).unwrap();
+        let flat = flatten_timeline(editor.project(), None);
+        assert!(!flat[0].hidden && !flat[0].muted);
     }
 
     #[test]

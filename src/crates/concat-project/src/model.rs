@@ -2925,6 +2925,9 @@ pub struct Clip {
     /// True when a video clip's embedded audio is detached out of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub muted: Option<bool>,
+    /// Whether this clip takes no part in the picture or mix.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
     /// On a detached audio clip: the video clip the sound came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_from: Option<String>,
@@ -3050,6 +3053,7 @@ impl Clip {
             video_effects: Vec::new(),
             audio_stream: None,
             muted: None,
+            disabled: false,
             detached_from: None,
             transition_in: None,
             enhanced: None,

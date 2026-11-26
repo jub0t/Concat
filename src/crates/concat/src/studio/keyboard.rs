@@ -50,6 +50,29 @@ impl Studio {
             "ripple-delete" => self.ripple_delete_selected(),
             // Copy takes the whole selection; see `copy_clips`.
             "copy" => self.copy_clips(None),
+            "toggle-clip-enabled" => {
+                let clips: Vec<_> = self
+                    .selection
+                    .iter()
+                    .filter_map(|id| self.clip(id))
+                    .filter(|clip| !self.locked(&clip.track_id))
+                    .collect();
+                let disabled = clips.iter().any(|clip| !clip.disabled);
+                let commands: Vec<_> = clips
+                    .into_iter()
+                    .filter(|clip| clip.disabled != disabled)
+                    .map(|clip| Command::UpdateClip {
+                        clip_id: clip.id.clone(),
+                        patch: ClipPatch {
+                            disabled: Some(disabled),
+                            ..Default::default()
+                        },
+                    })
+                    .collect();
+                if !commands.is_empty() {
+                    self.apply(Command::Batch { commands });
+                }
+            }
             "duplicate" | "mute" => {
                 if let Some(id) = self.sole_selection() {
                     self.clip_action(&id, action);

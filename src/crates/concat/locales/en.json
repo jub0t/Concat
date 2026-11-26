@@ -684,6 +684,7 @@
   "shortcuts.splitTool": "Split tool",
   "shortcuts.stepBack": "Step back a frame",
   "shortcuts.stepForward": "Step forward a frame",
+  "shortcuts.toggleClipEnabled": "Disable / enable selected clips",
   "shortcuts.unboundNow": "{0} is unbound now",
   "sounds.addedMany": "Added {0} sounds to your library",
   "sounds.addedOne": "Added a sound to your library",

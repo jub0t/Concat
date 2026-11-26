@@ -573,6 +573,13 @@ component Clip inherits Rectangle {
         }
     }
 
+    if root.item.disabled: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: Theme.r-sm;
+        background: #10101099;
+    }
+
     // ── outline ──────────────────────────────────────────────────────────
     //
     // Over the children, because they are over it: the header and the

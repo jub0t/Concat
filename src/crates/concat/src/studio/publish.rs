@@ -310,6 +310,7 @@ impl Studio {
                         start: clip.start as f32,
                         duration: clip.duration as f32,
                         selected: self.selection.iter().any(|id| id == &clip.id),
+                        disabled: clip.disabled,
                         transition_selected: self
                             .selected_transition()
                             .is_some_and(|picked| picked.id == clip.id),
@@ -347,8 +348,9 @@ impl Studio {
             .clips
             .iter()
             .filter(|clip| {
-                (clip.kind.is_visual()
-                    || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
+                !clip.disabled
+                    && (clip.kind.is_visual()
+                        || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
                     && clip.start <= playhead
                     && playhead < clip.start + clip.duration
             })

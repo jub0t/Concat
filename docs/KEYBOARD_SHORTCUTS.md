@@ -37,6 +37,7 @@ On the start screen only `Ctrl` + `O`, `Ctrl` + `Q` (Windows/Linux) and `Ctrl` +
 | `H` | Toggle the pan (hand) tool |
 | `N` | Toggle snapping |
 | `M` | Mute / unmute the selected clip |
+| `V` | Disable / enable selected clips (picture and sound) |
 | `S` | Toggle preview axis overlay |
 
 `Q` and `W` cut the selected clips the playhead is over, as one undo step; with nothing selected they cut the one clip under the playhead, and ask you to select one when there are several. On a magnetic timeline the gap closes up, and after `Q` the playhead lands on the frame it was showing. Both are also in a clip's right-click menu, which is the **More** menu on a phone.
