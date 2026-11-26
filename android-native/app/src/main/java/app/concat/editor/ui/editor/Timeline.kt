@@ -552,7 +552,7 @@ private fun layoutLanes(view: ProjectView, height: Float, scrollY: Float?, densi
         val available = height - RULER.toPx() - 16.dp.toPx()
         var y = RULER.toPx() + 10.dp.toPx()
         if (total <= available) {
-            // Room for all: the block sits a little above the middle, as CapCut's does.
+            // Room for all: the block sits a little above the middle.
             y += (available - total) * 0.3f
         } else {
             val probe = LaneLayout(rowsFrom(view, heights, y, gap, mainIndex), gap)

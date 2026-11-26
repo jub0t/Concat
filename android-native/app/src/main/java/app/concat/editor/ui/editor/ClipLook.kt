@@ -99,7 +99,7 @@ private fun shapeLabel(shape: String?) = when (shape) {
 }
 
 /**
- * One mask, CapCut's way: a shape, how soft its edge is, and whether it
+ * One mask: a shape, how soft its edge is, and whether it
  * keeps the inside or the outside. A clip that already has several keeps
  * the rest; this edits the top one. Its place and size are kept as they
  * were, so a mask moved elsewhere (on the desktop) stays where it is.

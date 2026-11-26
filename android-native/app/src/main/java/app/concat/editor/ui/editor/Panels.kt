@@ -68,7 +68,7 @@ import org.json.JSONObject
 
 /*
  * The tools' sub-panels: what opens above the toolbar when a tool has
- * options, CapCut's way. Sliders apply when the finger lifts (one undo
+ * options. Sliders apply when the finger lifts (one undo
  * step each), chips at once; the check closes the panel.
  */
 
@@ -223,8 +223,8 @@ fun TextPanel(
 }
 
 /**
- * Effects, filters or transitions as a row of tiles over the clip, CapCut's
- * way: "None" first, a tap applies, and the newest of this shelf's links
+ * Effects, filters or transitions as a row of tiles over the clip:
+ * "None" first, a tap applies, and the newest of this shelf's links
  * gets its strength slider beneath. "All" opens the full catalogue sheet
  * with search, categories and every knob.
  */
