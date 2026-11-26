@@ -47,6 +47,10 @@ export component ThreadsDialog inherits Modal {
     surface-height: 620px;
 
     VerticalLayout {
+        // This form is mostly wrapping text and flexible controls. Give the
+        // modal's scroll content a real width so it does not measure the form
+        // at the minimum text width and leave most of the sheet empty.
+        horizontal-stretch: 1;
         padding-left: 22px;
         padding-right: 22px;
         padding-top: 16px;
@@ -54,6 +58,7 @@ export component ThreadsDialog inherits Modal {
         spacing: 12px;
 
         Text {
+            horizontal-stretch: 1;
             text: I18n.t("threads.intro");
             color: Theme.fg-muted;
             font-size: Theme.fs;
@@ -61,6 +66,7 @@ export component ThreadsDialog inherits Modal {
         }
 
         DialogSection {
+            horizontal-stretch: 1;
             first: true;
             title: I18n.t("threads.sourceLink");
 
@@ -86,6 +92,7 @@ export component ThreadsDialog inherits Modal {
         }
 
         if root.data.running: HorizontalLayout {
+            horizontal-stretch: 1;
             spacing: 10px;
             Progress { horizontal-stretch: 1; value: 0.18; live: true; }
             Text {
@@ -97,6 +104,7 @@ export component ThreadsDialog inherits Modal {
         }
 
         if root.data.error != "": Rectangle {
+            horizontal-stretch: 1;
             border-radius: Theme.r;
             background: Theme.danger-wash;
             border-width: 1px;
@@ -115,6 +123,7 @@ export component ThreadsDialog inherits Modal {
         }
 
         if root.data.frames.length > 0: DialogSection {
+            horizontal-stretch: 1;
             title: I18n.t1("threads.resultTitle", "\{root.data.frames.length}");
             summary: root.data.title;
 
@@ -197,6 +206,7 @@ export component ThreadsDialog inherits Modal {
         }
 
         if root.data.frames.length == 0 && !root.data.running && root.data.error == "": Rectangle {
+            horizontal-stretch: 1;
             vertical-stretch: 1;
             background: Theme.launch-well;
             border-width: 1px;
@@ -220,6 +230,7 @@ export component ThreadsDialog inherits Modal {
         Rectangle { vertical-stretch: 1; }
 
         HorizontalLayout {
+            horizontal-stretch: 1;
             alignment: end;
             if root.data.frames.length > 0 && !root.data.voiceovers-ready: Button {
                 primary: true;
@@ -245,7 +256,7 @@ export component ThreadsDialog inherits Modal {
                 clicked => { root.create-project(); }
             }
             Button {
-                label: I18n.t("common.close");
+                label: I18n.t("threads.close");
                 enabled: !root.data.running;
                 clicked => { root.closed(); }
             }
