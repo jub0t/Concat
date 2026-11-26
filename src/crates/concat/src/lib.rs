@@ -72,6 +72,7 @@ mod speed_ramp;
 mod start_watch;
 mod studio;
 mod sysinfo;
+mod tgs;
 /// Native Wayland file drops, which winit does not report; see the module.
 #[cfg(target_os = "linux")]
 mod wayland_drop;
@@ -938,6 +939,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // ── the launch screen ──
     app.on_start_compose(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Compose));
+    }));
+    app.on_start_threads(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Open));
+    }));
+    app.on_threads_closed(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Close));
+    }));
+    app.on_threads_url_edited(on_window!(|state, url: SharedString| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::UrlEdited(
+            url.to_string(),
+        )));
+    }));
+    app.on_threads_extract(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Extract));
     }));
     app.on_start_dismiss(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Dismiss));

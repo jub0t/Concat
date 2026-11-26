@@ -1,0 +1,194 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+
+export struct ThreadsFrameData {
+    label: string,
+    author: string,
+    text: string,
+    likes: string,
+}
+
+export struct ThreadsData {
+    open: bool,
+    url: string,
+    running: bool,
+    stage: string,
+    error: string,
+    title: string,
+    source-url: string,
+    frames: [ThreadsFrameData],
+}
+
+/// An additive entry point for the Threads quick-video workflow. It uses
+/// Concat's launch-screen sheet and leaves ordinary project creation alone.
+export component ThreadsDialog inherits Modal {
+    in property <ThreadsData> data;
+
+    callback closed();
+    callback url-edited(url: string);
+    callback extract();
+
+    open: root.data.open;
+    title: I18n.t("threads.title");
+    glyph: Glyph.film;
+    dismissable: !root.data.running;
+    surface-width: 640px;
+    surface-height: 620px;
+
+    VerticalLayout {
+        padding-left: 22px;
+        padding-right: 22px;
+        padding-top: 16px;
+        padding-bottom: 18px;
+        spacing: 12px;
+
+        Text {
+            text: I18n.t("threads.intro");
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+
+        DialogSection {
+            first: true;
+            title: I18n.t("threads.sourceLink");
+
+            HorizontalLayout {
+                spacing: 8px;
+                Field {
+                    value: root.data.url;
+                    placeholder: "https://www.threads.com/@name/post/...";
+                    edited(value) => { root.url-edited(value); }
+                }
+                Button {
+                    primary: true;
+                    large: true;
+                    glyph: Glyph.import;
+                    label: root.data.running ? I18n.t("threads.extracting") : I18n.t("threads.fetch");
+                    enabled: !root.data.running && root.data.url != "";
+                    clicked => { root.extract(); }
+                }
+            }
+        }
+
+        if root.data.running: HorizontalLayout {
+            spacing: 10px;
+            Progress { horizontal-stretch: 1; value: 0.18; live: true; }
+            Text {
+                text: root.data.stage == "" ? I18n.t("threads.extracting") : root.data.stage;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.data.error != "": Rectangle {
+            border-radius: Theme.r;
+            background: Theme.danger-wash;
+            border-width: 1px;
+            border-color: Theme.danger-edge;
+            height: notice.preferred-height + 18px;
+
+            notice := Text {
+                x: 10px;
+                y: 8px;
+                width: parent.width - 20px;
+                text: root.data.error;
+                color: Theme.fg;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.data.frames.length > 0: DialogSection {
+            title: I18n.t1("threads.resultTitle", "\{root.data.frames.length}");
+            summary: root.data.title;
+
+            VerticalLayout {
+                spacing: 6px;
+
+                for frame in root.data.frames: Rectangle {
+                    border-radius: Theme.r;
+                    background: Theme.field;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    height: 82px;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 8px;
+                        padding-bottom: 7px;
+                        spacing: 3px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: frame.label;
+                                color: Theme.fg;
+                                font-size: Theme.fs;
+                                font-weight: Theme.weight-title;
+                            }
+                            Text {
+                                text: frame.author;
+                                color: Theme.fg-muted;
+                                font-size: Theme.fs-sm;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            if frame.likes != "": Text {
+                                text: I18n.t1("threads.likes", frame.likes);
+                                color: Theme.fg-dim;
+                                font-size: Theme.fs-xs;
+                            }
+                        }
+
+                        Text {
+                            text: frame.text;
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                            max-height: 42px;
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.data.frames.length == 0 && !root.data.running && root.data.error == "": Rectangle {
+            vertical-stretch: 1;
+            background: Theme.launch-well;
+            border-width: 1px;
+            border-color: Theme.line;
+            border-radius: Theme.r-lg;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Icon { glyph: Glyph.link; size: 22px; tint: Theme.fg-dim; }
+                Text {
+                    text: I18n.t("threads.empty");
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        HorizontalLayout {
+            alignment: end;
+            Button {
+                label: I18n.t("common.close");
+                enabled: !root.data.running;
+                clicked => { root.closed(); }
+            }
+        }
+    }
+}
