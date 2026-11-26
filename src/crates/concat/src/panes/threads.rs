@@ -3,6 +3,7 @@
 
 //! The Threads quick-video entry on the launch screen.
 
+use crate::studio::Studio;
 use crate::tgs::{self, Extraction};
 use crate::ui::{ThreadsData, ThreadsFrameData};
 
@@ -29,7 +30,7 @@ pub struct ThreadsPane {
 }
 
 impl ThreadsPane {
-    pub fn update(&mut self, msg: ThreadsMsg) {
+    pub fn update(&mut self, msg: ThreadsMsg, studio: &mut Studio) {
         match msg {
             ThreadsMsg::Open => {
                 self.open = true;

@@ -577,7 +577,11 @@ impl Studio {
                 pane.update(msg, self);
                 self.start = pane;
             }
-            crate::panes::Msg::Threads(msg) => self.threads.update(msg),
+            crate::panes::Msg::Threads(msg) => {
+                let mut pane = std::mem::take(&mut self.threads);
+                pane.update(msg, self);
+                self.threads = pane;
+            }
             crate::panes::Msg::Media(msg) => {
                 let mut pane = std::mem::take(&mut self.media);
                 pane.update(msg, self);
