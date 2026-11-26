@@ -12,6 +12,7 @@ pub enum ThreadsMsg {
     Close,
     UrlEdited(String),
     Extract,
+    CreateProject,
 }
 
 #[derive(Default)]
@@ -68,6 +69,12 @@ impl ThreadsPane {
                     },
                     |studio, _, _, result| studio.threads.finish(result),
                 );
+            }
+            ThreadsMsg::CreateProject => {
+                if let Some(extraction) = self.extraction.clone() {
+                    self.open = false;
+                    studio.start.begin_threads_creation(extraction);
+                }
             }
         }
     }

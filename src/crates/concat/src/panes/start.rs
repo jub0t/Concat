@@ -8,12 +8,15 @@
 use std::path::{Path, PathBuf};
 
 use concat_host::projects;
+use concat_project::commands::Command;
+use concat_project::model::TextStyle;
 
 use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::{
     ASPECTS, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
 };
+use crate::tgs::Extraction;
 use crate::ui::StartData;
 
 /// Everything that can happen to the launch screen's sheet.
@@ -68,6 +71,21 @@ pub enum StartMsg {
 pub const SORT_RECENT: i32 = 0;
 /// The projects by name, A to Z.
 pub const SORT_NAME: i32 = 1;
+
+#[derive(Clone)]
+struct SavedProjectSetup {
+    name: String,
+    aspect: usize,
+    size: usize,
+    rate: usize,
+    custom_size: (u32, u32),
+    custom_rate: (i64, i64),
+}
+
+struct ThreadsProjectSetup {
+    extraction: Extraction,
+    saved: SavedProjectSetup,
+}
 
 /// The recents the grid shows: those whose name or folder holds every
 /// word of the query, ignoring case, newest first or by name. A missing
@@ -156,6 +174,8 @@ pub struct StartPane {
     /// sheet is about to make: imported into it once it opens, and let go
     /// if the sheet is put down instead.
     pub dropped: Vec<PathBuf>,
+    /// A Threads extraction waiting for the regular project sheet to finish.
+    threads_setup: Option<ThreadsProjectSetup>,
 }
 
 impl Default for StartPane {
@@ -177,6 +197,7 @@ impl Default for StartPane {
             query: String::new(),
             sort: SORT_RECENT,
             dropped: Vec::new(),
+            threads_setup: None,
         }
     }
 }
@@ -250,6 +271,92 @@ fn first_free_untitled(taken: impl Fn(&str) -> bool) -> String {
 }
 
 impl StartPane {
+    /// Opens the normal new-project sheet with vertical video defaults and
+    /// remembers the user's previous choices so the quick flow does not
+    /// change later project creation.
+    pub fn begin_threads_creation(&mut self, extraction: Extraction) {
+        let saved = SavedProjectSetup {
+            name: self.name.clone(),
+            aspect: self.aspect,
+            size: self.size,
+            rate: self.rate,
+            custom_size: self.custom_size,
+            custom_rate: self.custom_rate,
+        };
+        let title = extraction.title.trim();
+        self.name = if title.is_empty() {
+            self.free_untitled()
+        } else {
+            title.to_owned()
+        };
+        self.aspect = ASPECTS
+            .iter()
+            .position(|(name, _, _)| *name == "9:16")
+            .unwrap_or(0);
+        self.size = SIZES
+            .iter()
+            .position(|(name, _)| *name == "1080p")
+            .unwrap_or(1);
+        self.rate = RATES
+            .iter()
+            .position(|(name, _, _)| *name == "30")
+            .unwrap_or(6);
+        self.composing = true;
+        self.error.clear();
+        self.dropped.clear();
+        self.threads_setup = Some(ThreadsProjectSetup { extraction, saved });
+    }
+
+    fn restore_project_setup(&mut self, saved: SavedProjectSetup) {
+        self.name = saved.name;
+        self.aspect = saved.aspect;
+        self.size = saved.size;
+        self.rate = saved.rate;
+        self.custom_size = saved.custom_size;
+        self.custom_rate = saved.custom_rate;
+    }
+
+    fn place_threads_frames(extraction: &Extraction, studio: &mut Studio) {
+        let duration = 3.5;
+        let commands = extraction
+            .frames
+            .iter()
+            .enumerate()
+            .map(|(index, frame)| {
+                let mut style = TextStyle::default();
+                let text = frame.text.trim();
+                style.content = if text.is_empty() {
+                    format!("{}\n— {}", frame.label, frame.author)
+                } else {
+                    format!("{}\n— {}\n\n{}", frame.label, frame.author, text)
+                };
+                style.font_size = match text.chars().count() {
+                    0..=140 => 0.055,
+                    141..=280 => 0.045,
+                    281..=480 => 0.037,
+                    _ => 0.03,
+                };
+                style.max_width = 0.84;
+                style.background = "#111827e8".to_owned();
+
+                Command::AddTextClip {
+                    track_id: None,
+                    above: true,
+                    start: index as f64 * duration,
+                    style: Some(style),
+                    duration: Some(duration),
+                    offset_y: None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if !commands.is_empty()
+            && let Some(last_clip) = studio.apply(Command::Batch { commands })
+        {
+            studio.selection = vec![last_clip];
+        }
+    }
+
     /// Applies one message. The studio is the rest of the window; while
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: StartMsg, studio: &mut Studio) {
@@ -269,6 +376,9 @@ impl StartPane {
                 // dropped to start it.
                 self.error.clear();
                 self.dropped.clear();
+                if let Some(setup) = self.threads_setup.take() {
+                    self.restore_project_setup(setup.saved);
+                }
             }
             StartMsg::NameEdited(name) => self.name = name,
             StartMsg::LocationEdited(path) => self.location = path,
@@ -444,6 +554,10 @@ impl StartPane {
         self.busy = false;
         match opened {
             Ok(()) => {
+                if let Some(setup) = self.threads_setup.take() {
+                    self.restore_project_setup(setup.saved);
+                    Self::place_threads_frames(&setup.extraction, studio);
+                }
                 studio.prefs.last_project_location = Some(self.location.clone());
                 studio.prefs.save(&studio.host.dirs);
                 self.composing = false;

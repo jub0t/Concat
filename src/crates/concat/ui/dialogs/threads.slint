@@ -32,6 +32,7 @@ export component ThreadsDialog inherits Modal {
     callback closed();
     callback url-edited(url: string);
     callback extract();
+    callback create-project();
 
     open: root.data.open;
     title: I18n.t("threads.title");
@@ -184,6 +185,13 @@ export component ThreadsDialog inherits Modal {
 
         HorizontalLayout {
             alignment: end;
+            if root.data.frames.length > 0: Button {
+                primary: true;
+                large: true;
+                glyph: Glyph.plus;
+                label: I18n.t("threads.createProject");
+                clicked => { root.create-project(); }
+            }
             Button {
                 label: I18n.t("common.close");
                 enabled: !root.data.running;

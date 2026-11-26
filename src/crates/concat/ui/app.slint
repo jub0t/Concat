@@ -273,6 +273,7 @@ export component App inherits Window {
     callback threads-closed();
     callback threads-url-edited(url: string);
     callback threads-extract();
+    callback threads-create-project();
     callback start-dismiss();
     callback start-name-edited(name: string);
     callback start-location-edited(path: string);
@@ -958,6 +959,7 @@ export component App inherits Window {
         closed => { root.threads-closed(); }
         url-edited(url) => { root.threads-url-edited(url); }
         extract => { root.threads-extract(); }
+        create-project => { root.threads-create-project(); }
     }
 
     ExportDialog {
