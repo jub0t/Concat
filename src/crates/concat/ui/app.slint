@@ -273,6 +273,7 @@ export component App inherits Window {
     callback threads-closed();
     callback threads-url-edited(url: string);
     callback threads-extract();
+    callback threads-generate-voiceovers();
     callback threads-create-project();
     callback start-dismiss();
     callback start-name-edited(name: string);
@@ -959,6 +960,7 @@ export component App inherits Window {
         closed => { root.threads-closed(); }
         url-edited(url) => { root.threads-url-edited(url); }
         extract => { root.threads-extract(); }
+        generate-voiceovers => { root.threads-generate-voiceovers(); }
         create-project => { root.threads-create-project(); }
     }
 

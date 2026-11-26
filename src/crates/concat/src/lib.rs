@@ -954,6 +954,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_threads_extract(on_window!(|state| {
         state.handle(Msg::Threads(panes::threads::ThreadsMsg::Extract));
     }));
+    app.on_threads_generate_voiceovers(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::GenerateVoiceovers));
+    }));
     app.on_threads_create_project(on_window!(|state| {
         state.handle(Msg::Threads(panes::threads::ThreadsMsg::CreateProject));
     }));

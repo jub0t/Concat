@@ -12,6 +12,7 @@ pub enum ThreadsMsg {
     Close,
     UrlEdited(String),
     Extract,
+    GenerateVoiceovers,
     CreateProject,
 }
 
@@ -23,6 +24,8 @@ pub struct ThreadsPane {
     pub stage: String,
     pub error: String,
     pub extraction: Option<Extraction>,
+    pub voiceovers: Option<Vec<tgs::VoiceoverAudio>>,
+    pub generating_voiceovers: bool,
 }
 
 impl ThreadsPane {
@@ -38,6 +41,7 @@ impl ThreadsPane {
                 self.url = url;
                 self.error.clear();
                 self.extraction = None;
+                self.voiceovers = None;
             }
             ThreadsMsg::Extract => {
                 let url = self.url.trim().to_owned();
@@ -53,6 +57,8 @@ impl ThreadsPane {
                 self.stage = "Connecting to the TGS extractor".to_owned();
                 self.error.clear();
                 self.extraction = None;
+                self.voiceovers = None;
+                self.generating_voiceovers = false;
 
                 crate::host::spawn_long(
                     move || {
@@ -70,10 +76,45 @@ impl ThreadsPane {
                     |studio, _, _, result| studio.threads.finish(result),
                 );
             }
+            ThreadsMsg::GenerateVoiceovers => {
+                let Some(extraction) = self.extraction.clone() else {
+                    return;
+                };
+                if self.running {
+                    return;
+                }
+                self.running = true;
+                self.generating_voiceovers = true;
+                self.stage = "Preparing voiceovers".to_owned();
+                self.error.clear();
+                self.voiceovers = None;
+                crate::host::spawn_long(
+                    move || {
+                        let mut last = String::new();
+                        tgs::generate_voiceovers(&extraction, move |stage| {
+                            if stage == last {
+                                return;
+                            }
+                            last.clone_from(&stage);
+                            crate::host::on_ui(move |studio, _, _| {
+                                studio.threads.stage = stage;
+                            });
+                        })
+                    },
+                    |studio, _, _, result| studio.threads.finish_voiceovers(result),
+                );
+            }
             ThreadsMsg::CreateProject => {
-                if let Some(extraction) = self.extraction.clone() {
+                if let Some(extraction) = self.extraction.clone()
+                    && let Some(voiceovers) = self.voiceovers.take()
+                {
+                    if voiceovers.len() != extraction.frames.len() {
+                        self.error = "A voiceover is missing for one or more frames.".to_owned();
+                        self.voiceovers = Some(voiceovers);
+                        return;
+                    }
                     self.open = false;
-                    studio.start.begin_threads_creation(extraction);
+                    studio.start.begin_threads_creation(extraction, voiceovers);
                 }
             }
         }
@@ -81,15 +122,33 @@ impl ThreadsPane {
 
     fn finish(&mut self, result: Result<Extraction, String>) {
         self.running = false;
+        self.generating_voiceovers = false;
         self.stage.clear();
         match result {
             Ok(extraction) => {
                 self.error.clear();
                 self.extraction = Some(extraction);
+                self.voiceovers = None;
             }
             Err(error) => {
                 self.error = error;
                 self.extraction = None;
+            }
+        }
+    }
+
+    fn finish_voiceovers(&mut self, result: Result<Vec<tgs::VoiceoverAudio>, String>) {
+        self.running = false;
+        self.generating_voiceovers = false;
+        self.stage.clear();
+        match result {
+            Ok(voiceovers) => {
+                self.error.clear();
+                self.voiceovers = Some(voiceovers);
+            }
+            Err(error) => {
+                self.error = error;
+                self.voiceovers = None;
             }
         }
     }
@@ -100,6 +159,8 @@ impl ThreadsPane {
             open: self.open,
             url: self.url.as_str().into(),
             running: self.running,
+            generating_voiceovers: self.generating_voiceovers,
+            voiceovers_ready: self.voiceovers.is_some(),
             stage: self.stage.as_str().into(),
             error: self.error.as_str().into(),
             title: extraction

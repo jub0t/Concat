@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use concat_host::projects;
 use concat_project::commands::Command;
-use concat_project::model::TextStyle;
+use concat_project::model::{MediaOrigin, TextStyle};
 
 use crate::i18n::{t, tf};
 use crate::platform;
@@ -84,6 +84,7 @@ struct SavedProjectSetup {
 
 struct ThreadsProjectSetup {
     extraction: Extraction,
+    voiceovers: Vec<crate::tgs::VoiceoverAudio>,
     saved: SavedProjectSetup,
 }
 
@@ -274,7 +275,11 @@ impl StartPane {
     /// Opens the normal new-project sheet with vertical video defaults and
     /// remembers the user's previous choices so the quick flow does not
     /// change later project creation.
-    pub fn begin_threads_creation(&mut self, extraction: Extraction) {
+    pub fn begin_threads_creation(
+        &mut self,
+        extraction: Extraction,
+        voiceovers: Vec<crate::tgs::VoiceoverAudio>,
+    ) {
         let saved = SavedProjectSetup {
             name: self.name.clone(),
             aspect: self.aspect,
@@ -304,7 +309,11 @@ impl StartPane {
         self.composing = true;
         self.error.clear();
         self.dropped.clear();
-        self.threads_setup = Some(ThreadsProjectSetup { extraction, saved });
+        self.threads_setup = Some(ThreadsProjectSetup {
+            extraction,
+            voiceovers,
+            saved,
+        });
     }
 
     fn restore_project_setup(&mut self, saved: SavedProjectSetup) {
@@ -316,44 +325,121 @@ impl StartPane {
         self.custom_rate = saved.custom_rate;
     }
 
-    fn place_threads_frames(extraction: &Extraction, studio: &mut Studio) {
-        let duration = 3.5;
-        let commands = extraction
-            .frames
-            .iter()
-            .enumerate()
-            .map(|(index, frame)| {
-                let mut style = TextStyle::default();
-                let text = frame.text.trim();
-                style.content = if text.is_empty() {
-                    format!("{}\n— {}", frame.label, frame.author)
-                } else {
-                    format!("{}\n— {}\n\n{}", frame.label, frame.author, text)
-                };
-                style.font_size = match text.chars().count() {
-                    0..=140 => 0.055,
-                    141..=280 => 0.045,
-                    281..=480 => 0.037,
-                    _ => 0.03,
-                };
-                style.max_width = 0.84;
-                style.background = "#111827e8".to_owned();
+    fn place_threads_frames(
+        extraction: &Extraction,
+        voiceovers: &[crate::tgs::VoiceoverAudio],
+        project_path: &Path,
+        studio: &mut Studio,
+    ) {
+        let audio_dir = project_path.join("audio");
+        let audio_dir_ready = match std::fs::create_dir_all(&audio_dir) {
+            Ok(()) => true,
+            Err(error) => {
+                studio.notify(
+                    &format!("Could not create the voiceover folder: {error}"),
+                    true,
+                );
+                false
+            }
+        };
 
-                Command::AddTextClip {
-                    track_id: None,
-                    above: true,
-                    start: index as f64 * duration,
-                    style: Some(style),
-                    duration: Some(duration),
-                    offset_y: None,
+        let mut at = 0.0;
+        let mut titles = Vec::with_capacity(extraction.frames.len());
+        let mut audio_clips = Vec::with_capacity(extraction.frames.len());
+        let mut audio_count = 0;
+
+        for (index, frame) in extraction.frames.iter().enumerate() {
+            let mut audio_duration = voiceovers
+                .get(index)
+                .map(|audio| audio.duration_seconds)
+                .unwrap_or_default();
+            let mut media_id = None;
+            if audio_dir_ready && let Some(audio) = voiceovers.get(index) {
+                let path = audio_dir.join(format!("threads-frame-{}.mp3", index + 1));
+                match std::fs::write(&path, &audio.bytes) {
+                    Ok(()) => match concat_host::media::probe(&path.to_string_lossy()) {
+                        Ok(summary) => {
+                            audio_duration = summary
+                                .duration
+                                .unwrap_or(audio_duration)
+                                .max(audio_duration);
+                            let mut item = summary.to_new_media();
+                            item.origin = Some(MediaOrigin::Speech);
+                            media_id = studio.apply(Command::AddMedia { item }).or_else(|| {
+                                studio
+                                    .project()
+                                    .media
+                                    .iter()
+                                    .find(|item| item.path == path.to_string_lossy())
+                                    .map(|item| item.id.clone())
+                            });
+                        }
+                        Err(error) => log::error!(
+                            "threads: could not read generated voiceover for {}: {error}",
+                            frame.label
+                        ),
+                    },
+                    Err(error) => log::error!(
+                        "threads: could not save generated voiceover for {}: {error}",
+                        frame.label
+                    ),
                 }
-            })
-            .collect::<Vec<_>>();
+            }
 
-        if !commands.is_empty()
-            && let Some(last_clip) = studio.apply(Command::Batch { commands })
-        {
+            let scene_duration = audio_duration.max(3.5) + 0.35;
+            let mut style = TextStyle::default();
+            let text = frame.text.trim();
+            style.content = if text.is_empty() {
+                format!("{}\n— {}", frame.label, frame.author)
+            } else {
+                format!("{}\n— {}\n\n{}", frame.label, frame.author, text)
+            };
+            style.font_size = match text.chars().count() {
+                0..=140 => 0.055,
+                141..=280 => 0.045,
+                281..=480 => 0.037,
+                _ => 0.03,
+            };
+            style.max_width = 0.84;
+            style.background = "#111827e8".to_owned();
+            titles.push(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: at,
+                style: Some(style),
+                duration: Some(scene_duration),
+                offset_y: None,
+            });
+            if let Some(media_id) = media_id {
+                audio_count += 1;
+                audio_clips.push(Command::AddClipAtFirstFree {
+                    media_id,
+                    start: at,
+                });
+            }
+            at += scene_duration;
+        }
+
+        let titles_added = !titles.is_empty();
+        let added = titles_added
+            .then(|| studio.apply(Command::Batch { commands: titles }))
+            .flatten();
+        let clips_added = added.is_some();
+        if let Some(last_clip) = added {
             studio.selection = vec![last_clip];
+        }
+        let mut voice_clips_added = false;
+        if clips_added && !audio_clips.is_empty() {
+            voice_clips_added = studio
+                .apply(Command::Batch {
+                    commands: audio_clips,
+                })
+                .is_some();
+        }
+        if clips_added && voice_clips_added && audio_count == extraction.frames.len() {
+            studio.notify(&t("threads.voiceoversAdded"), false);
+        } else {
+            studio.notify(&t("threads.voiceoversImportPartial"), true);
         }
     }
 
@@ -550,13 +636,21 @@ impl StartPane {
                     "project: making {name} failed: {error}; the new-project sheet stays up"
                 );
             })
-            .and_then(|info| studio.open_project(info));
+            .and_then(|info| {
+                let path = info.path.clone();
+                studio.open_project(info).map(|()| PathBuf::from(path))
+            });
         self.busy = false;
         match opened {
-            Ok(()) => {
+            Ok(project_path) => {
                 if let Some(setup) = self.threads_setup.take() {
                     self.restore_project_setup(setup.saved);
-                    Self::place_threads_frames(&setup.extraction, studio);
+                    Self::place_threads_frames(
+                        &setup.extraction,
+                        &setup.voiceovers,
+                        &project_path,
+                        studio,
+                    );
                 }
                 studio.prefs.last_project_location = Some(self.location.clone());
                 studio.prefs.save(&studio.host.dirs);

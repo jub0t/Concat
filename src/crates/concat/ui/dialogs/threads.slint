@@ -17,6 +17,8 @@ export struct ThreadsData {
     open: bool,
     url: string,
     running: bool,
+    generating-voiceovers: bool,
+    voiceovers-ready: bool,
     stage: string,
     error: string,
     title: string,
@@ -29,9 +31,9 @@ export struct ThreadsData {
 export component ThreadsDialog inherits Modal {
     in property <ThreadsData> data;
 
-    callback closed();
     callback url-edited(url: string);
     callback extract();
+    callback generate-voiceovers();
     callback create-project();
 
     open: root.data.open;
@@ -64,13 +66,16 @@ export component ThreadsDialog inherits Modal {
                 Field {
                     value: root.data.url;
                     placeholder: "https://www.threads.com/@name/post/...";
+                    editable: !root.data.running;
                     edited(value) => { root.url-edited(value); }
                 }
                 Button {
                     primary: true;
                     large: true;
                     glyph: Glyph.import;
-                    label: root.data.running ? I18n.t("threads.extracting") : I18n.t("threads.fetch");
+                    label: root.data.generating-voiceovers
+                        ? I18n.t("threads.generatingVoices")
+                        : root.data.running ? I18n.t("threads.extracting") : I18n.t("threads.fetch");
                     enabled: !root.data.running && root.data.url != "";
                     clicked => { root.extract(); }
                 }
@@ -185,7 +190,23 @@ export component ThreadsDialog inherits Modal {
 
         HorizontalLayout {
             alignment: end;
-            if root.data.frames.length > 0: Button {
+            if root.data.frames.length > 0 && !root.data.voiceovers-ready: Button {
+                primary: true;
+                large: true;
+                glyph: Glyph.mic;
+                label: root.data.generating-voiceovers
+                    ? I18n.t("threads.generatingVoices")
+                    : I18n.t("threads.generateVoices");
+                enabled: !root.data.running;
+                clicked => { root.generate-voiceovers(); }
+            }
+            if root.data.voiceovers-ready: Text {
+                text: I18n.t("threads.voiceoversReady");
+                color: Theme.accent;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+            }
+            if root.data.voiceovers-ready: Button {
                 primary: true;
                 large: true;
                 glyph: Glyph.plus;
