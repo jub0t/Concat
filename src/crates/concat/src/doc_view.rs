@@ -354,7 +354,7 @@ pub fn source_at(map: &TimeMap, c: Tick) -> Option<Tick> {
     if let Some(exact) = map.source_at(c) {
         return Some(exact);
     }
-    let TimeMap::Keyed { first, rest } = map else {
+    let TimeMap::Keyed { first, rest, .. } = map else {
         return None;
     };
     let mut from = *first;
@@ -936,25 +936,7 @@ pub fn preview(
     })
 }
 
-// ── voices, figures and words ──
-
-/// Voice isolation with the voice kept and the rest taken away.
-pub fn keep_voice(kind: concat_doc::model::VoiceKind) -> concat_doc::model::VoiceMix {
-    concat_doc::model::VoiceMix {
-        kind,
-        voice: 1.0,
-        background: 0.0,
-    }
-}
-
-/// Voice isolation with the voice taken away and the rest kept.
-pub fn remove_voice(kind: concat_doc::model::VoiceKind) -> concat_doc::model::VoiceMix {
-    concat_doc::model::VoiceMix {
-        kind,
-        voice: 0.0,
-        background: 1.0,
-    }
-}
+// ── figures and words ──
 
 /// The figure a card of the Shapes shelf names, as a shape placed from it
 /// starts: its kind, its proportions and its paint. `None` for a name no

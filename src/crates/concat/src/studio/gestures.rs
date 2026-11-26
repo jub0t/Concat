@@ -311,12 +311,7 @@ impl Studio {
                 // their own places is still an undo step and still a pass
                 // through the rules, which can put a clip elsewhere.
                 // https://github.com/jub0t/Concat/issues/247
-                let moved = moves.iter().any(|wanted| {
-                    doc_view::item(self.committed(), wanted.item).is_some_and(|before| {
-                        Some(before.lane) != wanted.lane || before.start != wanted.start
-                    })
-                });
-                if moved {
+                if moved_any(&moves, |id| doc_view::item(self.committed(), id)) {
                     let ids: Vec<ItemId> = moves.iter().map(|wanted| wanted.item).collect();
                     let command =
                         doc_view::sweep_strays(&self.document, Command::MoveClips { moves }, &ids);

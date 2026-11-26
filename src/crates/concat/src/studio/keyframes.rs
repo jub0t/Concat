@@ -2815,7 +2815,7 @@ impl Studio {
                     stretch_y: None,
                 });
             }
-            commands.extend(key_commands(&id, &before, &after));
+            commands.extend(key_commands(item, &before, &after));
         }
         match commands.len() {
             0 => {}

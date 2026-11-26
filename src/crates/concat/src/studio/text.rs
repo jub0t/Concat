@@ -317,7 +317,7 @@ impl Studio {
         // them: a run says nothing about another title's words.
         style.content.clear();
         style.runs.clear();
-        self.prefs.title_style = Some(style);
+        self.prefs.title_look = Some(crate::prefs::TitleLook::from_title(&style));
         self.prefs.save(&self.host.dirs);
         self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
     }
@@ -368,13 +368,22 @@ impl Studio {
         };
         let mut commands = Vec::new();
         for id in &ids {
+            let Some(item) = doc_view::parse::<ItemId>(id) else {
+                continue;
+            };
             let (Some(after), Some(before)) = (
-                doc_view::item_by(&echo, id),
-                doc_view::item_by(self.committed(), id),
+                doc_view::item(&echo, item),
+                doc_view::item(self.committed(), item),
             ) else {
                 continue;
             };
-            commands.extend(clip_edit_commands(id, before, after, self.prefs.magnetic()));
+            commands.extend(clip_edit_commands(
+                item,
+                before,
+                after,
+                self.curve_points.get(&item),
+                self.prefs.magnetic(),
+            ));
         }
         if commands.is_empty() {
             return;
@@ -423,6 +432,10 @@ impl Studio {
             _ => Command::Batch { commands },
         };
         self.apply_within(&key, command);
+        // The speed graph goes on showing the points the person set.
+        for id in &ids {
+            self.curve_landed(id);
+        }
         self.last_commit = Some((key, now));
     }
 }

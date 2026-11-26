@@ -39,7 +39,7 @@ pub(super) fn linear_map(item: &Item, from: Tick, speed: f64) -> Option<TimeMap>
 /// the last at the speed arriving - each straight to the next. None for
 /// a constant pace.
 pub(super) fn curve_of(item: &Item) -> Option<Vec<SpeedPoint>> {
-    let Some(TimeMap::Keyed { first, rest }) = doc_view::time_map(item) else {
+    let Some(TimeMap::Keyed { first, rest, .. }) = doc_view::time_map(item) else {
         return None;
     };
     let speed_of = |curve: &TimeCurve, a: &model::TimePoint, b: &model::TimePoint, leaving: bool| {

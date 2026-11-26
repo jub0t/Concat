@@ -847,7 +847,7 @@ impl Studio {
             // be committed too, or the picture snaps back to the ride the
             // document still holds.
             // https://github.com/jub0t/Concat/issues/228
-            commands.extend(key_commands(&id, before, after));
+            commands.extend(key_commands(item, before, after));
             // A mask's grips move its numbers, held or keyed: the masks
             // carry their own keys, so the list is the whole of it.
             if after.masks != before.masks {
