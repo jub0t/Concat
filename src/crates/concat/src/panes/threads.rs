@@ -3,6 +3,8 @@
 
 //! The Threads quick-video entry on the launch screen.
 
+use std::path::PathBuf;
+
 use crate::studio::Studio;
 use crate::tgs::{self, Extraction};
 use crate::ui::{ThreadsData, ThreadsFrameData};
@@ -14,6 +16,8 @@ pub enum ThreadsMsg {
     UrlEdited(String),
     Extract,
     GenerateVoiceovers,
+    ChooseMeme,
+    RemoveMeme,
     CreateProject,
 }
 
@@ -27,6 +31,7 @@ pub struct ThreadsPane {
     pub extraction: Option<Extraction>,
     pub voiceovers: Option<Vec<tgs::VoiceoverAudio>>,
     pub generating_voiceovers: bool,
+    pub meme_path: Option<PathBuf>,
 }
 
 impl ThreadsPane {
@@ -105,6 +110,38 @@ impl ThreadsPane {
                     |studio, _, _, result| studio.threads.finish_voiceovers(result),
                 );
             }
+            ThreadsMsg::ChooseMeme => {
+                if self.running {
+                    return;
+                }
+                crate::host::pick_files_then(
+                    crate::i18n::t("threads.chooseMeme"),
+                    Some(("Images".to_owned(), &["png", "jpg", "jpeg", "webp"])),
+                    |studio, _, _, paths| {
+                        let Some(path) = paths.into_iter().next() else {
+                            return;
+                        };
+                        match concat_host::media::probe(&path.to_string_lossy()) {
+                            Ok(summary)
+                                if summary.kind == concat_project::model::MediaKind::Image =>
+                            {
+                                studio.threads.meme_path = Some(path);
+                                studio.threads.error.clear();
+                            }
+                            Ok(_) => {
+                                studio.threads.error = crate::i18n::t("threads.memeUnsupported");
+                            }
+                            Err(error) => {
+                                studio.threads.error = format!(
+                                    "{}: {error}",
+                                    crate::i18n::t("threads.memeUnsupported")
+                                );
+                            }
+                        }
+                    },
+                );
+            }
+            ThreadsMsg::RemoveMeme => self.meme_path = None,
             ThreadsMsg::CreateProject => {
                 if let Some(extraction) = self.extraction.clone()
                     && let Some(voiceovers) = self.voiceovers.take()
@@ -115,7 +152,11 @@ impl ThreadsPane {
                         return;
                     }
                     self.open = false;
-                    studio.start.begin_threads_creation(extraction, voiceovers);
+                    studio.start.begin_threads_creation(
+                        extraction,
+                        voiceovers,
+                        self.meme_path.clone(),
+                    );
                 }
             }
         }
@@ -162,6 +203,13 @@ impl ThreadsPane {
             running: self.running,
             generating_voiceovers: self.generating_voiceovers,
             voiceovers_ready: self.voiceovers.is_some(),
+            meme_file: self
+                .meme_path
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .into(),
             stage: self.stage.as_str().into(),
             error: self.error.as_str().into(),
             title: extraction

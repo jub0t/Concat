@@ -274,6 +274,8 @@ export component App inherits Window {
     callback threads-url-edited(url: string);
     callback threads-extract();
     callback threads-generate-voiceovers();
+    callback threads-choose-meme();
+    callback threads-remove-meme();
     callback threads-create-project();
     callback start-dismiss();
     callback start-name-edited(name: string);
@@ -961,6 +963,8 @@ export component App inherits Window {
         url-edited(url) => { root.threads-url-edited(url); }
         extract => { root.threads-extract(); }
         generate-voiceovers => { root.threads-generate-voiceovers(); }
+        choose-meme => { root.threads-choose-meme(); }
+        remove-meme => { root.threads-remove-meme(); }
         create-project => { root.threads-create-project(); }
     }
 

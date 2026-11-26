@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use concat_host::projects;
-use concat_project::commands::Command;
-use concat_project::model::{MediaOrigin, TextStyle};
+use concat_project::commands::{Command, TrimEdge};
+use concat_project::model::{MediaKind, MediaOrigin, TextStyle};
 
 use crate::i18n::{t, tf};
 use crate::platform;
@@ -85,8 +85,12 @@ struct SavedProjectSetup {
 struct ThreadsProjectSetup {
     extraction: Extraction,
     voiceovers: Vec<crate::tgs::VoiceoverAudio>,
+    meme_path: Option<PathBuf>,
     saved: SavedProjectSetup,
 }
+
+const THREADS_MEME_DURATION: f64 = 1.5;
+const CONCAT_DEFAULT_IMAGE_DURATION: f64 = 5.0;
 
 /// The recents the grid shows: those whose name or folder holds every
 /// word of the query, ignoring case, newest first or by name. A missing
@@ -279,6 +283,7 @@ impl StartPane {
         &mut self,
         extraction: Extraction,
         voiceovers: Vec<crate::tgs::VoiceoverAudio>,
+        meme_path: Option<PathBuf>,
     ) {
         let saved = SavedProjectSetup {
             name: self.name.clone(),
@@ -312,6 +317,7 @@ impl StartPane {
         self.threads_setup = Some(ThreadsProjectSetup {
             extraction,
             voiceovers,
+            meme_path,
             saved,
         });
     }
@@ -328,9 +334,56 @@ impl StartPane {
     fn place_threads_frames(
         extraction: &Extraction,
         voiceovers: &[crate::tgs::VoiceoverAudio],
+        meme_path: Option<&Path>,
         project_path: &Path,
         studio: &mut Studio,
     ) {
+        let meme_requested = meme_path.is_some();
+        let meme_media_id = meme_path.and_then(|source| {
+            let extension = source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase)
+                .filter(|extension| matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp"));
+            let Some(extension) = extension else {
+                studio.notify(&t("threads.memeUnsupported"), true);
+                return None;
+            };
+            let media_dir = project_path.join("media");
+            if let Err(error) = std::fs::create_dir_all(&media_dir) {
+                studio.notify(&format!("Could not create the media folder: {error}"), true);
+                return None;
+            }
+            let path = media_dir.join(format!("threads-meme.{extension}"));
+            if let Err(error) = std::fs::copy(source, &path) {
+                studio.notify(&format!("Could not copy the meme image: {error}"), true);
+                return None;
+            }
+            match concat_host::media::probe(&path.to_string_lossy()) {
+                Ok(summary) if summary.kind == MediaKind::Image => {
+                    let stored_path = summary.path.clone();
+                    let item = summary.to_new_media();
+                    let id = studio.apply(Command::AddMedia { item });
+                    id.or_else(|| {
+                        studio
+                            .project()
+                            .media
+                            .iter()
+                            .find(|media| media.path == stored_path)
+                            .map(|media| media.id.clone())
+                    })
+                }
+                Ok(_) => {
+                    studio.notify(&t("threads.memeUnsupported"), true);
+                    None
+                }
+                Err(error) => {
+                    studio.notify(&format!("Could not read the meme image: {error}"), true);
+                    None
+                }
+            }
+        });
+
         let audio_dir = project_path.join("audio");
         let audio_dir_ready = match std::fs::create_dir_all(&audio_dir) {
             Ok(()) => true,
@@ -346,6 +399,7 @@ impl StartPane {
         let mut at = 0.0;
         let mut titles = Vec::with_capacity(extraction.frames.len());
         let mut audio_clips = Vec::with_capacity(extraction.frames.len());
+        let mut meme_starts = Vec::with_capacity(extraction.frames.len());
         let mut audio_count = 0;
 
         for (index, frame) in extraction.frames.iter().enumerate() {
@@ -417,7 +471,12 @@ impl StartPane {
                     start: at,
                 });
             }
-            at += scene_duration;
+            if meme_media_id.is_some() {
+                meme_starts.push(at + scene_duration);
+                at += scene_duration + THREADS_MEME_DURATION;
+            } else {
+                at += scene_duration;
+            }
         }
 
         let titles_added = !titles.is_empty();
@@ -427,6 +486,24 @@ impl StartPane {
         let clips_added = added.is_some();
         if let Some(last_clip) = added {
             studio.selection = vec![last_clip];
+        }
+        let mut meme_count = 0;
+        if clips_added && let Some(media_id) = meme_media_id.as_ref() {
+            for start in meme_starts {
+                let Some(clip_id) = studio.apply(Command::AddClipAtFirstFree {
+                    media_id: media_id.clone(),
+                    start,
+                }) else {
+                    continue;
+                };
+                studio.apply(Command::TrimClip {
+                    clip_id,
+                    edge: TrimEdge::End,
+                    delta: THREADS_MEME_DURATION - CONCAT_DEFAULT_IMAGE_DURATION,
+                    ripple: false,
+                });
+                meme_count += 1;
+            }
         }
         let mut voice_clips_added = false;
         if clips_added && !audio_clips.is_empty() {
@@ -440,6 +517,13 @@ impl StartPane {
             studio.notify(&t("threads.voiceoversAdded"), false);
         } else {
             studio.notify(&t("threads.voiceoversImportPartial"), true);
+        }
+        if meme_requested {
+            if meme_media_id.is_some() && meme_count == extraction.frames.len() {
+                studio.notify(&t("threads.memeAdded"), false);
+            } else {
+                studio.notify(&t("threads.memeImportPartial"), true);
+            }
         }
     }
 
@@ -648,6 +732,7 @@ impl StartPane {
                     Self::place_threads_frames(
                         &setup.extraction,
                         &setup.voiceovers,
+                        setup.meme_path.as_deref(),
                         &project_path,
                         studio,
                     );

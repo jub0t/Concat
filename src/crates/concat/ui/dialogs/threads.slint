@@ -19,6 +19,7 @@ export struct ThreadsData {
     running: bool,
     generating-voiceovers: bool,
     voiceovers-ready: bool,
+    meme-file: string,
     stage: string,
     error: string,
     title: string,
@@ -34,6 +35,8 @@ export component ThreadsDialog inherits Modal {
     callback url-edited(url: string);
     callback extract();
     callback generate-voiceovers();
+    callback choose-meme();
+    callback remove-meme();
     callback create-project();
 
     open: root.data.open;
@@ -160,6 +163,34 @@ export component ThreadsDialog inherits Modal {
                             wrap: word-wrap;
                             max-height: 42px;
                         }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Icon { glyph: Glyph.sticker; size: 15px; tint: Theme.fg-dim; }
+                    Text {
+                        text: root.data.meme-file == ""
+                            ? I18n.t("threads.memeOptional")
+                            : root.data.meme-file;
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        glyph: Glyph.image;
+                        label: root.data.meme-file == ""
+                            ? I18n.t("threads.chooseMeme")
+                            : I18n.t("threads.changeMeme");
+                        enabled: !root.data.running;
+                        clicked => { root.choose-meme(); }
+                    }
+                    if root.data.meme-file != "": Button {
+                        label: I18n.t("threads.removeMeme");
+                        enabled: !root.data.running;
+                        clicked => { root.remove-meme(); }
                     }
                 }
             }
