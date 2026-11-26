@@ -961,6 +961,7 @@
   "textPanel.horizontal": "По горизонтали",
   "textPanel.importFont": "Импортировать шрифт…",
   "textPanel.italic": "Курсив",
+  "textPanel.justify": "По ширине",
   "textPanel.layout": "Компоновка",
   "textPanel.letterCase": "Регистр",
   "textPanel.lineHeight": "Высота строки",

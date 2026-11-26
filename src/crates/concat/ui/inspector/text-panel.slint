@@ -685,6 +685,7 @@ export component TextPanel inherits VerticalLayout {
             title: I18n.t("textPanel.layout");
             collapsible: true;
             summary: (root.selected.align == TextAlignment.right ? I18n.t("common.right")
+                : root.selected.align == TextAlignment.justify ? I18n.t("textPanel.justify")
                 : root.selected.align == TextAlignment.center ? I18n.t("textPanel.center") : I18n.t("common.left"))
                 + " · " + root.px(root.box-w) + " × " + root.px(root.box-h);
         }
@@ -694,9 +695,10 @@ export component TextPanel inherits VerticalLayout {
             label: I18n.t("textPanel.textAlign");
             label-width: root.label-w;
             SegmentedControl {
-                options: [I18n.t("common.left"), I18n.t("textPanel.center"), I18n.t("common.right")];
-                icons: [Glyph.align-left, Glyph.align-center-x, Glyph.align-right];
+                options: [I18n.t("common.left"), I18n.t("textPanel.center"), I18n.t("common.right"), I18n.t("textPanel.justify")];
+                icons: [Glyph.align-left, Glyph.align-center-x, Glyph.align-right, Glyph.align-justify];
                 current: root.selected.align == TextAlignment.right ? 2
+                    : root.selected.align == TextAlignment.justify ? 3
                     : root.selected.align == TextAlignment.center ? 1 : 0;
                 changed(index) => { root.set(ClipField.align, index); root.commit(); }
             }

@@ -1464,6 +1464,7 @@ fn align_of(align: TextAlign) -> TextAlignment {
         TextAlign::Left => TextAlignment::Left,
         TextAlign::Center => TextAlignment::Center,
         TextAlign::Right => TextAlignment::Right,
+        TextAlign::Justify => TextAlignment::Justify,
     }
 }
 

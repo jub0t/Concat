@@ -344,6 +344,7 @@ impl Studio {
                     text.align = match value as i32 {
                         0 => TextAlign::Left,
                         2 => TextAlign::Right,
+                        3 => TextAlign::Justify,
                         _ => TextAlign::Center,
                     }
                 }

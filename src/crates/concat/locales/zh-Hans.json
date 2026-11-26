@@ -961,6 +961,7 @@
   "textPanel.horizontal": "水平",
   "textPanel.importFont": "导入字体…",
   "textPanel.italic": "斜体",
+  "textPanel.justify": "两端对齐",
   "textPanel.layout": "布局",
   "textPanel.letterCase": "大小写",
   "textPanel.lineHeight": "行高",

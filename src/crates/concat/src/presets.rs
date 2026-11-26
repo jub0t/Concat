@@ -144,6 +144,7 @@ impl PresetStyle {
             align: match self.align.as_deref() {
                 Some("left") => TextAlign::Left,
                 Some("right") => TextAlign::Right,
+                Some("justify") => TextAlign::Justify,
                 _ => TextAlign::Center,
             },
             opacity: self.opacity.unwrap_or(1.0).clamp(0.0, 1.0),

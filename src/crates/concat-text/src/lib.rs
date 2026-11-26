@@ -73,6 +73,10 @@ pub enum Align {
     Center,
     /// Lines share a right edge, and the block's right edge is the anchor.
     Right,
+    /// Lines are spread to fill the block's width, the last line of a
+    /// paragraph left as it falls. The block's left edge is the anchor,
+    /// as for left alignment.
+    Justify,
 }
 
 /// Everything about a title's look. Mirrors the document's text style field
@@ -1055,6 +1059,9 @@ struct Setter<'a> {
     looks: &'a [Look],
     /// Per look, its own face's ascent and descent at the look's size.
     metrics: &'a [(f32, f32)],
+    /// The width a wrapped line is spread to when the block is justified:
+    /// the block's own width, learned from a first setting without it.
+    justify_w: Option<f32>,
 }
 
 /// One line of the content, ready to be set: its text, its directions,
@@ -1076,12 +1083,12 @@ impl Setter<'_> {
     fn wrap(&self, para: &Paragraph<'_>, max_w: f32) -> Vec<Line> {
         let text = para.text;
         if text.trim().is_empty() {
-            return vec![self.set(para, 0..text.len(), true)];
+            return vec![self.set(para, 0..text.len(), true, 0.0)];
         }
         let trimmed = |from: usize, to: usize| from + text[from..to].trim_end().len();
         let mut line_start = text.len() - text.trim_start().len();
         if max_w <= 0.0 && !text.contains(MANDATORY) {
-            return vec![self.set(para, line_start..trimmed(line_start, text.len()), true)];
+            return vec![self.set(para, line_start..trimmed(line_start, text.len()), true, 0.0)];
         }
         let mut lines = Vec::new();
         // Where the line being built may end: the last break that fitted.
@@ -1093,22 +1100,44 @@ impl Setter<'_> {
             let end = trimmed(line_start, at);
             let fits = max_w <= 0.0
                 || fitted.is_none()
-                || self.set(para, line_start..end, false).width <= max_w;
+                || self.set(para, line_start..end, false, 0.0).width <= max_w;
             if !fits && let Some(last) = fitted {
-                lines.push(self.set(para, line_start..trimmed(line_start, last), true));
+                lines.push(self.set_wrapped(para, line_start..trimmed(line_start, last)));
                 line_start = last;
             }
             fitted = Some(at);
             if kind == BreakOpportunity::Mandatory {
-                lines.push(self.set(para, line_start..trimmed(line_start, at), true));
+                lines.push(self.set(para, line_start..trimmed(line_start, at), true, 0.0));
                 line_start = at;
                 fitted = None;
             }
         }
         if lines.is_empty() {
-            lines.push(self.set(para, line_start..line_start, true));
+            lines.push(self.set(para, line_start..line_start, true, 0.0));
         }
         lines
+    }
+
+    /// Sets one line that the wrap itself ended, spreading it to the
+    /// justify width when there is one: the slack is shared over the
+    /// line's gaps, the spaces between its words. A line with no gap, or
+    /// already as wide as the block, is set as it falls. Lines a break in
+    /// the text ended, and a paragraph's last line, never come here, so
+    /// they keep the width they fell to.
+    fn set_wrapped(&self, para: &Paragraph<'_>, range: Range<usize>) -> Line {
+        let extra = match self.justify_w {
+            Some(target) => {
+                let gaps = gap_starts(para.text, &range).len();
+                let natural = self.set(para, range.clone(), false, 0.0).width;
+                if gaps > 0 && target > natural {
+                    (target - natural) / gaps as f32
+                } else {
+                    0.0
+                }
+            }
+            None => 0.0,
+        };
+        self.set(para, range, true, extra)
     }
 
     /// How tall a line of `range` stands: the tallest ascent and descent
@@ -1142,13 +1171,20 @@ impl Setter<'_> {
 
     /// Shapes `range` of a paragraph as one line, pen starting at (0, 0) on
     /// the baseline, and outlines it when `outline` - a line only being
-    /// measured is not.
+    /// measured is not. `gap_extra` is the air a justified line adds at
+    /// each of its gaps, on top of the space that is already there.
     ///
     /// The line's runs are laid left to right in the order they are seen,
     /// which for right-to-left text is not the order they are read; each
     /// run is split where its face or its look changes, and shaped piece by
     /// piece, each at its look's size.
-    fn set(&self, para: &Paragraph<'_>, range: Range<usize>, outline: bool) -> Line {
+    fn set(
+        &self,
+        para: &Paragraph<'_>,
+        range: Range<usize>,
+        outline: bool,
+        gap_extra: f32,
+    ) -> Line {
         let (ascent, descent, em) = self.measure(para, range.clone());
         if range.is_empty() {
             return Line {
@@ -1171,6 +1207,14 @@ impl Setter<'_> {
         // Each glyph's cluster, as a byte into the paragraph, the span it
         // advances over, and its look.
         let mut spans: Vec<(usize, f32, f32, usize)> = Vec::new();
+        // Where this line may be spread, and the cluster last spread at,
+        // so a cluster of several glyphs is spread over only once.
+        let gaps_at = if gap_extra > 0.0 {
+            gap_starts(para.text, &range)
+        } else {
+            Vec::new()
+        };
+        let mut spread_at = usize::MAX;
         for run in runs {
             let rtl = levels[run.start].is_rtl();
             let mut pieces = Vec::new();
@@ -1209,6 +1253,15 @@ impl Setter<'_> {
                     .iter()
                     .zip(shaped.glyph_positions().iter())
                 {
+                    let cluster = piece.start + info.cluster as usize;
+                    if gap_extra > 0.0
+                        && pen > 0.0
+                        && cluster != spread_at
+                        && gaps_at.contains(&cluster)
+                    {
+                        pen += gap_extra;
+                        spread_at = cluster;
+                    }
                     if outline {
                         let glyph = ttf_parser::GlyphId(info.glyph_id as u16);
                         let x = pen + position.x_offset as f32 * scale;
@@ -1297,6 +1350,25 @@ impl Setter<'_> {
 /// Line separators other than the newline the content is split at: a line
 /// break inside a paragraph.
 const MANDATORY: &[char] = &['\u{b}', '\u{c}', '\r', '\u{85}', '\u{2028}', '\u{2029}'];
+
+/// Where a justified line of `range` may be spread: the start of each
+/// word after the first that follows a space, a space being the only gap
+/// a reader expects to grow. A break inside a word is not a gap, and
+/// neither is the step from one character to the next in a script
+/// written without spaces, so neither is ever spread.
+fn gap_starts(text: &str, range: &Range<usize>) -> Vec<usize> {
+    words(text, range.clone())
+        .into_iter()
+        .skip(1)
+        .map(|word| word.start)
+        .filter(|&start| {
+            text[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch == ' ' || ch == '\t')
+        })
+        .collect()
+}
 
 /// The words of `range`, in reading order: the stretches between the places
 /// a line may break, less their spaces. Words as a space-separated script
@@ -1612,7 +1684,7 @@ fn paint(
     } else {
         let room = match style.align {
             Align::Center => width as f32,
-            Align::Left | Align::Right => width as f32 / 2.0,
+            Align::Left | Align::Right | Align::Justify => width as f32 / 2.0,
         };
         (room - 2.0 * pad_x).max(em)
     };
@@ -1628,22 +1700,26 @@ fn paint(
         tracking,
         looks: &looks,
         metrics: &metrics,
+        justify_w: None,
     };
-    let lines: Vec<Line> = style
-        .content
-        .lines()
-        .zip(&casting.paragraphs)
-        .flat_map(|(text, face_of)| {
-            let at = text.as_ptr() as usize - style.content.as_ptr() as usize;
-            let para = Paragraph {
-                text,
-                bidi: ParagraphBidiInfo::new(text, None),
-                face_of,
-                look_of: look_of.get(at..at + text.len()).unwrap_or(&[]),
-            };
-            setter.wrap(&para, wrap_w)
-        })
-        .collect();
+    let set_lines = |setter: &Setter| -> Vec<Line> {
+        style
+            .content
+            .lines()
+            .zip(&casting.paragraphs)
+            .flat_map(|(text, face_of)| {
+                let at = text.as_ptr() as usize - style.content.as_ptr() as usize;
+                let para = Paragraph {
+                    text,
+                    bidi: ParagraphBidiInfo::new(text, None),
+                    face_of,
+                    look_of: look_of.get(at..at + text.len()).unwrap_or(&[]),
+                };
+                setter.wrap(&para, wrap_w)
+            })
+            .collect()
+    };
+    let lines: Vec<Line> = set_lines(&setter);
     let words_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
     if words_w <= 0.0 || lines.is_empty() {
         // Nothing to paint: an empty, valid canvas.
@@ -1673,6 +1749,19 @@ fn paint(
     } else {
         words_w
     };
+    // A justified block is set twice: the first setting learns how wide
+    // the block is, and the second spreads each wrapped line to that
+    // width. A line stands as tall either way, so the drops and the
+    // block's height already worked out stand.
+    let lines = if style.align == Align::Justify {
+        let wide = Setter {
+            justify_w: Some(box_w),
+            ..setter
+        };
+        set_lines(&wide)
+    } else {
+        lines
+    };
     let box_h = if max_h > 0.0 {
         max_h.max(words_h)
     } else {
@@ -1691,7 +1780,7 @@ fn paint(
         // caption came out cut where a centred one did not. It slides back
         // in instead, as far as the canvas allows; one that fits stays on
         // its anchor.
-        Align::Left => anchor_x.min(width as f32 - outer_w).max(0.0),
+        Align::Left | Align::Justify => anchor_x.min(width as f32 - outer_w).max(0.0),
         Align::Center => anchor_x - outer_w / 2.0,
         Align::Right => (anchor_x - outer_w).max(0.0).min(width as f32 - outer_w),
     };
@@ -1700,7 +1789,7 @@ fn paint(
     let top = (frame_h - outer_h) / 2.0 + pad_y + (box_h - words_h) / 2.0;
     let block_dx = (outer_left + outer_w / 2.0 - anchor_x).round() as i32;
     let indent_of = |line: &Line| match style.align {
-        Align::Left => 0.0,
+        Align::Left | Align::Justify => 0.0,
         Align::Center => (box_w - line.width) / 2.0,
         Align::Right => box_w - line.width,
     };
@@ -2246,6 +2335,86 @@ mod tests {
             let exported = render(&fonts, &decorated, 640, 360).unwrap();
             assert_eq!(exported.words, painted.words);
         }
+    }
+
+    /// The rows a frame's words fall into, top to bottom.
+    fn rows_of(frame: &RenderedFrame) -> Vec<Vec<&WordRect>> {
+        let mut rows: Vec<Vec<&WordRect>> = Vec::new();
+        for word in &frame.words {
+            match rows.last_mut() {
+                Some(row) if row[0].y == word.y => row.push(word),
+                _ => rows.push(vec![word]),
+            }
+        }
+        rows
+    }
+
+    /// A row's span: its first word's left edge to its last word's right.
+    fn span_of(row: &[&WordRect]) -> i32 {
+        let right = row.iter().map(|w| w.x + w.width as i32).max().unwrap();
+        let left = row.iter().map(|w| w.x).min().unwrap();
+        right - left
+    }
+
+    #[test]
+    fn justified_lines_fill_the_box_but_the_last() {
+        let fonts = Fonts::new();
+        let mut justified = style("one two three four five six seven eight nine ten");
+        justified.align = Align::Justify;
+        justified.max_width = 0.3;
+        let frame = render_frame(&fonts, &justified, 640, 360).unwrap();
+        let rows = rows_of(&frame);
+        assert!(rows.len() >= 2, "the words wrapped: {} rows", rows.len());
+        let filled = span_of(&rows[0]);
+        assert!(
+            (filled - frame.block_width as i32).abs() <= 2,
+            "the first line fills the block: span {filled}, block {}",
+            frame.block_width
+        );
+        // The same words set left: the first line falls short of the
+        // block, and the last line is exactly what justify leaves alone.
+        let mut left = justified.clone();
+        left.align = Align::Left;
+        let plain = render_frame(&fonts, &left, 640, 360).unwrap();
+        let plain_rows = rows_of(&plain);
+        assert_eq!(rows.len(), plain_rows.len());
+        assert!(span_of(&plain_rows[0]) < filled);
+        assert_eq!(
+            span_of(rows.last().unwrap()),
+            span_of(plain_rows.last().unwrap())
+        );
+        // The block sits where a left-aligned one does.
+        assert_eq!(frame.block_dx, plain.block_dx);
+    }
+
+    #[test]
+    fn a_paragraphs_last_line_is_not_spread() {
+        let fonts = Fonts::new();
+        let mut justified = style("one two\nfour five six seven eight nine ten");
+        justified.align = Align::Justify;
+        justified.max_width = 0.3;
+        let frame = render_frame(&fonts, &justified, 640, 360).unwrap();
+        let rows = rows_of(&frame);
+        assert!(
+            rows.len() >= 3,
+            "two paragraphs, the second wrapped: {} rows",
+            rows.len()
+        );
+        let mut left = justified.clone();
+        left.align = Align::Left;
+        let plain = render_frame(&fonts, &left, 640, 360).unwrap();
+        let plain_rows = rows_of(&plain);
+        assert_eq!(rows.len(), plain_rows.len());
+        // The first paragraph is one line, and it is a last line: it
+        // keeps the exact span it has set left.
+        assert_eq!(span_of(&rows[0]), span_of(&plain_rows[0]));
+        // The second paragraph's wrapped line is spread to the block.
+        let filled = span_of(&rows[1]);
+        assert!(
+            (filled - frame.block_width as i32).abs() <= 2,
+            "the wrapped line fills the block: span {filled}, block {}",
+            frame.block_width
+        );
     }
 
     /// How many of the canvas's pixels inside `word` pass `test`, read

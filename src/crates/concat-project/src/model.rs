@@ -1940,6 +1940,10 @@ pub enum TextAlign {
     Center,
     /// Lines share a right edge, which is where the clip's position is.
     Right,
+    /// Lines are spread to fill the block's width, the last line of a
+    /// paragraph left as it falls. The block's left edge is the anchor,
+    /// as for left alignment.
+    Justify,
 }
 
 /// Which figure a shape clip draws. The names are written into project

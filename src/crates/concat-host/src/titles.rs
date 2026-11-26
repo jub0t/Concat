@@ -978,6 +978,7 @@ fn title_style(style: &TextStyle) -> TitleStyle {
             TextAlign::Left => Align::Left,
             TextAlign::Center => Align::Center,
             TextAlign::Right => Align::Right,
+            TextAlign::Justify => Align::Justify,
         },
         stroke_width: style.stroke_width,
         stroke_color: style.stroke_color.clone(),
