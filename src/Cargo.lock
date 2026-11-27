@@ -1323,6 +1323,7 @@ dependencies = [
  "concat-doc",
  "concat-effects",
  "concat-export",
+ "concat-import",
  "concat-log",
  "concat-media",
  "concat-render",

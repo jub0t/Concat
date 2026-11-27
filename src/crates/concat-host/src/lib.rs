@@ -28,6 +28,8 @@ pub mod consolidate;
 pub mod crash;
 pub mod cutout;
 pub mod dirs;
+#[cfg(test)]
+mod earlier_project_tests;
 pub mod enhance;
 pub mod export;
 pub mod export_apart;
