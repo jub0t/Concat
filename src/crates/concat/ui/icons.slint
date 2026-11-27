@@ -170,6 +170,8 @@ export enum Glyph {
     skip-back,
     skip-forward,
     text-mark,
+    /// a framed pair of caption lines
+    captions,
     // the start screen
     info,
     help,
@@ -906,6 +908,13 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.text-mark: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M12 4v16 M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2 M9 20h6";
+    }
+
+    // lucide/captions
+    if root.glyph == Glyph.captions: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+            + " M7 15h4 M15 15h2 M7 11h2 M13 11h4";
     }
 
     // lucide/step-back
