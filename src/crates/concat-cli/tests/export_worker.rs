@@ -133,10 +133,8 @@ fn export(cli: &mut Cli, folder: &Path) -> Value {
         "media.import",
         json!({"path": project, "file": source.to_string_lossy()}),
     );
-    let media = view["project"]["media"]
-        .as_array()
-        .and_then(|media| media.last())
-        .and_then(|media| media["id"].as_str())
+    let media = view["createdId"]
+        .as_str()
         .expect("the still's id")
         .to_owned();
     cli.call(

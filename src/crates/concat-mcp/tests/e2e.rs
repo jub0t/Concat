@@ -289,7 +289,7 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
     );
 
     agent.tool("project_save", json!({ "path": path }));
-    let saved = std::fs::read_to_string(Path::new(&path).join("concat.json")).expect("saved");
+    let saved = std::fs::read_to_string(Path::new(&path).join("project.concat")).expect("saved");
     assert!(saved.contains("Hello, agent"));
 
     let output = home.join("agent.mp4").to_string_lossy().into_owned();

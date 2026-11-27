@@ -1175,10 +1175,12 @@ mod tests {
             delete_to_playhead(bench.doc(), &[first], at, PlayheadSide::Right, true),
         ));
         assert_eq!(bench.doc().items.get(first).unwrap().len, doc_view::len(2.0));
-        // Off the ends, nothing is cut.
+        // Off the ends, nothing is cut: the second clip closed up behind
+        // the first, and the playhead is at its head.
+        let head = bench.doc().items.get(second).unwrap().start;
+        assert_eq!(head, at);
         assert!(
-            delete_to_playhead(bench.doc(), &[second], doc_view::tick(4.0), PlayheadSide::Left, false)
-                .is_none()
+            delete_to_playhead(bench.doc(), &[second], head, PlayheadSide::Left, false).is_none()
         );
     }
 

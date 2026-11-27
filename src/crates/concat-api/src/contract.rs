@@ -154,8 +154,6 @@ mod tests {
         for name in [
             "Command",
             "EditorView",
-            "Project",
-            "Clip",
             "ShapeStyle",
             "Event",
         ] {
