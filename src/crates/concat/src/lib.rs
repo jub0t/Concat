@@ -105,6 +105,12 @@ use panes::voiceover::VoiceoverMsg;
 use studio::{ASPECTS, Models, OUTPUTS, RATES, SIZES, Studio};
 use ui::*;
 
+/// The media files offered by the Import dialog.
+const IMPORT_MEDIA_EXTENSIONS: &[&str] = &[
+    "mp4", "mov", "mkv", "webm", "avi", "m4v", "mts", "m2ts", "mp3", "wav", "aac", "m4a", "flac",
+    "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "svg",
+];
+
 /// Opens this run's log file and makes it where the app writes things down.
 ///
 /// Each entry point calls this before [`run`], because each knows where its
@@ -1138,14 +1144,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             }
             host::pick_files_then(
                 i18n::t("lib.importMedia"),
-                Some((
-                    i18n::t("common.media"),
-                    &[
-                        "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a",
-                        "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
-                        "svg",
-                    ],
-                )),
+                Some((i18n::t("common.media"), IMPORT_MEDIA_EXTENSIONS)),
                 |studio, _, _, paths| studio.handle(Msg::Media(MediaMsg::Import(paths))),
             );
         });
@@ -3360,13 +3359,21 @@ fn leave(code: i32) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::close_window;
+    use super::{IMPORT_MEDIA_EXTENSIONS, close_window};
     use std::cell::{Cell, RefCell};
     use std::path::Path;
 
     use concat_doc::commands::Command;
     use concat_host::session::PendingSave;
     use concat_host::{Session, projects};
+
+    /// The desktop Import dialog offers the AVCHD footage the media reader
+    /// already accepts.
+    #[test]
+    fn the_import_filter_offers_avchd_footage() {
+        assert!(IMPORT_MEDIA_EXTENSIONS.contains(&"mts"));
+        assert!(IMPORT_MEDIA_EXTENSIONS.contains(&"m2ts"));
+    }
 
     /// A scratch folder that removes itself when the test ends, pass, fail or
     /// panic. Its name carries the process id and the thread's so two tests
