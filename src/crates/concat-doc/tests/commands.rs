@@ -7,13 +7,13 @@
 
 use concat_doc::commands::{
     Applied, ClipMove, Command, CommandError, Cue, Edge, Framing, ItemPatch, KeyProperty, LaneFlag,
-    MaskNumber, RunStyle, SpeedPoint, placeholder, run, speed_from_decimal,
+    MaskNumber, RunStyle, placeholder, run, speed_from_decimal, speed_graph,
 };
 use concat_doc::model::{
     Background, BeatMarks, CaptionLook, Color, ColorRange, Content, Cover, Crop, Cutout,
     CutoutMode, Ease, Effect, EffectId, Frame, Item, ItemId, LaneId, LinkKind, Mask, MaskId, Media,
-    MediaId, MediaKind, Model, Motion, Move, SequenceId, ShapeStyle, Size, Stabilize, Stroke,
-    Subject, Take, TimeCurve, TimeMap, Title, VoiceKind, VoiceMix,
+    MediaId, MediaKind, Model, Motion, Move, SequenceId, ShapeStyle, Size, SpeedGraph, SpeedPoint,
+    Stabilize, Stroke, Subject, Take, TimeCurve, TimeMap, Title, VoiceKind, VoiceMix,
 };
 use concat_doc::{
     Budget, Document, Entry as Step, History, Origin, TICKS_PER_SECOND, Tick, TickDur, TickLen,
@@ -1346,9 +1346,14 @@ fn a_straight_ramp_is_exact() {
     let Content::Media(cut) = &i.content else {
         panic!()
     };
-    let TimeMap::Keyed { first, rest } = &cut.time else {
+    let TimeMap::Keyed { first, rest, drawn } = &cut.time else {
         panic!("keyed")
     };
+    assert_eq!(
+        drawn.as_ref().map(|graph| (graph.from, graph.len)),
+        Some((Tick::ZERO, len(2.0))),
+        "the graph is over the window the curve gave the clip"
+    );
     assert_eq!(first.source, Tick::ZERO);
     assert_eq!(rest.len(), 1);
     assert!(matches!(rest[0].0, TimeCurve::Smooth { .. }));
@@ -1419,6 +1424,365 @@ fn a_smooth_curve_is_fitted_and_valid() {
         },
     );
     assert_eq!(item(&h, one), i);
+}
+
+/// Three eased points, as a person draws them in the speed pane.
+fn eased() -> Vec<SpeedPoint> {
+    [(0.0, 0.5, 0.25), (0.4, 4.0, 0.0), (1.0, 1.0, -1.5)]
+        .into_iter()
+        .map(|(at, speed, slope)| SpeedPoint {
+            at,
+            speed,
+            slope: Some(slope),
+        })
+        .collect()
+}
+
+fn curved(h: &mut Hist, seconds: f64) -> ItemId {
+    let a = add_media(h, video("a", seconds));
+    let one = clip_at(h, a, 0.0);
+    exec(
+        h,
+        Command::SetClipSpeedCurve {
+            item: one,
+            curve: Some(eased()),
+            ripple: false,
+        },
+    );
+    one
+}
+
+fn drawn(i: &Item) -> Option<SpeedGraph> {
+    match &i.content {
+        Content::Media(cut) => match &cut.time {
+            TimeMap::Keyed { drawn, .. } => drawn.clone(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn time_of(i: &Item) -> &TimeMap {
+    match &i.content {
+        Content::Media(cut) => &cut.time,
+        _ => panic!("a cut"),
+    }
+}
+
+#[test]
+fn a_speed_curve_comes_back_from_its_file_as_it_was_drawn() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    let i = item(&h, one);
+    assert!(time_of(&i).points().len() > 3, "fitted with more keys");
+    assert_eq!(speed_graph(&i), Some(eased()));
+    let text = concat_doc::file::write(h.current());
+    assert!(text.contains("\"drawn\":{\"from\":0,\"len\":"), "{text}");
+    let opened = concat_doc::file::read(text.as_bytes()).unwrap();
+    assert_eq!(opened.notes, []);
+    let back = opened.document.items.get(one).unwrap();
+    assert_eq!(**back, i);
+    assert_eq!(speed_graph(back), Some(eased()), "the three points drawn");
+    assert_eq!(concat_doc::file::write(&opened.document), text);
+}
+
+#[test]
+fn what_is_given_for_a_graph_is_kept_tidy_and_nothing_is_added() {
+    let mut h = project();
+    let a = add_media(&mut h, video("a", 10.0));
+    let one = clip_at(&mut h, a, 0.0);
+    let point = |at, speed, slope| SpeedPoint { at, speed, slope };
+    exec(
+        &mut h,
+        Command::SetClipSpeedCurve {
+            item: one,
+            curve: Some(vec![
+                point(0.8, 40.0, Some(9.0)),
+                point(f64::NAN, 1.0, Some(0.0)),
+                point(0.2, 0.001, Some(f64::INFINITY)),
+                point(1.5, 2.0, Some(-9.0)),
+            ]),
+            ripple: false,
+        },
+    );
+    // In order, held to the span and to the range, what is no number
+    // gone; no point at the start, and no slope limited.
+    assert_eq!(
+        speed_graph(&item(&h, one)),
+        Some(vec![
+            point(0.2, 1.0 / 16.0, Some(0.0)),
+            point(0.8, 16.0, Some(9.0)),
+            point(1.0, 2.0, Some(-9.0)),
+        ])
+    );
+}
+
+#[test]
+fn setting_the_graph_a_clip_shows_changes_nothing() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    let (revision, steps) = (h.current().revision(), h.undo_len());
+    let shown = speed_graph(&item(&h, one));
+    let outcome = run(
+        h.current(),
+        &Command::SetClipSpeedCurve {
+            item: one,
+            curve: shown,
+            ripple: false,
+        },
+        Origin(0),
+    )
+    .unwrap();
+    assert!(outcome.commit.is_none(), "no step");
+    assert_eq!(h.current().revision(), revision);
+    assert_eq!(h.undo_len(), steps);
+    // The same after a save and an open.
+    let text = concat_doc::file::write(h.current());
+    let opened = concat_doc::file::read(text.as_bytes()).unwrap().document;
+    let shown = speed_graph(opened.items.get(one).unwrap());
+    let command = Command::SetClipSpeedCurve {
+        item: one,
+        curve: shown,
+        ripple: true,
+    };
+    assert!(run(&opened, &command, Origin(0)).unwrap().commit.is_none());
+}
+
+#[test]
+fn a_trim_and_a_split_keep_the_graph() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    let whole = item(&h, one);
+    let graph = drawn(&whole).unwrap();
+    assert_eq!((graph.from, graph.len), (whole.offset, whole.len));
+    assert_eq!(graph.points, eased());
+    let l = whole.len.get() as f64;
+
+    // The tail trimmed to three quarters: the drawn points inside, at
+    // their shares of what is left, and the pace of the map at each edge.
+    let cut = TickDur::new(whole.len.get() / 4);
+    exec(
+        &mut h,
+        Command::TrimClip {
+            item: one,
+            edge: Edge::Tail,
+            delta: -cut,
+            ripple: false,
+        },
+    );
+    let i = item(&h, one);
+    assert_eq!(drawn(&i), Some(graph.clone()), "the graph as it was drawn");
+    assert_eq!(time_of(&i), time_of(&whole), "and the keys");
+    let shown = speed_graph(&i).unwrap();
+    let window = i.len.get() as f64;
+    let scale = window / l;
+    assert_eq!(shown.len(), 3, "{shown:?}");
+    assert_eq!(shown[0].at, 0.0);
+    assert_eq!(
+        shown[0].speed,
+        time_of(&i).pace_at(i.offset).unwrap(),
+        "the pace of the map where the window starts"
+    );
+    assert!((shown[0].speed - 0.5).abs() < 1e-4, "{shown:?}");
+    assert!((shown[0].slope.unwrap() - 0.25 * scale).abs() < 1e-9);
+    assert_eq!(shown[1].at, 0.4 * l / window);
+    assert_eq!(shown[1].speed, 4.0);
+    assert_eq!(shown[1].slope, Some(0.0));
+    assert_eq!(shown[2].at, 1.0);
+    let end = i.offset + i.len;
+    let last = time_of(&i).pace_at(end - TickDur::new(1)).unwrap();
+    assert_eq!(shown[2].speed, last, "and where it ends");
+    assert!(shown[2].slope.is_some_and(f64::is_finite));
+    // The speed there is on the curve between the second point and the
+    // third: below four, above one.
+    assert!(last > 1.0 && last < 4.0, "{last}");
+
+    // Split at a third of what is left: each half shows its own part.
+    let at = Tick::new(i.len.get() / 3);
+    let tail: ItemId = created(&exec(
+        &mut h,
+        Command::SplitClips {
+            items: vec![one],
+            at,
+        },
+    ));
+    let (head, tail_item) = (item(&h, one), item(&h, tail));
+    assert_eq!(drawn(&head), Some(graph.clone()));
+    assert_eq!(drawn(&tail_item), Some(graph.clone()));
+    let head_shown = speed_graph(&head).unwrap();
+    // The cut is before the second point: the head has its edges only.
+    assert_eq!(
+        head_shown.iter().map(|p| p.at).collect::<Vec<_>>(),
+        [0.0, 1.0]
+    );
+    let tail_shown = speed_graph(&tail_item).unwrap();
+    assert_eq!(tail_shown.len(), 3, "{tail_shown:?}");
+    let tail_window = tail_item.len.get() as f64;
+    let second = (0.4 * l - (tail_item.offset - graph.from).get() as f64) / tail_window;
+    assert!((tail_shown[1].at - second).abs() < 1e-12);
+    assert_eq!(tail_shown[1].speed, 4.0);
+    // Where the head ends the tail begins, at one pace.
+    assert!((head_shown[1].speed - tail_shown[0].speed).abs() < 1e-6);
+    assert_eq!(
+        tail_shown[0].speed,
+        time_of(&tail_item).pace_at(tail_item.offset).unwrap()
+    );
+    for shown in [&head_shown, &tail_shown] {
+        assert!(shown.windows(2).all(|pair| pair[0].at < pair[1].at));
+        assert!(shown.iter().all(|p| p.slope.is_some()), "still eased");
+    }
+
+    // Merged, and the tail trimmed back out: the three points drawn.
+    exec(
+        &mut h,
+        Command::MergeClips {
+            items: vec![one, tail],
+        },
+    );
+    exec(
+        &mut h,
+        Command::TrimClip {
+            item: one,
+            edge: Edge::Tail,
+            delta: cut,
+            ripple: false,
+        },
+    );
+    assert_eq!(item(&h, one), whole);
+    assert_eq!(speed_graph(&item(&h, one)), Some(eased()));
+
+    // The head trimmed: the window starts later on the same graph.
+    exec(
+        &mut h,
+        Command::TrimClip {
+            item: one,
+            edge: Edge::Head,
+            delta: TickDur::new(whole.len.get() / 2),
+            ripple: false,
+        },
+    );
+    let i = item(&h, one);
+    assert_eq!(drawn(&i), Some(graph.clone()));
+    let shown = speed_graph(&i).unwrap();
+    assert_eq!(
+        shown.iter().map(|p| p.at).collect::<Vec<_>>(),
+        [0.0, 1.0],
+        "the second point is before the window"
+    );
+    assert!((shown[1].speed - 1.0).abs() < 1e-4, "{shown:?}");
+    assert!((shown[1].slope.unwrap() - -1.5 * 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_copy_and_a_detached_sound_keep_the_graph() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    let graph = drawn(&item(&h, one));
+    let copy: ItemId = created(&exec(&mut h, Command::DuplicateClips { items: vec![one] }));
+    assert_eq!(drawn(&item(&h, copy)), graph);
+    assert_eq!(speed_graph(&item(&h, copy)), Some(eased()));
+    let sound: ItemId = created(&exec(&mut h, Command::DetachAudio { item: one }));
+    assert_eq!(drawn(&item(&h, sound)), graph);
+}
+
+#[test]
+fn a_constant_speed_leaves_no_graph() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    exec(
+        &mut h,
+        Command::SetClipSpeed {
+            item: one,
+            speed: speed_from_decimal(2.0).unwrap(),
+            ripple: false,
+        },
+    );
+    let i = item(&h, one);
+    assert!(matches!(time_of(&i), TimeMap::Linear { .. }));
+    assert_eq!(drawn(&i), None);
+    assert_eq!(speed_graph(&i), None);
+    let text = concat_doc::file::write(h.current());
+    assert!(!text.contains("drawn"), "{text}");
+    // A curve taken off leaves none either.
+    let two = curved(&mut h, 10.0);
+    assert!(speed_graph(&item(&h, two)).is_some());
+    exec(
+        &mut h,
+        Command::SetClipSpeedCurve {
+            item: two,
+            curve: None,
+            ripple: false,
+        },
+    );
+    assert_eq!(speed_graph(&item(&h, two)), None);
+}
+
+#[test]
+fn a_curve_drawn_at_the_fastest_and_slowest_pace_is_made() {
+    for (seconds, speeds) in [
+        (10.0, [16.0, 16.0, 16.0]),
+        (7.3, [16.0, 16.0, 16.0]),
+        (7.3, [0.0625, 0.0625, 0.0625]),
+        (7.3, [0.0625, 16.0, 16.0]),
+        (3.1, [1.0, 16.0, 16.0]),
+        (3.1, [16.0, 16.0, 1.0]),
+        (9.7, [16.0, 0.0625, 16.0]),
+    ] {
+        for slope in [None, Some(0.0)] {
+            let mut h = project();
+            let a = add_media(&mut h, video("a", seconds));
+            let one = clip_at(&mut h, a, 0.0);
+            let curve: Vec<SpeedPoint> = [0.0, 0.5, 1.0]
+                .into_iter()
+                .zip(speeds)
+                .map(|(at, speed)| SpeedPoint { at, speed, slope })
+                .collect();
+            let made = try_exec(
+                &mut h,
+                Command::SetClipSpeedCurve {
+                    item: one,
+                    curve: Some(curve.clone()),
+                    ripple: false,
+                },
+            );
+            assert!(made.is_ok(), "{seconds} s at {speeds:?}: {made:?}");
+            let i = item(&h, one);
+            assert_eq!(speed_graph(&i), Some(curve));
+            // All of the file, as before.
+            assert_eq!(time_of(&i).source_at(i.offset), Some(Tick::ZERO));
+            assert_eq!(time_of(&i).source_at(i.offset + i.len), Some(secs(seconds)));
+        }
+    }
+}
+
+#[test]
+fn keys_that_were_not_drawn_show_a_point_each() {
+    let mut h = project();
+    let one = curved(&mut h, 10.0);
+    // The same keys with no graph, as keys from anywhere else are.
+    let i = item(&h, one);
+    let mut draft = h.current().begin("Keys", Origin(0));
+    draft
+        .items
+        .update(one, |item| {
+            if let Content::Media(cut) = &mut item.content
+                && let TimeMap::Keyed { drawn, .. } = &mut cut.time
+            {
+                *drawn = None;
+            }
+        })
+        .unwrap();
+    let doc = draft.commit().unwrap().into_document();
+    let bare = doc.items.get(one).unwrap();
+    let keys = time_of(bare).points();
+    let shown = speed_graph(bare).unwrap();
+    assert_eq!(shown.len(), keys.len());
+    for (point, key) in shown.iter().zip(&keys) {
+        assert_eq!(point.at, (key.at - i.offset).get() as f64 / i.len.get() as f64);
+        assert_eq!(point.speed, time_of(bare).pace_at(key.at).unwrap());
+        assert_eq!(point.slope, None);
+    }
+    assert_eq!((shown[0].at, shown[shown.len() - 1].at), (0.0, 1.0));
 }
 
 // ----- Keys -----

@@ -14,9 +14,9 @@ use concat_doc::model::{
     Animated, Background, BrushTool, CaptionLook, Color, Content, Cover, Crop, Cutout, CutoutMode,
     Derived, Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link,
     LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey,
-    Param, Raw, Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize,
-    Stroke, Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation,
-    VoiceKind, VoiceMix,
+    Param, Raw, Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, SpeedGraph,
+    SpeedPoint, Stabilize, Stroke, Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap,
+    TimePoint, Title, Violation, VoiceKind, VoiceMix,
 };
 use concat_doc::{
     ChangeSet, Document, Entry as HistoryEntry, History, Origin, Recorded, Rejected, Tick, TickDur,
@@ -1058,6 +1058,7 @@ fn keyed(points: &[(f64, f64)], curve: TimeCurve) -> TimeMap {
     TimeMap::Keyed {
         first,
         rest: points.map(|point| (curve.clone(), point)).collect(),
+        drawn: None,
     }
 }
 
@@ -2451,6 +2452,93 @@ fn a_caption_look_with_words_is_refused() {
             .unwrap();
     });
     assert!(doc.lanes.get(fx.high).unwrap().captions.is_some());
+}
+
+// --- 50. Speed graphs ---------------------------------------------------------
+
+#[test]
+fn a_broken_speed_graph_is_refused() {
+    let mut fx = fixture();
+    let clip = place(&mut fx.doc, cut(fx.low, 0.0, 1.0, fx.video));
+    let point = |at: f64, speed: f64, slope: Option<f64>| SpeedPoint { at, speed, slope };
+    let graph = |points: Vec<SpeedPoint>| SpeedGraph {
+        from: Tick::ZERO,
+        len: len(1.0),
+        points,
+    };
+    let with = |fx: &Fixture, graph: SpeedGraph| {
+        let TimeMap::Keyed { first, rest, .. } = keyed(&[(0.0, 0.0), (1.0, 1.0)], TimeCurve::Linear)
+        else {
+            unreachable!("keyed")
+        };
+        with_time(
+            fx,
+            TimeMap::Keyed {
+                first,
+                rest,
+                drawn: Some(graph),
+            },
+        )
+    };
+    let what = "content.time.drawn";
+    let far = SpeedGraph {
+        from: Tick::new(TICK_LIMIT),
+        ..graph(vec![point(0.0, 1.0, None)])
+    };
+    let broken = [
+        (graph(vec![]), Rule::SpeedGraphEmpty),
+        (
+            graph(vec![point(0.0, f64::NAN, None)]),
+            Rule::NotFinite { what },
+        ),
+        (
+            graph(vec![point(0.0, 1.0, Some(f64::INFINITY))]),
+            Rule::NotFinite { what },
+        ),
+        (
+            graph(vec![point(1.5, 1.0, None)]),
+            Rule::OutOfBounds { what },
+        ),
+        (
+            graph(vec![point(0.5, 1.0, None), point(0.25, 1.0, None)]),
+            Rule::KeysOutOfOrder { what },
+        ),
+        (
+            graph(vec![point(0.0, 17.0, None)]),
+            Rule::SpeedNotAllowed { what },
+        ),
+        (
+            graph(vec![point(0.0, 0.05, None)]),
+            Rule::SpeedNotAllowed { what },
+        ),
+        (far, Rule::OutOfRange { what }),
+    ];
+    for (graph, rule) in broken {
+        let content = with(&fx, graph);
+        assert_refused(&fx.doc, clip, rule, |draft| {
+            draft
+                .items
+                .update(clip, |item| item.content = content)
+                .unwrap();
+        });
+    }
+    // One point, a step of two at one share, and the limits themselves
+    // all stand.
+    let content = with(
+        &fx,
+        graph(vec![
+            point(0.0, 1.0 / 16.0, Some(-3.0)),
+            point(0.5, 16.0, None),
+            point(0.5, 1.0, None),
+            point(1.0, 1.0, None),
+        ]),
+    );
+    apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(clip, |item| item.content = content)
+            .unwrap();
+    });
 }
 
 /// A caption lane's captions in the look given: ordinary titles, each

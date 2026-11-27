@@ -8,13 +8,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use concat_doc::commands::{self, Command, MIN_LEN, SpeedPoint, speed_from_decimal};
+use concat_doc::commands::{self, Command, MIN_LEN, speed_from_decimal};
 use concat_doc::model::{
     Animated, Background, Blend, BrushTool, Content, Crop, CutIn, Cutout, CutoutMode, Effect,
     Enhanced, Entry, Frame, Item, ItemId, Key, Lane, LaneId, Loop, Mask, MaskId, MaskMode,
     MaskShape, MaskSource, Media, MediaCut, MediaId, MediaKind, Model, Motion, Move, OrderKey,
-    Param, Picture, Sequence, Sound, Speed, Stabilize, Stroke, Subject, Take, TimeMap, VoiceKind,
-    VoiceMix,
+    Param, Picture, Sequence, Sound, Speed, SpeedPoint, Stabilize, Stroke, Subject, Take, TimeMap,
+    VoiceKind, VoiceMix,
 };
 use concat_doc::{Document, Origin, Tick, TickDur, TickLen};
 use serde_json::Value;

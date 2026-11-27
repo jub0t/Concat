@@ -2519,7 +2519,7 @@ pub fn to_doc(model: &Model, command: &Command) -> Result<doc::Command, String> 
             curve: curve.as_ref().map(|points| {
                 points
                     .iter()
-                    .map(|p| doc::SpeedPoint {
+                    .map(|p| m::SpeedPoint {
                         at: p.at,
                         speed: p.speed,
                         slope: p.slope,

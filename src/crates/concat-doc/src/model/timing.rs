@@ -13,7 +13,10 @@
 //!   split and a merge give back the item to the tick.
 //! - **Source time** is a place in the file or the nested sequence. A
 //!   [`TimeMap`] takes content time to it: a constant [`Speed`] from an
-//!   in-point, or position keys for speed that changes.
+//!   in-point, or position keys for speed that changes. Keys worked out
+//!   from a speed graph keep the graph beside them, as it was drawn
+//!   ([`SpeedGraph`]): the keys are what plays, and the graph is what the
+//!   speed pane shows.
 //!
 //! Timeline tick `t` of an item is content tick `t - start + offset`.
 //!
@@ -147,9 +150,91 @@ pub enum TimeMap {
         /// The rest, each with how it is reached from the one before.
         /// Never empty: a map has at least two keys.
         rest: Vec<(TimeCurve, TimePoint)>,
+        /// The speed graph the keys were worked out from, as the person
+        /// drew it; none for keys that came from anywhere else. The keys
+        /// are what plays: the graph is what the speed pane shows.
+        drawn: Option<SpeedGraph>,
     },
     /// A kind of map this build does not know.
     Unknown(Raw),
+}
+
+/// One point of a speed graph, as the speed pane draws it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SpeedPoint {
+    /// Where, as a share of the span the graph is drawn over: 0 at its
+    /// start, 1 at its end.
+    pub at: f64,
+    /// Source per timeline there: its size, whichever way the source
+    /// runs.
+    pub speed: f64,
+    /// How fast the speed changes there, per unit of `at`. When every
+    /// point has one the curve bends through them; otherwise it runs
+    /// straight between them.
+    pub slope: Option<f64>,
+}
+
+/// A speed graph as a person drew it: the points, and the span of
+/// content time they were drawn over.
+///
+/// The span is the window the item showed when the graph was set. A trim
+/// or a split moves the window and leaves the span, so the points keep
+/// their places on content time, as the keys worked out from them do.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SpeedGraph {
+    /// Where on content time the span starts.
+    pub from: Tick,
+    /// How long the span is.
+    pub len: TickLen,
+    /// The points, in order of `at`. Two at one share are a step.
+    pub points: Vec<SpeedPoint>,
+}
+
+/// What is wrong with a speed graph.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GraphFault {
+    /// Its span starts or ends outside the document's range.
+    OutOfRange,
+    /// It has no points.
+    Empty,
+    /// One of its numbers is not a finite number.
+    NotFinite,
+    /// A point is outside the span: its share is below 0 or above 1.
+    OutOfBounds,
+    /// Its points are not in order of their shares.
+    OutOfOrder,
+    /// A speed is slower than a sixteenth or faster than sixteen times.
+    SpeedNotAllowed,
+}
+
+impl SpeedGraph {
+    /// What is wrong with it, if anything: the first fault found.
+    pub fn fault(&self) -> Option<GraphFault> {
+        let ends = self.from.checked_add(self.len).is_some_and(tick_in_range);
+        if !tick_in_range(self.from) || !len_in_range(self.len) || !ends {
+            return Some(GraphFault::OutOfRange);
+        }
+        if self.points.is_empty() {
+            return Some(GraphFault::Empty);
+        }
+        let finite = |p: &SpeedPoint| {
+            p.at.is_finite() && p.speed.is_finite() && p.slope.is_none_or(f64::is_finite)
+        };
+        if !self.points.iter().all(finite) {
+            return Some(GraphFault::NotFinite);
+        }
+        if self.points.iter().any(|p| !(0.0..=1.0).contains(&p.at)) {
+            return Some(GraphFault::OutOfBounds);
+        }
+        if self.points.windows(2).any(|pair| pair[0].at > pair[1].at) {
+            return Some(GraphFault::OutOfOrder);
+        }
+        let (low, high) = (SLOWEST.display(), FASTEST.display());
+        if self.points.iter().any(|p| !(low..=high).contains(&p.speed)) {
+            return Some(GraphFault::SpeedNotAllowed);
+        }
+        None
+    }
 }
 
 /// A position key: this content tick shows this source tick.
@@ -192,7 +277,7 @@ impl TimeMap {
     /// Every key, first to last; none for a linear map.
     pub fn points(&self) -> Vec<TimePoint> {
         match self {
-            TimeMap::Keyed { first, rest } => std::iter::once(*first)
+            TimeMap::Keyed { first, rest, .. } => std::iter::once(*first)
                 .chain(rest.iter().map(|(_, point)| *point))
                 .collect(),
             TimeMap::Linear { .. } | TimeMap::Unknown(_) => Vec::new(),
@@ -209,7 +294,7 @@ impl TimeMap {
             TimeMap::Linear { src_in, speed } => {
                 src_in.checked_add(speed.of(TickDur::new(c.get()))?)
             }
-            TimeMap::Keyed { first, rest } => {
+            TimeMap::Keyed { first, rest, .. } => {
                 let mut from = *first;
                 if c == from.at {
                     return Some(from.source);
@@ -266,7 +351,7 @@ impl TimeMap {
     pub fn pace_at(&self, c: Tick) -> Option<f64> {
         match self {
             TimeMap::Linear { speed, .. } => Some(speed.display()),
-            TimeMap::Keyed { first, rest } => {
+            TimeMap::Keyed { first, rest, .. } => {
                 let mut from = *first;
                 for (curve, to) in rest {
                     if c >= from.at && c < to.at {
@@ -314,7 +399,7 @@ impl TimeMap {
 
     /// The smooth stretch `c` is on, with its speeds leaving and arriving.
     fn smooth_stretch(&self, c: Tick) -> Option<(TimePoint, TimePoint, f64, f64)> {
-        let TimeMap::Keyed { first, rest } = self else {
+        let TimeMap::Keyed { first, rest, .. } = self else {
             return None;
         };
         let mut from = *first;

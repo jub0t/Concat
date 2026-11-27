@@ -30,8 +30,10 @@ use std::sync::atomic::AtomicBool;
 
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
-use concat_doc::commands::{Command, Edge, ItemPatch, SpeedPoint, placeholder};
-use concat_doc::model::{Background, CutIn, Effect, ItemId, Loop, MediaId, Motion, Move, Title};
+use concat_doc::commands::{Command, Edge, ItemPatch, placeholder};
+use concat_doc::model::{
+    Background, CutIn, Effect, ItemId, Loop, MediaId, Motion, Move, SpeedPoint, Title,
+};
 use concat_doc::{AnyId, Tick, TickDur, TickLen};
 use concat_host::dirs::AppDirs;
 use concat_host::export::{self, ExportSpec};

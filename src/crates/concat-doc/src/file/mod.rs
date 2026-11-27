@@ -54,6 +54,10 @@
 //!   read exactly. A rate or a speed is `{"num":30000,"den":1001}`, an id
 //!   its string, a colour `"#rrggbb"` or `"#rrggbbaa"`, a number with keys
 //!   `{"value":1,"keys":[{"at":0,"value":0}]}`.
+//! - **A speed curve** is its position keys and, when a person drew it,
+//!   the graph they drew: `{"keyed":{"keys":[{"at":0,"source":0},...],
+//!   "drawn":{"from":0,"len":1411200000,"points":[{"at":0,"speed":1},
+//!   {"at":1,"speed":3}]}}}`.
 //!
 //! # The layout, measured
 //!
@@ -114,11 +118,13 @@
 //! id is set aside. Reading ends in a [`Document`] that keeps every
 //! rule, and the list of what was set aside and why.
 //!
-//! Three things are put right rather than set aside, each said in a
+//! Four things are put right rather than set aside, each said in a
 //! note: a caption lane's look that holds words of its own has them
-//! taken out; a count of ids below an id the file holds is raised past
-//! it, unread text included, so that no id is ever made twice; and a
-//! document with sequences and none showing shows its first.
+//! taken out; a speed graph that cannot be read or breaks a rule is left
+//! out, and the keys worked out from it, which are what plays, stay; a
+//! count of ids below an id the file holds is raised past it, unread
+//! text included, so that no id is ever made twice; and a document with
+//! sequences and none showing shows its first.
 
 mod form;
 mod input;
@@ -1243,6 +1249,7 @@ fn rule_words(rule: &Rule) -> String {
         }
         Rule::TimeNotMonotone => "its time map stands still or turns back".into(),
         Rule::WindowPastKeys => "it shows time past its time map's keys".into(),
+        Rule::SpeedGraphEmpty => "its speed graph has no points".into(),
         Rule::WindowPastSource { source } => {
             format!("it shows more of {source} than the file has")
         }
