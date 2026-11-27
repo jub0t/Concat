@@ -495,18 +495,12 @@ impl Runner<'_> {
             return Ok(());
         };
         let id = match method.as_str() {
-            "media.import" => {
+            // The bin's id for the file: the one it has already, for a
+            // file imported before.
+            "media.import" => view.created_id.clone().ok_or_else(|| {
                 let file = value["file"].as_str().unwrap_or_default();
-                let wanted = canonical(file);
-                view.project
-                    .media
-                    .iter()
-                    .find(|item| canonical(&item.path) == wanted)
-                    .map(|item| item.id.clone())
-                    .ok_or_else(|| {
-                        format!("step {at}: {file} is not in the bin after its import")
-                    })?
-            }
+                format!("step {at}: {file} is not in the bin after its import")
+            })?,
             "edit.apply" => view
                 .created_id
                 .clone()
@@ -776,12 +770,10 @@ impl Runner<'_> {
             path: project.to_owned(),
         })? {
             Reply::View(view) => view
-                .project
-                .active()
-                .clips
-                .iter()
-                .map(|clip| clip.start + clip.duration)
-                .fold(0.0, f64::max),
+                .document()
+                .map_err(|error| format!("project.get answered with no document: {error}"))?
+                .showing_end()
+                .display_seconds(),
             _ => return Err("project.get did not answer with the project".to_owned()),
         };
         let length = (end * self.case.fps()).round() as u32;

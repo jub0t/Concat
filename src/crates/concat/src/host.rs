@@ -22,6 +22,7 @@ use concat_host::jobs::sched;
 pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_host::playback::{Playback, PlaybackEvents};
 use concat_host::preview::Monitor;
+use concat_doc::model::MediaKind;
 use concat_host::{AppDirs, media};
 use concat_speech::{Speech, Transcriber};
 
@@ -760,9 +761,8 @@ pub fn cached_media_art(
     project: &str,
     id: &str,
     path: &str,
-    kind: concat_project::model::MediaKind,
+    kind: MediaKind,
 ) -> CachedMediaArt {
-    use concat_project::model::MediaKind;
 
     if kind == MediaKind::Audio {
         return CachedMediaArt {
@@ -1032,8 +1032,8 @@ const POSTER_WIDTH: u32 = 160;
 /// in, and no further than two seconds - past the black leader so many
 /// files open on, and near enough the top to be quick to reach. A
 /// still's only picture is its first.
-fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>) -> f64 {
-    if kind == concat_project::model::MediaKind::Image {
+fn poster_instant(kind: &MediaKind, duration: Option<f64>) -> f64 {
+    if *kind == MediaKind::Image {
         return 0.0;
     }
     duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0))
@@ -1050,16 +1050,15 @@ fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>)
 pub fn media_poster(
     id: String,
     path: String,
-    kind: concat_project::model::MediaKind,
+    kind: MediaKind,
     duration: Option<f64>,
     project: String,
 ) -> MediaPoster {
-    use concat_project::model::MediaKind;
     let thumbnail = match kind {
         MediaKind::Video | MediaKind::Image => {
-            media::card_still(&path, poster_instant(kind, duration), POSTER_WIDTH).ok()
+            media::card_still(&path, poster_instant(&kind, duration), POSTER_WIDTH).ok()
         }
-        MediaKind::Audio => None,
+        MediaKind::Audio | MediaKind::Unknown(_) => None,
     };
     let strip = (kind == MediaKind::Image)
         .then(|| thumbnail.clone().map(|frame| (frame, 1)))

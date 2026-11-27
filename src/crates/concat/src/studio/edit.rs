@@ -65,7 +65,7 @@ impl Studio {
     /// The monitor's quality tier for the sequence showing: 0 full, 1 half,
     /// 2 quarter; see `MonitorPane::quality_of`.
     pub fn quality_of(&self) -> usize {
-        self.monitor.quality_of(self.output_size())
+        self.monitor.quality_of(self.doc())
     }
 
     /// The track a row index names. Rows count from the top of the panel and
@@ -464,7 +464,7 @@ impl Studio {
 
     /// [`Studio::apply`] for an edit that makes an item, answering with its
     /// id as the panels hold it.
-    pub(super) fn apply_making(&mut self, command: Command) -> Option<String> {
+    pub(crate) fn apply_making(&mut self, command: Command) -> Option<String> {
         made_item(self.apply(command))
     }
 

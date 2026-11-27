@@ -520,7 +520,7 @@ impl SpeechPane {
                     Ok(summary) => {
                         // Marked as read aloud: the bin shelves it under
                         // Generated › Speech, apart from the imports.
-                        let mut media = summary.to_media();
+                        let mut media = summary.to_new_media();
                         media.origin = Some(MediaOrigin::Speech);
                         let created = studio.apply(Command::AddMedia { media });
                         let media_id = created.and_then(|id| id.typed::<MediaId>()).or_else(|| {

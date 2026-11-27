@@ -81,7 +81,7 @@ impl Studio {
             let dir = concat_vision::mask_dir(
                 &request.project,
                 &request.media_path,
-                request.subject.clone(),
+                &request.subject,
             );
             if self.failed_analyses.contains(&dir) {
                 continue;
@@ -295,7 +295,7 @@ impl Studio {
     /// with the bin showing all its media so the new file is in view.
     ///
     /// The export's own audio path does the work, on the clip alone: the
-    /// document is flattened with just this clip on it, the one export
+    /// sequence is flattened as if just this clip were on it, the one export
     /// clip that comes out is moved to the origin, and the mixer writes it
     /// the way it writes an export's soundtrack.
     ///
@@ -319,16 +319,15 @@ impl Studio {
         else {
             return;
         };
-        let mut alone = Doc::clone(self.doc());
-        let others: Vec<ItemId> = alone.items.ids().filter(|other| *other != item_id).collect();
-        for other in others {
-            let _ = alone.items.remove(other);
-        }
-        let Some(mut piece) =
-            concat_export::flatten::flatten_timeline_in(&alone, None, Some(&project_dir))
-                .into_iter()
-                .next()
-        else {
+        let alone = doc_view::showing(self.doc()).map_or_else(Vec::new, |sequence| {
+            concat_export::flatten::clips_of(
+                self.doc(),
+                sequence,
+                Some(&[item_id]),
+                Some(&project_dir),
+            )
+        });
+        let Some(mut piece) = alone.into_iter().next() else {
             self.notify(&t("studio.clipHasNoSound"), true);
             return;
         };
@@ -427,7 +426,7 @@ impl Studio {
             },
             move |studio, _, _, result| match result {
                 Ok(summary) => {
-                    let media = summary.to_media();
+                    let media = summary.to_new_media();
                     let path = media.path.clone();
                     let minted = studio
                         .apply(Command::AddMedia { media })
@@ -890,7 +889,7 @@ impl Studio {
                 return;
             }
         };
-        let mut file = summary.to_media();
+        let mut file = summary.to_new_media();
         if let Some(original) = doc_view::media_of(self.doc(), &clip) {
             file.name = format!("{} (reversed)", original.name);
         }
@@ -936,7 +935,7 @@ impl Studio {
                 return;
             }
         };
-        let mut file = summary.to_media();
+        let mut file = summary.to_new_media();
         // The bin names the copy after the original, marked with what it
         // was made with - one file can have a copy for each setting -
         // rather than after its cache file.

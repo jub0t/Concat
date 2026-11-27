@@ -55,8 +55,7 @@ impl Studio {
         let clips = if cached {
             std::sync::Arc::clone(&self.flat.as_ref().expect("checked").3)
         } else {
-            let mut clips =
-                concat_export::flatten::flatten_timeline_in(self.doc(), None, Some(&project_dir));
+            let mut clips = doc_view::flattened(self.doc(), Some(&project_dir));
             // Titles, painted to pictures and rejoined; see concat-host's
             // titles. Always at the output's own size, whatever the
             // monitor's quality: a title is painted once, the monitor
@@ -80,7 +79,7 @@ impl Studio {
             };
             for title in titles {
                 self.title_blocks
-                    .insert(title.clip_id, (title.block, title.offset));
+                    .insert(title.clip_id.to_string(), (title.block, title.offset));
                 if let Some(held) = title.held {
                     self.host
                         .monitor
@@ -104,7 +103,7 @@ impl Studio {
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
         if let Some(filter_id) = self.audition.clone() {
-            let effects = vec![doc_view::new_effect(&filter_id)];
+            let effects = vec![concat_effects::AppliedFilter::new(filter_id)];
             let track = clips
                 .iter()
                 .map(|flat| flat.track)

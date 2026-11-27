@@ -173,7 +173,7 @@ impl Studio {
                 };
                 let outcome = written.and_then(|()| {
                     let summary = media::probe(&output.to_string_lossy())?;
-                    let mut file = summary.to_media();
+                    let mut file = summary.to_new_media();
                     file.name = t("studio.mergedClips");
                     file.origin = Some(model::MediaOrigin::Processed);
                     studio.flush_commit();

@@ -60,7 +60,7 @@ KEY = re.compile(r"^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$")
 INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(?:pub(?:\([a-z]+\))?\s+)?mod\s+\w+\s*\{")
 # Files outside the window's crate that hold keys as data, for the window to
 # translate by name: every literal in them shaped like a key is one.
-KEY_TABLES = ["src/crates/concat-project/src/speed.rs"]
+KEY_TABLES: list[str] = []
 # One entry of i18n.rs's BUILT_IN: `("pt-BR", include_str!("../locales/pt-BR.json")),`.
 BUILT_IN_ENTRY = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("\.\./locales/([^"]+)\.json"\)\s*\)')
 

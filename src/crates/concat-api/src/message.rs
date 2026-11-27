@@ -548,6 +548,15 @@ pub struct EditorView {
     pub created_id: Option<String>,
 }
 
+impl EditorView {
+    /// The document the view carries, read as its file is read.
+    pub fn document(&self) -> Result<concat_doc::Document<concat_doc::model::Model>, String> {
+        concat_doc::file::read(self.project.to_string().as_bytes())
+            .map(|opened| opened.document)
+            .map_err(|error| error.to_string())
+    }
+}
+
 /// The session's settings, as a caller reads them.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Serialize, Clone, Debug)]

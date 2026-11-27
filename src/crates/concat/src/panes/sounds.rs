@@ -633,7 +633,7 @@ impl Studio {
                 .map_err(|error| tf("sounds.couldNotCopy", &[&name, &error]))?;
         }
         let summary = concat_host::media::probe(&target_text)?;
-        let mut media = summary.to_media();
+        let mut media = summary.to_new_media();
         media.name = format!("{name}{extension}");
         let created = self.apply(Command::AddMedia { media });
         created

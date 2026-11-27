@@ -231,7 +231,7 @@ impl MediaBin {
                 for result in results {
                     match result {
                         Ok(summary) => commands.push(Command::AddMedia {
-                            media: summary.to_media(),
+                            media: summary.to_new_media(),
                         }),
                         Err(error) => failures.push(error),
                     }

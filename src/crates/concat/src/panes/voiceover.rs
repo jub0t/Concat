@@ -769,7 +769,7 @@ impl VoiceoverPane {
         // The user's own media, like an import: shelved under Audio, not
         // under Generated.
         let created = studio.apply(Command::AddMedia {
-            media: summary.to_media(),
+            media: summary.to_new_media(),
         });
         let Some(media_id) = created.and_then(|id| id.typed::<MediaId>()).or_else(|| {
             doc_view::media_at_path(studio.committed(), &summary.path).map(|(id, _)| id)
@@ -918,7 +918,7 @@ pub fn recover_lost_takes(studio: &Studio, saved: Option<SystemTime>) {
                 let name = crate::studio::file_name_of(&summary.path);
                 if studio
                     .apply(Command::AddMedia {
-                        media: summary.to_media(),
+                        media: summary.to_new_media(),
                     })
                     .is_some()
                 {

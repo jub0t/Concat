@@ -17,7 +17,8 @@ impl Studio {
         let label = fields.next().unwrap_or(id);
         match sort {
             "media" => {
-                let (media_id, item) = self.media.by_row(self.doc(), id.parse().ok()?)?;
+                let card = self.media.by_row(self.doc(), id.parse().ok()?)?;
+                let (media_id, item) = (card.media, card.item);
                 Some(DropPlan {
                     kind: match item.kind {
                         MediaKind::Audio => ClipKind::Audio,

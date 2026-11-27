@@ -124,11 +124,7 @@ impl Studio {
         if let Some(old) = self.source.take() {
             old.timer.stop();
         }
-        let clips = Arc::new(concat_export::flatten::flatten_timeline_in(
-            &scratch,
-            None,
-            Some(&project_dir),
-        ));
+        let clips = Arc::new(doc_view::flattened(&scratch, Some(&project_dir)));
         self.host
             .playback
             .set_clips(project_dir, crate::studio::audio_specs(&clips));
@@ -179,7 +175,7 @@ impl Studio {
         };
         // A document of its own with the file in its bin and the one clip
         // cut from it: the project's bin is not touched.
-        let Some((scratch, duration)) = self::scratch(self.committed(), &summary.to_media())
+        let Some((scratch, duration)) = self::scratch(self.committed(), &summary.to_new_media())
         else {
             return;
         };
@@ -187,11 +183,7 @@ impl Studio {
         if let Some(old) = self.source.take() {
             old.timer.stop();
         }
-        let clips = Arc::new(concat_export::flatten::flatten_timeline_in(
-            &scratch,
-            None,
-            Some(&project_dir),
-        ));
+        let clips = Arc::new(doc_view::flattened(&scratch, Some(&project_dir)));
         self.host
             .playback
             .set_clips(project_dir, crate::studio::audio_specs(&clips));

@@ -527,9 +527,13 @@ impl Studio {
         };
         let (width, height) = self.output_size();
         let frame = doc_view::sequence(self.doc()).map(|sequence| sequence.frame.clone());
-        let (color_space, canvas) = frame.map_or((model::ColorSpace::Sdr, [0, 0, 0, 255]), |f| {
-            (f.color, [f.canvas.r, f.canvas.g, f.canvas.b, f.canvas.a])
-        });
+        let (color_space, canvas) = frame
+            .map_or((concat_export::ColorSpace::Sdr, [0, 0, 0, 255]), |f| {
+                (
+                    concat_export::ColorSpace::of(&f.color),
+                    [f.canvas.r, f.canvas.g, f.canvas.b, f.canvas.a],
+                )
+            });
         let spec = concat_host::preview::FrameSpec {
             time: f64::from(self.playhead),
             width,
@@ -589,7 +593,7 @@ impl Studio {
                     },
                     move |studio, _, _, result| match result {
                         Ok(summary) => {
-                            let media = summary.to_media();
+                            let media = summary.to_new_media();
                             let path = media.path.clone();
                             let minted = studio
                                 .apply(Command::AddMedia { media })

@@ -43,7 +43,7 @@ impl Studio {
             std::path::Path::new(session.path()),
             &media.path,
             stream_of(clip),
-            kind,
+            &kind,
         ))
     }
 

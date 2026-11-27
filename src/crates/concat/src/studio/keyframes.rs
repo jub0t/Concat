@@ -1382,7 +1382,7 @@ impl Studio {
                 .is_some_and(|(fetching, _)| *fetching),
             reverse_progress: self.reverse_jobs.get(id).copied().unwrap_or(-1.0),
             enhance_linked: enhanced.is_some(),
-            enhance_on: self.enhance_ticked(id, clip),
+            enhance_on: self.enhance_ticked(clip),
             enhance_busy: !self.enhance_jobs.is_empty() || self.enhance_previewing.is_some(),
             enhance_scale: enhance.scale,
             shape_kind: doc_view::SHAPE_KINDS
@@ -1478,7 +1478,7 @@ impl Studio {
         let (width, height) = media
             .size
             .map_or((0, 0), |size| (size.width.get(), size.height.get()));
-        let scale = self.enhance_scale_of(media);
+        let scale = self.enhance_scale_of(&media);
         // The row shows what will happen: an ask this file cannot take as
         // the scale it is held to.
         readout.scale = scale;
@@ -2249,7 +2249,7 @@ impl Studio {
         // One slot, two verbs: the sound is either on its picture or off it.
         // Shown on every video clip, so the verb is where a person looks for
         // it, and greyed rather than gone when the file has no sound.
-        let (can_detach, can_reattach) = self.sound_placement(id, clip);
+        let (can_detach, can_reattach) = self.sound_placement(clip);
         if can_reattach {
             rows.push(action(
                 "reattach",

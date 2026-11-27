@@ -590,7 +590,7 @@ impl ExportPane {
                     && let Ok(program) = std::env::current_exe()
                 {
                     let apart = concat_host::export_apart::Order::new(
-                        project.clone(),
+                        &project,
                         project_dir.clone(),
                         &spec,
                         width,

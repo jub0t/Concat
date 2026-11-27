@@ -388,8 +388,13 @@ impl MonitorPane {
             // proxy blurred up. With scrub copies off in Settings it reads the
             // files at every quality, a proxy left from before included.
             proxy: studio.prefs.scrub_copies() && (nearest || (moving && quality > 0)),
-            color_space: frame.color,
-            canvas: frame.canvas,
+            color_space: concat_export::ColorSpace::of(&frame.color),
+            canvas: [
+                frame.canvas.r,
+                frame.canvas.g,
+                frame.canvas.b,
+                frame.canvas.a,
+            ],
             nearest,
         };
         if !studio.playing {

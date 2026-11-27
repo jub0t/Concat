@@ -286,6 +286,19 @@ pub fn end(item: &Item) -> Tick {
     item.start + item.len
 }
 
+/// The sequence showing, flattened into what the renderer draws; see
+/// [`concat_export::flatten`]. Empty with none showing. With the project
+/// folder, a cutout, a stabilization and a voice set apart are told where
+/// their files are.
+pub fn flattened(
+    doc: &Model,
+    project_dir: Option<&std::path::Path>,
+) -> Vec<concat_export::ExportClip> {
+    showing(doc).map_or_else(Vec::new, |sequence| {
+        concat_export::flatten::clips(doc, sequence, project_dir)
+    })
+}
+
 /// The latest end of anything on the sequence showing: how long it runs.
 pub fn duration(doc: &Model) -> Tick {
     items(doc)
