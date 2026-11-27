@@ -22,8 +22,10 @@
 //! this build has never heard of, which must be there when it is opened
 //! and stay through every save after. `"bind"` on a request binds names to anything else in its answer:
 //! each to the string or number a JSON pointer finds in the project the
-//! request answered with, `"/project/timelines/0/tracks/0/id"` for the
-//! first track's id.
+//! request answered with, `"/project/view/showing"` for the timeline
+//! showing. A part of the pointer that is `$name` is what is bound to that
+//! name, the step's own `"as"` included: `"/project/items/$clip/lane"` for
+//! the lane the step's clip went on.
 //!
 //! The file is read strictly. An unknown field anywhere is an error, as is
 //! a missing expectation, so a typo cannot quietly turn a check off.
@@ -246,11 +248,7 @@ pub enum Harness {
     /// Save and close, write into the saved document, reopen: everything
     /// written must be in the document the project then says it is.
     SpliceDocument {
-        /// Values added to the end of arrays in the document.
-        #[serde(default)]
-        append: Vec<Splice>,
         /// Fields added to objects in the document.
-        #[serde(default)]
         merge: Vec<Splice>,
     },
 }
@@ -259,9 +257,9 @@ pub enum Harness {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Splice {
-    /// A JSON pointer to the array or the object.
+    /// A JSON pointer to the object.
     pub at: String,
-    /// What is appended to the array, or the fields merged into the object.
+    /// The fields merged into the object.
     pub value: Value,
 }
 

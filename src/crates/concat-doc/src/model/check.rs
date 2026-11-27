@@ -24,7 +24,7 @@ use super::item::{Content, Item, LinkKind, MediaCut, Take};
 use super::look::{ShapeStyle, Title};
 use super::media::{Media, MediaKind};
 use super::sequence::{Background, Cover, Marker};
-use super::timing::{TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
+use super::timing::{GraphFault, TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
 use super::{Model, ModelChanges};
 
 /// A rule the change would break, and the id it is broken at.
@@ -127,6 +127,8 @@ pub enum Rule {
     /// The window an item shows reaches past its time map's first or
     /// last key, where the map says nothing.
     WindowPastKeys,
+    /// The speed graph a keyed time map was drawn with has no points.
+    SpeedGraphEmpty,
     /// The window an item shows plays a part of its file that the file
     /// does not have: before its start, past its length, or outside its
     /// enhanced copy while the copy shows.
@@ -948,7 +950,19 @@ fn time_map(
                 }
             }
         }
-        TimeMap::Keyed { first, rest } => {
+        TimeMap::Keyed { first, rest, drawn } => {
+            const DRAWN: &str = "content.time.drawn";
+            match drawn.as_ref().and_then(|graph| graph.fault()) {
+                None => {}
+                Some(GraphFault::OutOfRange) => cx.fault(id, Rule::OutOfRange { what: DRAWN }),
+                Some(GraphFault::Empty) => cx.fault(id, Rule::SpeedGraphEmpty),
+                Some(GraphFault::NotFinite) => cx.fault(id, Rule::NotFinite { what: DRAWN }),
+                Some(GraphFault::OutOfBounds) => cx.fault(id, Rule::OutOfBounds { what: DRAWN }),
+                Some(GraphFault::OutOfOrder) => cx.fault(id, Rule::KeysOutOfOrder { what: DRAWN }),
+                Some(GraphFault::SpeedNotAllowed) => {
+                    cx.fault(id, Rule::SpeedNotAllowed { what: DRAWN });
+                }
+            }
             let points = map.points();
             let mut fits = true;
             for point in &points {

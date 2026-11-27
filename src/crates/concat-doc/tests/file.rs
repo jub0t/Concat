@@ -8,10 +8,11 @@
 mod edits;
 mod fixture;
 
+use concat_doc::commands::{self, Command};
 use concat_doc::file::{self, Note, Refused};
 use concat_doc::model::{
     Animated, CaptionLook, Content, Cover, Font, Item, ItemId, Lane, LaneId, MediaCut, MediaId,
-    Model, OrderKey, Sequence, SequenceId,
+    Model, OrderKey, Sequence, SequenceId, SpeedPoint, TimeMap,
 };
 use concat_doc::{Document, Origin};
 use edits::*;
@@ -189,6 +190,155 @@ fn a_caption_look_with_words_has_them_taken_out_and_said() {
             "lane {}: its caption look had words of its own, which were taken out",
             fx.high
         )]
+    );
+}
+
+/// The fixture with a clip of the video under a speed curve of three
+/// eased points.
+fn curved() -> (Document<Model>, ItemId, Vec<SpeedPoint>) {
+    let mut fx = fixture();
+    let clip = place(&mut fx.doc, cut(fx.low, 0.0, 10.0, fx.video));
+    let points: Vec<SpeedPoint> = [(0.0, 0.5, 0.25), (0.4, 4.0, 0.0), (1.0, 1.0, -1.5)]
+        .into_iter()
+        .map(|(at, speed, slope)| SpeedPoint {
+            at,
+            speed,
+            slope: Some(slope),
+        })
+        .collect();
+    let command = Command::SetClipSpeedCurve {
+        item: clip,
+        curve: Some(points.clone()),
+        ripple: false,
+    };
+    let (doc, _) = commands::made(&fx.doc, &command).unwrap();
+    (doc, clip, points)
+}
+
+#[test]
+fn a_speed_graph_is_written_beside_its_keys_and_read_back() {
+    let (doc, clip, points) = curved();
+    let text = file::write(&doc);
+    let item = doc.items.get(clip).unwrap();
+    let drawn = format!(
+        "\"drawn\":{{\"from\":0,\"len\":{},\"points\":[{{\"at\":0,\"speed\":0.5,\"slope\":0.25}},\
+         {{\"at\":0.4,\"speed\":4,\"slope\":0}},{{\"at\":1,\"speed\":1,\"slope\":-1.5}}]}}}}}}",
+        item.len.get()
+    );
+    assert!(text.contains(&drawn), "{text}");
+    assert!(text.contains("\"time\":{\"keyed\":{\"keys\":[{\"at\":0,\"source\":0},"));
+    let back = open(&text);
+    assert_eq!(back.tables(), doc.tables());
+    assert_eq!(
+        commands::speed_graph(back.items.get(clip).unwrap()),
+        Some(points)
+    );
+    assert_eq!(file::write(&back), text);
+    // What a later build wrote inside the graph, a point of it and a key
+    // is kept where it was.
+    let later = text
+        .replace(
+            "\"drawn\":{\"from\":0,",
+            "\"drawn\":{\"from\":0,\"pen\":\"wide\",",
+        )
+        .replace(
+            "{\"at\":0.4,\"speed\":4,",
+            "{\"at\":0.4,\"speed\":4,\"hue\":7,",
+        )
+        .replace(
+            "\"keys\":[{\"at\":0,\"source\":0}",
+            "\"keys\":[{\"at\":0,\"source\":0,\"tilt\":[1]}",
+        );
+    assert_ne!(later, text);
+    let back = open(&later);
+    let held = back.items.get(clip).unwrap();
+    assert_eq!(
+        commands::speed_graph(held),
+        commands::speed_graph(item),
+        "the graph itself as it was"
+    );
+    let saved = file::write(&back);
+    for kept in ["\"pen\":\"wide\"", "\"hue\":7", "\"tilt\":[1]"] {
+        assert!(saved.contains(kept), "{kept} in {saved}");
+    }
+    assert_eq!(file::write(&open(&saved)), saved);
+}
+
+#[test]
+fn a_damaged_speed_graph_is_left_out_and_the_clip_plays_as_it_did() {
+    let (doc, clip, _) = curved();
+    let text = file::write(&doc);
+    let item = doc.items.get(clip).unwrap();
+    let Content::Media(cut) = &item.content else {
+        panic!("a cut")
+    };
+    let keys = cut.time.points();
+    let damages = [
+        // A point outside the graph.
+        (
+            "{\"at\":0.4,",
+            "{\"at\":4,",
+            "one of its points is outside it",
+        ),
+        // A speed past the fastest.
+        (
+            "\"speed\":4,",
+            "\"speed\":400,",
+            "one of its speeds is slower",
+        ),
+        // Points out of order.
+        ("{\"at\":1,", "{\"at\":0.1,", "its points are out of order"),
+        // A point that is no point.
+        (
+            "{\"at\":0.4,",
+            "{\"at\":\"soon\",",
+            "`points.2.at` is not a number",
+        ),
+        // No length.
+        (
+            "\"drawn\":{\"from\":0,\"len\":",
+            "\"drawn\":{\"from\":0,\"len\":-",
+            "`len` is not a length above zero",
+        ),
+    ];
+    for (from, to, why) in damages {
+        let damaged = text.replace(from, to);
+        assert_ne!(damaged, text, "{from}");
+        let (back, notes) = open_saying(&damaged);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with(&format!("item {clip}: its speed graph was left out: "))
+                && notes[0].contains(why)
+                && notes[0].ends_with("it plays as it did, and the graph shows its keys"),
+            "{notes:?}"
+        );
+        let held = back.items.get(clip).unwrap();
+        let Content::Media(cut) = &held.content else {
+            panic!("a cut")
+        };
+        assert_eq!(cut.time.points(), keys, "every key as it was");
+        assert!(matches!(&cut.time, TimeMap::Keyed { drawn: None, .. }));
+        assert_eq!(
+            (held.start, held.len, held.offset),
+            (item.start, item.len, item.offset)
+        );
+        // The graph shows the keys, and the file is whole when saved.
+        let shown = commands::speed_graph(held).unwrap();
+        assert_eq!(shown.len(), keys.len());
+        let saved = file::write(&back);
+        assert!(!saved.contains("drawn"), "{saved}");
+        assert_eq!(open(&saved).tables(), back.tables());
+    }
+    // No points at all.
+    let from = text.find("\"points\":[").unwrap();
+    let to = text[from..].find("]}").unwrap() + from;
+    let emptied = format!("{}\"points\":[{}", &text[..from], &text[to..]);
+    let (back, notes) = open_saying(&emptied);
+    assert!(notes[0].contains("it has no points"), "{notes:?}");
+    assert_eq!(
+        back.items.get(clip).map(|held| held.len),
+        Some(item.len),
+        "{notes:?}"
     );
 }
 

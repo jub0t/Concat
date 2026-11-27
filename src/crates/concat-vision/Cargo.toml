@@ -15,7 +15,7 @@ infer = ["dep:ort"]
 
 [dependencies]
 concat-core.workspace = true
-concat-project.workspace = true
+concat-doc.workspace = true
 # What a rewritten graph is, or why it is run as downloaded (int8.rs).
 log = "0.4"
 # Masks on disk are eight-bit grey PNGs: a tenth the size of raw bytes, and

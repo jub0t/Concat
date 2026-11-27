@@ -82,10 +82,8 @@ impl Preview {
         let specs = audio_specs(&clips);
         self.playback
             .set_clips(std::path::PathBuf::from(session.path()), specs);
-        let video = session.video();
-        self.renderer
-            .edit(clips, session.settings(), video.color_space);
-        let duration = session.project().active().duration();
+        self.renderer.edit(clips, session.frame());
+        let duration = session.document().showing_end().display_seconds();
         self.duration_bits
             .store(duration.to_bits(), Ordering::Relaxed);
         drop(api);

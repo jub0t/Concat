@@ -14,8 +14,22 @@
 //! fields.
 
 use concat_core::Halt;
+use concat_doc::model::{ColorSpace, Frame};
 use concat_host::export::{self, ExportSpec};
 use concat_media::ColorRange;
+
+use crate::doc_view;
+
+/// The frame of the sequence showing, as an export of it is made; HD when
+/// nothing is showing.
+fn showing_frame(studio: &Studio) -> Frame {
+    doc_view::sequence(studio.doc()).map_or_else(Frame::hd, |sequence| sequence.frame.clone())
+}
+
+/// Whether a picture in this colour is HDR.
+fn is_hdr(color: &ColorSpace) -> bool {
+    matches!(color, ColorSpace::Hlg | ColorSpace::Pq)
+}
 
 use crate::format::{bytes, eta};
 use crate::host::{on_ui, spawn_export};
@@ -281,8 +295,8 @@ impl ExportPane {
     /// rate a project can be made at. A 25 fps cut used to export at 30
     /// unless someone noticed (audit 2026-10-04, #8).
     fn rates(studio: &Studio) -> Vec<(i64, i64)> {
-        let video = studio.project().active().video;
-        Self::rates_around((video.rate_num, video.rate_den.max(1)))
+        let rate = showing_frame(studio).rate;
+        Self::rates_around((i64::from(rate.num()), i64::from(rate.den()).max(1)))
     }
 
     /// [`ExportPane::rates`] for a timeline at `own`.
@@ -398,7 +412,7 @@ impl ExportPane {
     fn follow_canvas(&mut self, studio: &Studio) {
         use concat_media::VideoCodec;
         let chosen = VideoCodec::ALL[self.codec.min(VideoCodec::ALL.len() - 1)];
-        let see_through = studio.timeline().video.canvas[3] < 255;
+        let see_through = showing_frame(studio).canvas.a < 255;
         let wanted = if see_through && !chosen.keeps_alpha() {
             [VideoCodec::ProRes4444, VideoCodec::Vp9Alpha]
                 .into_iter()
@@ -441,7 +455,7 @@ impl ExportPane {
         // An overlay that keeps its alpha is written SDR: the export
         // tone-maps an HDR timeline for it.
         !chosen.keeps_alpha()
-            && studio.timeline().video.color_space.is_hdr()
+            && is_hdr(&showing_frame(studio).color)
             && !self.sdr
             && deep.ten_bit_available()
             && writable(deep)
@@ -465,7 +479,7 @@ impl ExportPane {
         if studio.session.is_none() {
             return;
         }
-        if studio.timeline().clips.is_empty() {
+        if doc_view::items(studio.committed()).is_empty() {
             self.phase = ExportPhase::Failed;
             self.message = t("export.nothingTimelineExport");
             return;
@@ -525,7 +539,7 @@ impl ExportPane {
         // chosen - and the window goes on answering: hundreds of captions
         // are seconds of painting on a phone, and Android closes an app
         // whose window does not answer a touch for five.
-        let project = session.project().clone();
+        let project = session.document();
         let project_dir = std::path::PathBuf::from(session.path());
         let (width, height) = self.size(studio);
         let (num, den) = self.rate(studio);
@@ -576,7 +590,7 @@ impl ExportPane {
                     && let Ok(program) = std::env::current_exe()
                 {
                     let apart = concat_host::export_apart::Order::new(
-                        project.clone(),
+                        &project,
                         project_dir.clone(),
                         &spec,
                         width,
@@ -643,13 +657,13 @@ impl ExportPane {
         let (width, height) = self.size(studio);
         let (num, den) = self.rate(studio);
         let rate = num as f32 / den as f32;
-        let clips = studio.timeline().clips.len();
-        let titles = studio
-            .timeline()
-            .clips
+        let placed = doc_view::items(studio.doc());
+        let clips = placed.len();
+        let titles = placed
             .iter()
-            .filter(|clip| clip.kind == concat_project::model::ClipKind::Text)
+            .filter(|(_, item)| doc_view::title(item).is_some())
             .count();
+        let frame = showing_frame(studio);
         let container = self.codec(studio).container();
         ExportData {
             open: self.open,
@@ -711,17 +725,17 @@ impl ExportPane {
             av1_encodable: writable(concat_media::VideoCodec::Av1),
             prores_encodable: writable(concat_media::VideoCodec::ProRes4444),
             vp9_alpha_encodable: writable(concat_media::VideoCodec::Vp9Alpha),
-            see_through: studio.timeline().video.canvas[3] < 255,
+            see_through: frame.canvas.a < 255,
             keeps_alpha: self.codec(studio).keeps_alpha(),
             rate_controlled: self.codec(studio).rate_controlled(),
             ten_bit: self.ten_bit,
-            hdr_timeline: studio.timeline().video.color_space.is_hdr(),
+            hdr_timeline: is_hdr(&frame.color),
             hdr: self.hdr(studio),
             deep_available: concat_media::VideoCodec::ALL
                 .iter()
                 .any(|codec| codec.ten_bit_available()),
-            hdr_label: match studio.timeline().video.color_space {
-                concat_project::model::ColorSpace::Pq => "HDR (PQ)",
+            hdr_label: match frame.color {
+                ColorSpace::Pq => "HDR (PQ)",
                 _ => "HDR (HLG)",
             }
             .into(),
@@ -737,8 +751,8 @@ impl ExportPane {
                 }
                 if self.hdr(studio) {
                     words.push(
-                        match studio.timeline().video.color_space {
-                            concat_project::model::ColorSpace::Pq => "PQ",
+                        match frame.color {
+                            ColorSpace::Pq => "PQ",
                             _ => "HLG",
                         }
                         .to_owned(),

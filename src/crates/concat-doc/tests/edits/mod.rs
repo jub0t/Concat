@@ -18,8 +18,9 @@ use concat_doc::model::{
     Animated, Background, Blend, BrushTool, CaptionLook, Color, Content, Cover, Crop, CutIn,
     Cutout, CutoutMode, Ease, Effect, EffectId, Entry, Font, Gradient, Item, ItemId, Key, Lane,
     LaneId, Link, LinkKind, Loop, Marker, Mask, MaskId, MediaCut, MediaId, Model, Move, Nest,
-    OrderKey, Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Speed, Stabilize,
-    Stroke, Subject, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, VoiceKind, VoiceMix,
+    OrderKey, Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Speed,
+    SpeedGraph, SpeedPoint, Stabilize, Stroke, Subject, Take, TextRun, TimeCurve, TimeMap,
+    TimePoint, Title, VoiceKind, VoiceMix,
 };
 use concat_doc::{Document, Draft, TICKS_PER_SECOND, Tick, TickDur, TickLen};
 use proptest::prelude::*;
@@ -879,7 +880,8 @@ fn dress(draft: &mut Draft<Model>, item: &mut Item, how: u8) {
         }
         _ => {
             // Played at its own pace through a time map of keys, slowing
-            // to a stop's half at the end of the window.
+            // to a stop's half at the end of the window, with the graph
+            // those keys are drawn as.
             if let Content::Media(cut) = &mut item.content
                 && let Some(source) = cut.time.source_at(from)
             {
@@ -911,6 +913,18 @@ fn dress(draft: &mut Draft<Model>, item: &mut Item, how: u8) {
                             },
                         ),
                     ],
+                    drawn: Some(SpeedGraph {
+                        from,
+                        len: item.len,
+                        points: [(0.0, 1.0), (0.5, 1.0), (1.0, 0.5)]
+                            .into_iter()
+                            .map(|(at, speed)| SpeedPoint {
+                                at,
+                                speed,
+                                slope: None,
+                            })
+                            .collect(),
+                    }),
                 };
             }
         }

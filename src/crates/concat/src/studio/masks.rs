@@ -13,21 +13,23 @@
 //! mask the clip no longer has falls back to the first.
 
 use super::*;
-use concat_project::model::{Mask, MaskMode, MaskShape};
+use concat_core::mask::{MaskMode as EngineMode, MaskShape as EngineShape};
+use concat_doc::commands::MaskNumber;
+use concat_doc::model::{Entry, Mask};
 
-/// The number of a mask a field writes, by the name the mask keys it
-/// under; None for a field that is not one of a mask's numbers.
-pub(super) fn mask_number_of(field: ClipField) -> Option<&'static str> {
+/// The number of a mask a field writes; None for a field that is not one
+/// of a mask's numbers.
+pub(super) fn mask_number_of(field: ClipField) -> Option<MaskNumber> {
     Some(match field {
-        ClipField::MaskX => "x",
-        ClipField::MaskY => "y",
-        ClipField::MaskWidth => "width",
-        ClipField::MaskHeight => "height",
-        ClipField::MaskRotation => "rotation",
-        ClipField::MaskRoundness => "roundness",
-        ClipField::MaskFeather => "feather",
-        ClipField::MaskExpand => "expand",
-        ClipField::MaskOpacity => "opacity",
+        ClipField::MaskX => MaskNumber::X,
+        ClipField::MaskY => MaskNumber::Y,
+        ClipField::MaskWidth => MaskNumber::Width,
+        ClipField::MaskHeight => MaskNumber::Height,
+        ClipField::MaskRotation => MaskNumber::Rotation,
+        ClipField::MaskRoundness => MaskNumber::Roundness,
+        ClipField::MaskFeather => MaskNumber::Feather,
+        ClipField::MaskExpand => MaskNumber::Expand,
+        ClipField::MaskOpacity => MaskNumber::Opacity,
         _ => return None,
     })
 }
@@ -60,8 +62,8 @@ pub(super) struct MaskKnob {
     pub unit_scale: f32,
 }
 
-/// See [`MaskKnob`]. None for a name that is not a mask's number.
-pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
+/// See [`MaskKnob`]. None for the mask's scale, which no knob shows.
+pub(super) fn mask_knob(number: MaskNumber) -> Option<MaskKnob> {
     let knob = |label: String,
                 (minimum, maximum): (f64, f64),
                 step,
@@ -79,7 +81,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
         unit_scale,
     };
     Some(match number {
-        "x" => knob(
+        MaskNumber::X => knob(
             t("common.positionX"),
             (-1.0, 1.0),
             0.005,
@@ -88,7 +90,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "y" => knob(
+        MaskNumber::Y => knob(
             t("common.positionY"),
             (-1.0, 1.0),
             0.005,
@@ -97,7 +99,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "width" => knob(
+        MaskNumber::Width => knob(
             t("common.width"),
             (0.01, 4.0),
             0.01,
@@ -106,7 +108,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "height" => knob(
+        MaskNumber::Height => knob(
             t("common.height"),
             (0.01, 4.0),
             0.01,
@@ -115,7 +117,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "rotation" => knob(
+        MaskNumber::Rotation => knob(
             t("common.rotation"),
             (-180.0, 180.0),
             1.0,
@@ -124,7 +126,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "°",
             1.0,
         ),
-        "roundness" => knob(
+        MaskNumber::Roundness => knob(
             t("mask.roundness"),
             (0.0, 1.0),
             0.01,
@@ -133,7 +135,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "feather" => knob(
+        MaskNumber::Feather => knob(
             t("clipInspector.feather"),
             (0.0, 1.0),
             0.01,
@@ -142,7 +144,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "expand" => knob(
+        MaskNumber::Expand => knob(
             t("mask.expand"),
             (-0.5, 0.5),
             0.005,
@@ -151,7 +153,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        "opacity" => knob(
+        MaskNumber::Opacity => knob(
             t("common.opacity"),
             (0.0, 1.0),
             0.01,
@@ -160,7 +162,7 @@ pub(super) fn mask_knob(number: &str) -> Option<MaskKnob> {
             "%",
             100.0,
         ),
-        _ => return None,
+        MaskNumber::Scale => return None,
     })
 }
 
@@ -189,17 +191,41 @@ fn is_mask_field(field: ClipField) -> bool {
 }
 
 /// The place of the current mask in `masks`: the one `focus` names, or the
-/// first; None when there are none.
-pub(super) fn current_index(masks: &[Mask], focus: Option<&str>) -> Option<usize> {
+/// first; None when there are none. A mask made on the echo has no id of
+/// the document's yet: a focus on one is on the newest, the last.
+pub(super) fn current_index(masks: &[&Mask], focus: Option<&str>) -> Option<usize> {
+    let fresh = doc_view::new_mask_id().to_string();
     focus
-        .and_then(|focus| masks.iter().position(|mask| mask.id == focus))
+        .and_then(|focus| {
+            if focus == fresh {
+                masks.len().checked_sub(1)
+            } else {
+                masks.iter().position(|mask| mask.id.to_string() == focus)
+            }
+        })
         .or((!masks.is_empty()).then_some(0))
+}
+
+/// Where a mask's shape sits in the picker's list; -1 for none.
+pub(super) fn shape_place(mask: &Mask) -> i32 {
+    doc_view::mask_shape(mask)
+        .and_then(|shape| EngineShape::ALL.iter().position(|s| *s == shape))
+        .map_or(-1, |place| place as i32)
+}
+
+/// Where a mask's mode sits in the picker's list; the first for one this
+/// build does not know.
+pub(super) fn mode_place(mask: &Mask) -> i32 {
+    doc_view::engine_mask_mode(&mask.mode)
+        .and_then(|mode| EngineMode::ALL.iter().position(|m| *m == mode))
+        .map_or(0, |place| place as i32)
 }
 
 impl Studio {
     /// The clip's current mask; see the module.
-    pub(super) fn current_mask<'a>(&self, clip: &'a Clip) -> Option<&'a Mask> {
-        current_index(&clip.masks, self.mask_focus.as_deref()).map(|index| &clip.masks[index])
+    pub(super) fn current_mask<'a>(&self, clip: &'a Item) -> Option<&'a Mask> {
+        let masks = doc_view::masks(&clip.masks);
+        current_index(&masks, self.mask_focus.as_deref()).map(|index| masks[index])
     }
 
     /// A Mask section field, on the echo of every clip the inspector writes
@@ -220,96 +246,108 @@ impl Studio {
         // What the current mask becomes once the edit lands: Some(None) for
         // none, None to leave the pick alone.
         let mut refocus: Option<Option<String>> = None;
+        let fresh = doc_view::new_mask_id();
         for id in ids {
-            let at = self
-                .clip(&id)
-                .map(|clip| place_in(clip, self.playhead))
-                .unwrap_or(0.0);
-            // The ids of this clip's masks the file holds but this build
-            // cannot read: a new mask must not take one.
-            let held: Vec<String> = self
-                .project()
-                .unread
-                .mask_ids(&id)
-                .into_iter()
-                .map(str::to_owned)
-                .collect();
-            let held: Vec<&str> = held.iter().map(String::as_str).collect();
-            let Some(clip) = self.echo_clip_mut(&id) else {
+            let Some(clip) = self.clip(&id) else {
                 continue;
             };
-            if !clip.kind.is_visual() {
+            if !self.kind(clip).is_visual() {
                 continue;
             }
-            let current = current_index(&clip.masks, focus.as_deref());
-            let shape = place.and_then(|place| MaskShape::ALL.get(place).copied());
-            match field {
-                ClipField::MaskAdd => {
-                    let Some(shape) = shape else { continue };
-                    let id = Mask::next_id_past(&clip.masks, &held);
-                    clip.masks.push(Mask::of(id.clone(), "", shape));
-                    refocus = Some(Some(id));
-                }
-                ClipField::MaskSelect => {
-                    if let Some(mask) = place.and_then(|place| clip.masks.get(place)) {
-                        refocus = Some(Some(mask.id.clone()));
+            let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+            self.echo_edit(&id, |clip| {
+                // The masks this build read, edited as a list; the entries it
+                // could not read stay, after them.
+                let mut masks = doc_view::masks_owned(&clip.masks);
+                let unread: Vec<Entry<Mask>> = clip
+                    .masks
+                    .iter()
+                    .filter(|entry| entry.known().is_none())
+                    .cloned()
+                    .collect();
+                let current = current_index(&masks.iter().collect::<Vec<_>>(), focus.as_deref());
+                let shape = place.and_then(|place| EngineShape::ALL.get(place).copied());
+                match field {
+                    ClipField::MaskAdd => {
+                        if let Some(shape) = shape {
+                            masks.push(doc_view::mask_of(fresh, shape));
+                            refocus = Some(Some(fresh.to_string()));
+                        }
                     }
-                }
-                ClipField::MaskRemove => {
-                    let Some(index) = current else { continue };
-                    clip.masks.remove(index);
-                    // The one below takes its place, or the one above when
-                    // it was the last.
-                    let next = index.min(clip.masks.len().saturating_sub(1));
-                    refocus = Some(clip.masks.get(next).map(|mask| mask.id.clone()));
-                }
-                ClipField::MaskMove => {
-                    let Some(index) = current else { continue };
-                    let last = clip.masks.len() as i64 - 1;
-                    let to = (index as i64 + value.round() as i64).clamp(0, last) as usize;
-                    let mask = clip.masks.remove(index);
-                    refocus = Some(Some(mask.id.clone()));
-                    clip.masks.insert(to, mask);
-                }
-                ClipField::MaskShape => {
-                    let Some(shape) = shape else { continue };
-                    match current {
-                        // A new shape keeps where the mask was, its turn,
-                        // softness, mode, invert and keys, and takes the
-                        // new shape's own size.
-                        Some(index) => {
-                            let held = &mut clip.masks[index];
-                            if held.shape() != Some(shape) {
-                                let roundness = held.get("roundness").unwrap_or(0.0);
-                                held.source = Mask::of("", "", shape).source;
-                                held.set("roundness", roundness);
+                    ClipField::MaskSelect => {
+                        if let Some(mask) = place.and_then(|place| masks.get(place)) {
+                            refocus = Some(Some(mask.id.to_string()));
+                        }
+                    }
+                    ClipField::MaskRemove => {
+                        if let Some(index) = current {
+                            masks.remove(index);
+                            // The one below takes its place, or the one above
+                            // when it was the last.
+                            let next = index.min(masks.len().saturating_sub(1));
+                            refocus = Some(masks.get(next).map(|mask| mask.id.to_string()));
+                        }
+                    }
+                    ClipField::MaskMove => {
+                        if let Some(index) = current {
+                            let last = masks.len() as i64 - 1;
+                            let to = (index as i64 + value.round() as i64).clamp(0, last) as usize;
+                            let mask = masks.remove(index);
+                            refocus = Some(Some(mask.id.to_string()));
+                            masks.insert(to, mask);
+                        }
+                    }
+                    ClipField::MaskShape => {
+                        if let Some(shape) = shape {
+                            match current {
+                                // A new shape keeps where the mask was, its
+                                // turn, softness, mode, invert and keys, and
+                                // takes the new shape's own size.
+                                Some(index) => {
+                                    let held = &mut masks[index];
+                                    if doc_view::mask_shape(held) != Some(shape) {
+                                        let roundness =
+                                            doc_view::mask_number(held, MaskNumber::Roundness)
+                                                .cloned();
+                                        held.source = doc_view::mask_of(fresh, shape).source;
+                                        if let (Some(roundness), Some(number)) = (
+                                            roundness,
+                                            doc_view::mask_number_mut(held, MaskNumber::Roundness),
+                                        ) {
+                                            *number = roundness;
+                                        }
+                                    }
+                                }
+                                // A shape picked on a clip with no mask puts
+                                // one on.
+                                None => {
+                                    masks.push(doc_view::mask_of(fresh, shape));
+                                    refocus = Some(Some(fresh.to_string()));
+                                }
                             }
                         }
-                        // A shape picked on a clip with no mask puts one on.
-                        None => {
-                            let id = Mask::next_id_past(&clip.masks, &held);
-                            clip.masks.push(Mask::of(id.clone(), "", shape));
-                            refocus = Some(Some(id));
+                    }
+                    ClipField::MaskMode => {
+                        let mode = place.and_then(|place| EngineMode::ALL.get(place).copied());
+                        if let (Some(index), Some(mode)) = (current, mode) {
+                            masks[index].mode = doc_view::doc_mask_mode(mode);
+                        }
+                    }
+                    ClipField::MaskInvert => {
+                        if let Some(index) = current {
+                            masks[index].invert = value != 0.0;
+                        }
+                    }
+                    field => {
+                        if let (Some(index), Some(number)) = (current, mask_number_of(field))
+                            && let Some(held) = doc_view::mask_number_mut(&mut masks[index], number)
+                        {
+                            doc_view::write_at(held, doc_view::mask_clamp(number, value), at);
                         }
                     }
                 }
-                ClipField::MaskMode => {
-                    let mode = place.and_then(|place| MaskMode::ALL.get(place).copied());
-                    if let (Some(index), Some(mode)) = (current, mode) {
-                        clip.masks[index].mode = mode;
-                    }
-                }
-                ClipField::MaskInvert => {
-                    if let Some(index) = current {
-                        clip.masks[index].invert = value != 0.0;
-                    }
-                }
-                field => {
-                    if let (Some(index), Some(number)) = (current, mask_number_of(field)) {
-                        clip.masks[index].write_at(number, value, at);
-                    }
-                }
-            }
+                clip.masks = masks.into_iter().map(Entry::Known).chain(unread).collect();
+            });
         }
         if let Some(focus) = refocus {
             self.mask_focus = focus;
@@ -320,13 +358,14 @@ impl Studio {
     /// The cluster's mask rows, after the clip's six: the current mask's
     /// numbers in [`MASK_KEY_FIELDS`] order, each blank when it has no such
     /// number or the clip has no mask.
-    pub(super) fn mask_key_rows(&self, clip: &Clip, at: f64) -> Vec<ClipKeyData> {
+    pub(super) fn mask_key_rows(&self, clip: &Item, at: Tick) -> Vec<ClipKeyData> {
         let current = self.current_mask(clip);
         MASK_KEY_FIELDS
             .iter()
             .map(|&field| {
                 let number = mask_number_of(field).expect("a mask field");
-                let Some(mask) = current.filter(|mask| mask.get(number).is_some()) else {
+                let Some(held) = current.and_then(|mask| doc_view::mask_number(mask, number))
+                else {
                     return ClipKeyData {
                         field,
                         keyed: false,
@@ -335,14 +374,14 @@ impl Studio {
                         next: false,
                     };
                 };
-                let keys = mask.keys_on(number);
-                let near = |key: &model::ParamKey| (key.at - at).abs() <= model::KEY_EPSILON;
+                let keys = &held.keys;
+                let (prev, next) = doc_view::keys_around(keys, at);
                 ClipKeyData {
                     field,
                     keyed: !keys.is_empty(),
-                    here: keys.iter().any(near),
-                    prev: keys.iter().any(|key| key.at < at - model::KEY_EPSILON),
-                    next: keys.iter().any(|key| key.at > at + model::KEY_EPSILON),
+                    here: doc_view::key_near(keys, at).is_some(),
+                    prev: prev.is_some(),
+                    next: next.is_some(),
                 }
             })
             .collect()
@@ -355,57 +394,51 @@ impl Studio {
         let Some(number) = mask_number_of(field) else {
             return Vec::new();
         };
-        let Some((clip, at)) = self.key_point() else {
-            return Vec::new();
-        };
-        let Some(mask) = self
-            .current_mask(clip)
-            .filter(|mask| mask.get(number).is_some())
+        let Some(item) = self
+            .sole_selection()
+            .and_then(|id| doc_view::parse::<ItemId>(&id))
         else {
             return Vec::new();
         };
-        let (clip_id, mask_id, number) = (clip.id.clone(), mask.id.clone(), number.to_owned());
-        let here = mask
-            .keys_on(&number)
-            .iter()
-            .find(|key| (key.at - at).abs() <= model::KEY_EPSILON);
-        match here {
+        let Some((clip, at)) = self.key_point() else {
+            return Vec::new();
+        };
+        let Some(mask) = self.current_mask(clip) else {
+            return Vec::new();
+        };
+        let Some(held) = doc_view::mask_number(mask, number) else {
+            return Vec::new();
+        };
+        match doc_view::key_near(&held.keys, at) {
             Some(key) => vec![Command::ClearMaskKey {
-                clip_id,
-                mask_id,
+                item,
+                mask: mask.id,
                 number,
                 at: key.at,
             }],
-            None => {
-                let ease = mask
-                    .keys_on(&number)
-                    .iter()
-                    .rfind(|key| key.at < at)
-                    .map_or(model::KeyEase::LINEAR, |key| key.ease);
-                let value = mask.value_at(&number, at);
-                vec![Command::SetMaskKey {
-                    clip_id,
-                    mask_id,
-                    number,
-                    at,
-                    value,
-                    ease,
-                }]
-            }
+            None => vec![Command::SetMaskKey {
+                item,
+                mask: mask.id,
+                number,
+                at,
+                value: doc_view::value_at(held, at),
+                ease: doc_view::ease_before(&held.keys, at),
+            }],
         }
     }
 
     /// The current mask's keys on a mask field's number, in order; empty
     /// when the field is not a mask's or there is no mask. What stepping
     /// between keys walks.
-    pub(super) fn mask_key_times(&self, field: ClipField) -> Vec<f64> {
+    pub(super) fn mask_key_times(&self, field: ClipField) -> Vec<Tick> {
         let Some(number) = mask_number_of(field) else {
             return Vec::new();
         };
         self.sole_selection()
             .and_then(|id| self.clip(&id))
             .and_then(|clip| self.current_mask(clip))
-            .map(|mask| mask.keys_on(number).iter().map(|key| key.at).collect())
+            .and_then(|mask| doc_view::mask_number(mask, number))
+            .map(|held| held.keys.iter().map(|key| key.at).collect())
             .unwrap_or_default()
     }
 
@@ -413,39 +446,34 @@ impl Studio {
     /// current mask, if it has any.
     pub(super) fn mask_clear_command(&self, field: ClipField) -> Option<Command> {
         let number = mask_number_of(field)?;
-        let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
-        let mask = self
-            .current_mask(clip)
-            .filter(|mask| mask.is_keyed(number))?;
+        let id = self.sole_selection()?;
+        let clip = self.clip(&id)?;
+        let mask = self.current_mask(clip).filter(|mask| {
+            doc_view::mask_number(mask, number).is_some_and(|held| held.is_keyed())
+        })?;
         Some(Command::ClearMaskKeys {
-            clip_id: clip.id.clone(),
-            mask_id: mask.id.clone(),
-            number: number.to_owned(),
+            item: doc_view::parse(&id)?,
+            mask: mask.id,
+            number,
         })
     }
 
     /// The Mask section's rows for the selected clip, and the current
     /// one's place among them.
-    pub(super) fn mask_rows(&self, clip: &Clip) -> (Vec<MaskRowData>, i32) {
-        let rows = clip
-            .masks
+    pub(super) fn mask_rows(&self, clip: &Item) -> (Vec<MaskRowData>, i32) {
+        let masks = doc_view::masks(&clip.masks);
+        let rows = masks
             .iter()
             .map(|mask| MaskRowData {
                 name: mask.name.as_str().into(),
-                shape: mask
-                    .shape()
-                    .and_then(|shape| MaskShape::ALL.iter().position(|s| *s == shape))
-                    .map_or(-1, |place| place as i32),
-                mode: MaskMode::ALL
-                    .iter()
-                    .position(|mode| *mode == mask.mode)
-                    .map_or(0, |place| place as i32),
+                shape: shape_place(mask),
+                mode: mode_place(mask),
                 invert: mask.invert,
-                keyed: !mask.keys.is_empty(),
+                keyed: doc_view::mask_keyed(mask),
             })
             .collect();
         let current =
-            current_index(&clip.masks, self.mask_focus.as_deref()).map_or(-1, |index| index as i32);
+            current_index(&masks, self.mask_focus.as_deref()).map_or(-1, |index| index as i32);
         (rows, current)
     }
 }
@@ -456,25 +484,30 @@ mod tests {
 
     fn masks(ids: &[&str]) -> Vec<Mask> {
         ids.iter()
-            .map(|id| Mask::of(*id, "", MaskShape::Circle))
+            .map(|id| doc_view::mask_of(doc_view::parse(id).unwrap(), EngineShape::Circle))
             .collect()
     }
 
     #[test]
     fn the_current_mask_is_the_picked_one_or_the_first() {
-        let list = masks(&["mask-1", "mask-2"]);
-        assert_eq!(current_index(&list, Some("mask-2")), Some(1));
-        assert_eq!(current_index(&list, Some("gone")), Some(0));
+        let list = masks(&["mk1", "mk2"]);
+        let list: Vec<&Mask> = list.iter().collect();
+        assert_eq!(current_index(&list, Some("mk2")), Some(1));
+        assert_eq!(current_index(&list, Some("mk9")), Some(0));
         assert_eq!(current_index(&list, None), Some(0));
-        assert_eq!(current_index(&[], Some("mask-1")), None);
+        assert_eq!(current_index(&[], Some("mk1")), None);
+        // A mask made on the echo is the newest.
+        let fresh = doc_view::new_mask_id().to_string();
+        assert_eq!(current_index(&list, Some(&fresh)), Some(1));
     }
 
     #[test]
     fn every_mask_number_field_names_a_number_a_shape_has() {
-        let mask = Mask::of("m", "", MaskShape::Rectangle);
+        let mask = doc_view::mask_of(doc_view::new_mask_id(), EngineShape::Rectangle);
         for field in MASK_KEY_FIELDS {
             let number = mask_number_of(field).expect("a number");
-            assert!(mask.get(number).is_some(), "{number}");
+            assert!(doc_view::mask_number(&mask, number).is_some(), "{number:?}");
+            assert!(mask_knob(number).is_some(), "{number:?}");
             assert!(is_mask_field(field));
         }
         assert!(!is_mask_field(ClipField::Scale));

@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use concat_project::model::{BrushTool, Stroke};
+use concat_doc::model::{BrushTool, Stroke};
 
 use crate::Mask;
 
@@ -44,14 +44,31 @@ pub fn stroke_key(stroke: &Stroke) -> u64 {
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
     };
-    feed(&[stroke.tool as u8]);
+    feed(&[tool_byte(&stroke.tool)]);
     feed(&stroke.size.to_bits().to_le_bytes());
-    feed(&stroke.at.unwrap_or(-1.0).to_bits().to_le_bytes());
+    feed(&stroke.at.map_or(-1, |at| at.get()).to_le_bytes());
     for [x, y] in &stroke.points {
         feed(&x.to_bits().to_le_bytes());
         feed(&y.to_bits().to_le_bytes());
     }
     hash
+}
+
+/// Whether a stroke is one of the smart brushes, which keep or take away
+/// the thing the brush model finds under them.
+pub fn is_smart(stroke: &Stroke) -> bool {
+    matches!(stroke.tool, BrushTool::SmartBrush | BrushTool::SmartEraser)
+}
+
+/// A brush's number in a stroke's name.
+fn tool_byte(tool: &BrushTool) -> u8 {
+    match tool {
+        BrushTool::SmartBrush => 0,
+        BrushTool::Brush => 1,
+        BrushTool::SmartEraser => 2,
+        BrushTool::Eraser => 3,
+        BrushTool::Unknown(_) => 255,
+    }
 }
 
 /// Below this much confidence a smart brush leaves a pixel alone.
@@ -65,8 +82,8 @@ const SMART_DROP: u8 = 217;
 pub fn paint(auto: &Mask, strokes: &[Stroke], aspect: f32, regions: Regions<'_>) -> Mask {
     let mut out = auto.clone();
     for stroke in strokes {
-        match regions(stroke).filter(|_| stroke.is_smart()) {
-            Some(region) => paint_region(&mut out, stroke.tool, &region),
+        match regions(stroke).filter(|_| is_smart(stroke)) {
+            Some(region) => paint_region(&mut out, &stroke.tool, &region),
             None => paint_one(&mut out, auto, stroke, aspect),
         }
     }
@@ -74,10 +91,10 @@ pub fn paint(auto: &Mask, strokes: &[Stroke], aspect: f32, regions: Regions<'_>)
 }
 
 /// The thing a smart stroke named, kept or removed whole.
-fn paint_region(out: &mut Mask, tool: BrushTool, region: &Mask) {
+fn paint_region(out: &mut Mask, tool: &BrushTool, region: &Mask) {
     let width = out.width();
     let height = out.height();
-    let keep = tool == BrushTool::SmartBrush;
+    let keep = *tool == BrushTool::SmartBrush;
     for y in 0..height {
         let v = (y as f32 + 0.5) / height as f32;
         for x in 0..width {
@@ -110,7 +127,7 @@ fn paint_one(out: &mut Mask, auto: &Mask, stroke: &Stroke, aspect: f32) {
     let Some(&first) = points.first() else {
         return;
     };
-    disc(out, auto, stroke.tool, first, rx, ry);
+    disc(out, auto, &stroke.tool, first, rx, ry);
     for pair in points.windows(2) {
         let (from, to) = (pair[0], pair[1]);
         let distance = ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt();
@@ -119,12 +136,12 @@ fn paint_one(out: &mut Mask, auto: &Mask, stroke: &Stroke, aspect: f32) {
         for step in 1..=steps {
             let t = step as f32 / steps as f32;
             let centre = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
-            disc(out, auto, stroke.tool, centre, rx, ry);
+            disc(out, auto, &stroke.tool, centre, rx, ry);
         }
     }
 }
 
-fn disc(out: &mut Mask, auto: &Mask, tool: BrushTool, centre: (f32, f32), rx: f32, ry: f32) {
+fn disc(out: &mut Mask, auto: &Mask, tool: &BrushTool, centre: (f32, f32), rx: f32, ry: f32) {
     let width = out.width() as i64;
     let height = out.height() as i64;
     let x0 = ((centre.0 - rx).floor() as i64).max(0);
@@ -150,7 +167,7 @@ fn disc(out: &mut Mask, auto: &Mask, tool: BrushTool, centre: (f32, f32), rx: f3
                 BrushTool::Eraser => data[index] = 0,
                 BrushTool::SmartBrush if was >= SMART_KEEP => data[index] = 255,
                 BrushTool::SmartEraser if was <= SMART_DROP => data[index] = 0,
-                BrushTool::SmartBrush | BrushTool::SmartEraser => {}
+                BrushTool::SmartBrush | BrushTool::SmartEraser | BrushTool::Unknown(_) => {}
             }
         }
     }

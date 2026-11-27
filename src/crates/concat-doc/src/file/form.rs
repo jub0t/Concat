@@ -31,16 +31,16 @@ use crate::id::TypedId;
 use crate::model::{
     Animated, Background, BeatMarks, Blend, BrushTool, CaptionLook, Color, ColorRange, ColorSpace,
     Content, Cover, Crop, CutIn, Cutout, CutoutMode, Derived, Ease, Effect, EffectId, Enhanced,
-    Entry, Font, Frame, Gradient, HeldId, Item, ItemId, Key, Lane, LaneId, LineHead, Link,
-    LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MaskMode, MaskShape, MaskSource, Media,
+    Entry, Font, Frame, Gradient, GraphFault, HeldId, Item, ItemId, Key, Lane, LaneId, LineHead,
+    Link, LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MaskMode, MaskShape, MaskSource, Media,
     MediaCut, MediaId, MediaKind, MediaOrigin, Motion, Move, Nest, OrderKey, Param, Picture, Raw,
     Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Size, Sound, SoundStream,
-    Speed, Stabilize, Stroke, StrokeAlign, StrokeDash, Subject, Take, TextAlign, TextCase, TextRun,
-    TimeCurve, TimeMap, TimePoint, Title, VoiceKind, VoiceMix,
+    Speed, SpeedGraph, SpeedPoint, Stabilize, Stroke, StrokeAlign, StrokeDash, Subject, Take,
+    TextAlign, TextCase, TextRun, TimeCurve, TimeMap, TimePoint, Title, VoiceKind, VoiceMix,
 };
 use crate::time::{Rate, Tick, TickDur, TickLen};
 
-use super::input::{Cx, R, array, choice, fields, need, record, wrong};
+use super::input::{Bad, Cx, R, array, choice, fields, need, record, wrong};
 use super::json::{Kind, Node};
 use super::out::{Obj, Out};
 
@@ -656,6 +656,63 @@ fn put_point<'d>(out: &mut Out<'d>, point: TimePoint, curve: Option<&'d TimeCurv
     out.close(obj);
 }
 
+/// The position keys of a time map, each with how it is reached from the
+/// one before; the first's is not read.
+fn get_points(node: &Node<'_>, cx: &mut Cx) -> R<Vec<(TimeCurve, TimePoint)>> {
+    let mut points = Vec::new();
+    for (index, item) in array(node)?.iter().enumerate() {
+        let from = cx.fields.len();
+        let (mut at, mut source, mut curve) = (None, None, None);
+        fields(item, cx, |key, node, cx| {
+            match key {
+                "at" => at = Some(<Tick as Form>::get(node, cx)?),
+                "source" => source = Some(<Tick as Form>::get(node, cx)?),
+                "curve" if index > 0 => curve = Some(TimeCurve::get(node, cx)?),
+                _ => return Ok(false),
+            }
+            Ok(true)
+        })
+        .map_err(|bad| bad.at(&(index + 1).to_string()))?;
+        let point = TimePoint {
+            at: need(at, "at")?,
+            source: need(source, "source")?,
+        };
+        if cx.fields.len() > from {
+            cx.under(from, &point.at.get().to_string());
+        }
+        points.push((curve.unwrap_or(TimeCurve::Linear), point));
+    }
+    Ok(points)
+}
+
+/// The speed graph a keyed time map was drawn with. One that cannot be
+/// read, or that breaks a rule, is left out and said: the keys are what
+/// plays, and they stay.
+fn get_drawn(node: &Node<'_>, cx: &mut Cx) -> Option<SpeedGraph> {
+    let from = cx.fields.len();
+    let why = match Option::<SpeedGraph>::get(node, cx) {
+        Ok(None) => return None,
+        Ok(Some(graph)) => match graph.fault() {
+            None => return Some(graph),
+            Some(GraphFault::OutOfRange) => "it is more than a century from zero".to_owned(),
+            Some(GraphFault::Empty) => "it has no points".to_owned(),
+            Some(GraphFault::NotFinite) => "one of its numbers is not a finite number".to_owned(),
+            Some(GraphFault::OutOfBounds) => "one of its points is outside it".to_owned(),
+            Some(GraphFault::OutOfOrder) => "its points are out of order".to_owned(),
+            Some(GraphFault::SpeedNotAllowed) => {
+                "one of its speeds is slower than a sixteenth or faster than sixteen times"
+                    .to_owned()
+            }
+        },
+        Err(bad) => bad.words(),
+    };
+    cx.fields.truncate(from);
+    cx.note(format!(
+        "its speed graph was left out: {why}; it plays as it did, and the graph shows its keys"
+    ));
+    None
+}
+
 impl Form for TimeMap {
     fn put<'d>(&'d self, out: &mut Out<'d>) {
         match self {
@@ -665,24 +722,31 @@ impl Form for TimeMap {
                 field(out, &mut obj, "speed", speed, &Speed::NORMAL);
                 out.close(obj);
             }),
-            TimeMap::Keyed { first, rest } => put_choice(out, "keyed", |out| {
-                let points = std::iter::once((*first, None))
-                    .chain(rest.iter().map(|(curve, point)| (*point, Some(curve))));
-                out.text.push('[');
-                for (at, (point, curve)) in points.enumerate() {
-                    if at > 0 {
-                        out.text.push(',');
-                    }
-                    // A key is named by its tick, as an animated number's.
-                    if out.tracking() {
-                        out.within(&point.at.get().to_string(), |out| {
+            TimeMap::Keyed { first, rest, drawn } => put_choice(out, "keyed", |out| {
+                let mut obj = out.open();
+                out.part(&mut obj, "keys", |out| {
+                    let points = std::iter::once((*first, None))
+                        .chain(rest.iter().map(|(curve, point)| (*point, Some(curve))));
+                    out.text.push('[');
+                    for (at, (point, curve)) in points.enumerate() {
+                        if at > 0 {
+                            out.text.push(',');
+                        }
+                        // A key is named by its tick, as an animated number's.
+                        if out.tracking() {
+                            out.within(&point.at.get().to_string(), |out| {
+                                put_point(out, point, curve);
+                            });
+                        } else {
                             put_point(out, point, curve);
-                        });
-                    } else {
-                        put_point(out, point, curve);
+                        }
                     }
+                    out.text.push(']');
+                });
+                if let Some(graph) = drawn {
+                    always(out, &mut obj, "drawn", graph);
                 }
-                out.text.push(']');
+                out.close(obj);
             }),
             TimeMap::Unknown(raw) => out.raw(raw.as_str()),
         }
@@ -702,36 +766,23 @@ impl Form for TimeMap {
                 Ok(TimeMap::Linear { src_in, speed })
             }),
             Some(("keyed", value)) => get_choice("keyed", value, cx, |value, cx| {
-                let mut points = Vec::new();
-                for (index, item) in array(value)?.iter().enumerate() {
-                    let from = cx.fields.len();
-                    let (mut at, mut source, mut curve) = (None, None, None);
-                    fields(item, cx, |key, node, cx| {
-                        match key {
-                            "at" => at = Some(<Tick as Form>::get(node, cx)?),
-                            "source" => source = Some(<Tick as Form>::get(node, cx)?),
-                            "curve" if index > 0 => curve = Some(TimeCurve::get(node, cx)?),
-                            _ => return Ok(false),
-                        }
-                        Ok(true)
-                    })
-                    .map_err(|bad| bad.at(&(index + 1).to_string()))?;
-                    let point = TimePoint {
-                        at: need(at, "at")?,
-                        source: need(source, "source")?,
-                    };
-                    if cx.fields.len() > from {
-                        cx.under(from, &point.at.get().to_string());
+                let (mut keys, mut drawn) = (None, None);
+                fields(value, cx, |key, node, cx| {
+                    match key {
+                        "keys" => keys = Some(get_points(node, cx)?),
+                        "drawn" => drawn = get_drawn(node, cx),
+                        _ => return Ok(false),
                     }
-                    points.push((curve.unwrap_or(TimeCurve::Linear), point));
-                }
-                let mut points = points.into_iter();
+                    Ok(true)
+                })?;
+                let mut points = need(keys, "keys")?.into_iter();
                 let Some((_, first)) = points.next() else {
-                    return wrong("has no keys");
+                    return wrong("has no keys").map_err(|bad: Bad| bad.at("keys"));
                 };
                 Ok(TimeMap::Keyed {
                     first,
                     rest: points.collect(),
+                    drawn,
                 })
             }),
             _ => Ok(TimeMap::Unknown(cx.raw(node))),
@@ -1043,6 +1094,8 @@ part!(ShapeShadow {
     blur
 });
 part!(Font { family, path });
+part!(SpeedPoint { at, speed, slope = None });
+part!(SpeedGraph { from, len, points });
 part!(Stroke { tool, size, points, at = None });
 part!(Cutout { mode, subject, feather, strokes = Vec::new() });
 part!(MediaCut { media, take = Take::Whole, stream = None, time = TimeMap::default(), enhanced = None });

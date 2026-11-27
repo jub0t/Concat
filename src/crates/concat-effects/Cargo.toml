@@ -7,7 +7,6 @@ license.workspace = true
 description = "Effect packages: the catalogue of video effects, audio filters, transitions and generators, loaded from manifests rather than written in code."
 
 [dependencies]
-concat-project.workspace = true
 concat-core.workspace = true
 serde = { version = "1", features = ["derive"] }
 # Shaders are parsed and checked at load, and their `Params` struct read

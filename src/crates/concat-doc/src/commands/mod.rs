@@ -42,6 +42,7 @@
 //! ripple closes up only the lanes it took clips from.
 
 mod clips;
+pub mod consolidation;
 mod look;
 mod place;
 mod project;
@@ -56,12 +57,12 @@ use crate::id::{AnyId, MintError, RawId, TypedId, Writer};
 use crate::model::{
     Background, BeatMarks, CaptionLook, Color, ColorRange, Cover, Crop, CutIn, Cutout, Ease,
     Effect, Frame, Item, ItemId, LaneId, Mask, MaskId, Media, MediaId, Model, Motion, SequenceId,
-    ShapeStyle, Speed, Stabilize, Stroke, Title, Violation, VoiceMix,
+    ShapeStyle, Speed, SpeedPoint, Stabilize, Stroke, Title, Violation, VoiceMix,
 };
 use crate::table::TableError;
 use crate::time::{Tick, TickDur, TickLen};
 
-pub use speed::speed_from_decimal;
+pub use speed::{speed_from_decimal, speed_graph};
 
 /// The shortest a trim, a split or a speed change leaves a clip: a
 /// sixtieth of a second.
@@ -186,19 +187,6 @@ pub enum Framing {
     Fit,
     /// The frame covered.
     Fill,
-}
-
-/// One point of a speed curve, as the speed graph draws it: `SpeedPoint`.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct SpeedPoint {
-    /// Where in the clip, as a share of its length on the timeline.
-    pub at: f64,
-    /// Source per timeline there.
-    pub speed: f64,
-    /// How fast the speed changes there, per unit of `at`. When every
-    /// point has one the curve bends through them; otherwise it runs
-    /// straight between them.
-    pub slope: Option<f64>,
 }
 
 /// One caption to place: `CaptionCue`.
@@ -781,11 +769,15 @@ pub enum Command {
         ripple: bool,
     },
     /// `setClipSpeedCurve`: a speed curve over the same source, or a
-    /// constant pace at the curve's mean.
+    /// constant pace at the curve's mean. The clip keeps the points as
+    /// they are given, for [`speed_graph`] to give back: those that are
+    /// numbers, each share held to 0 to 1 and each speed to the range, in
+    /// order.
     SetClipSpeedCurve {
         /// The clip.
         item: ItemId,
-        /// The points; none, or none usable, for a constant pace.
+        /// The points, at shares of the clip's length; none, or none
+        /// usable, for a constant pace.
         curve: Option<Vec<SpeedPoint>>,
         /// As [`Command::SetClipSpeed`]'s.
         ripple: bool,
@@ -1134,6 +1126,21 @@ pub fn run(
         commit: Some(commit),
         applied,
     })
+}
+
+/// [`run`] with no history: the document the command makes, the one given
+/// when it changes nothing, and what it made. For whatever edits a
+/// document outside an editing session - a template filled, a test.
+pub fn made(
+    document: &Document<Model>,
+    command: &Command,
+) -> Result<(Document<Model>, Applied), CommandError> {
+    let outcome = run(document, command, Origin(0))?;
+    let after = match outcome.commit {
+        Some(commit) => commit.into_document(),
+        None => document.clone(),
+    };
+    Ok((after, outcome.applied))
 }
 
 /// Makes a command in a draft. The draft may be left half-made when this

@@ -26,8 +26,9 @@ use std::sync::Arc;
 
 use concat_core::Halt;
 use concat_core::time::Rational;
+use concat_doc::model::Model;
+use concat_export::ClipKind;
 use concat_media::{DecodeOptions, Decoder, FrameSource};
-use concat_project::model::{ClipKind, Project};
 use concat_vision::stabilize::track::{Gray, Measured, Tracker};
 use concat_vision::stabilize::{ANALYSIS_SIDE, FrameMotion, Motion, Similarity, Step, motion_dir};
 
@@ -89,29 +90,29 @@ impl Stabilizers {
     /// request per media, covering every stretch its stabilized clips
     /// show, paired with the media's id. The window asks after every
     /// change and the API before an export; both get the same list.
-    pub fn requests(project: &Project, project_dir: &Path) -> Vec<(String, StabilizeRequest)> {
+    pub fn requests(project: &Model, project_dir: &Path) -> Vec<(String, StabilizeRequest)> {
         let mut wanted: Vec<(String, StabilizeRequest)> = Vec::new();
-        for clip in &project.active().clips {
+        let Some(sequence) = project.view.showing else {
+            return wanted;
+        };
+        for clip in concat_export::flatten::clips(project, sequence, None) {
             if clip.stabilize.is_none() || clip.kind != ClipKind::Video {
                 continue;
             }
-            let Some(media) = project.media_by_id(&clip.media_id) else {
-                continue;
-            };
             let speed = clip.speed.max(0.0625);
             let pad = margin(speed);
             let range = (
                 (clip.source_start - pad).max(0.0),
                 clip.source_start + clip.duration * speed + pad,
             );
-            match wanted.iter_mut().find(|(id, _)| *id == media.id) {
+            match wanted.iter_mut().find(|(path, _)| *path == clip.path) {
                 Some((_, request)) => request.ranges.push(range),
                 None => wanted.push((
-                    media.id.clone(),
+                    clip.path.clone(),
                     StabilizeRequest {
                         project: project_dir.to_path_buf(),
-                        media_path: media.path.clone(),
-                        media_size: media.width.zip(media.height),
+                        media_path: clip.path.clone(),
+                        media_size: clip.media_width.zip(clip.media_height),
                         ranges: vec![range],
                     },
                 )),

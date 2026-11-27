@@ -7,7 +7,7 @@
 //! it, every release carries it, and the developer docs are built from
 //! it, so the reference cannot drift from the build it describes.
 
-use concat_host::session::EditorView;
+use crate::message::EditorView;
 use concat_host::{ProjectInfo, media::MediaSummary, templates::TemplateInfo};
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
@@ -151,14 +151,7 @@ mod tests {
         assert_eq!(replies.len(), variants.len(), "every method is named");
         assert!(replies.contains_key("edit.apply") && replies.contains_key("preview.frame"));
         let defs = contract["$defs"].as_object().expect("defs");
-        for name in [
-            "Command",
-            "EditorView",
-            "Project",
-            "Clip",
-            "ShapeStyle",
-            "Event",
-        ] {
+        for name in ["Command", "EditorView", "ShapeStyle", "Event"] {
             assert!(defs.contains_key(name), "{name} is defined");
         }
         let text = contract.to_string();

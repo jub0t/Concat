@@ -3,14 +3,14 @@
 
 //! A file's beats in the editor - a song's, or a video's soundtrack: heard
 //! once in the background when that file's beats are asked for (its own
-//! switch, `MediaItem::beats`), kept in the project's cache, drawn as marks
+//! switch, `Media::beats`), kept in the project's cache, drawn as marks
 //! along its clips and snapped to when the timeline snaps. See `concat_speech::beats` for the
 //! listening.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use concat_project::model::BeatMarks;
+use concat_doc::model::{BeatMarks, Media, MediaKind};
 use concat_speech::beats::{Beats, VERSION};
 
 use super::*;
@@ -105,9 +105,9 @@ pub(crate) struct BeatsShown {
 }
 
 /// The Marks control's index of `marks`, and back.
-fn marks_index(marks: BeatMarks) -> i32 {
+fn marks_index(marks: &BeatMarks) -> i32 {
     match marks {
-        BeatMarks::Zoom => 0,
+        BeatMarks::Zoom | BeatMarks::Unknown(_) => 0,
         BeatMarks::Every => 1,
         BeatMarks::Second => 2,
         BeatMarks::Bar => 3,
@@ -125,52 +125,65 @@ fn marks_of(index: i32) -> BeatMarks {
 
 /// Whether `item` has sound to listen to: a sound file, or a video that
 /// carries some.
-fn sounds(item: &model::MediaItem) -> bool {
-    (item.kind == model::MediaKind::Audio || item.has_audio) && !item.placeholder
+fn sounds(item: &Media) -> bool {
+    (item.kind == MediaKind::Audio || item.has_sound) && !item.placeholder
+}
+
+/// The clip the song is, for Cut on beats: its id, and where it is.
+struct Song {
+    id: String,
+    item: Item,
+    media: MediaId,
 }
 
 impl Studio {
-    fn media_item(&self, id: &str) -> Option<&model::MediaItem> {
-        self.project().media.iter().find(|item| item.id == id)
+    fn media_item(&self, id: MediaId) -> Option<&Media> {
+        doc_view::media(self.doc(), id)
     }
 
     /// The file whose beats Audio › Beats speaks of: the sole selected
     /// clip's, when it plays sound from one.
-    fn beats_media(&self) -> Option<(Clip, &model::MediaItem)> {
-        let clip = self
-            .sole_selection()
-            .and_then(|id| self.clip(&id).cloned())?;
-        if !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
+    fn beats_media(&self) -> Option<(Song, &Media)> {
+        let id = self.sole_selection()?;
+        let clip = self.clip(&id).cloned()?;
+        if !matches!(self.kind(&clip), Kind::Audio | Kind::Video) {
             return None;
         }
-        let item = self
-            .media_item(&clip.media_id)
-            .filter(|item| sounds(item))?;
-        Some((clip, item))
+        let media = doc_view::media_id(&clip)?;
+        let item = self.media_item(media).filter(|item| sounds(item))?;
+        Some((
+            Song {
+                id,
+                item: clip,
+                media,
+            },
+            item,
+        ))
     }
 
     /// Audio › Beats' switch: asks for the selected clip's file's beats,
     /// or stops - for that file alone, an undoable step like any other.
     pub(crate) fn set_beats_on(&mut self, on: bool) {
-        let Some((_, item)) = self.beats_media() else {
+        let Some((song, item)) = self.beats_media() else {
             return;
         };
-        let media_id = item.id.clone();
-        let marks = on.then(|| item.beats.unwrap_or_default());
-        self.apply(Command::SetMediaBeats { media_id, marks });
+        let marks = on.then(|| item.beats.clone().unwrap_or(BeatMarks::Zoom));
+        self.apply(Command::SetMediaBeats {
+            media: song.media,
+            marks,
+        });
     }
 
     /// Audio › Beats' Marks, for the selected clip's file.
     pub(crate) fn set_beat_marks(&mut self, index: i32) {
-        let Some((_, item)) = self.beats_media() else {
+        let Some((song, item)) = self.beats_media() else {
             return;
         };
         if item.beats.is_none() {
             return;
         }
-        let media_id = item.id.clone();
         self.apply(Command::SetMediaBeats {
-            media_id,
+            media: song.media,
             marks: Some(marks_of(index)),
         });
     }
@@ -183,19 +196,17 @@ impl Studio {
             return;
         };
         let project = session.path().to_owned();
-        let wanted: Vec<(String, String)> = self
-            .project()
-            .media
-            .iter()
-            .filter(|item| {
+        let wanted: Vec<(String, String)> = doc_view::bin(self.doc())
+            .map(|(id, item)| (id.to_string(), item))
+            .filter(|(id, item)| {
                 item.beats.is_some()
                     && sounds(item)
                     && !item.path.is_empty()
-                    && !self.beats.contains_key(&item.id)
-                    && !self.beats_pending.contains(&item.id)
-                    && !self.beats_failed.contains(&item.id)
+                    && !self.beats.contains_key(id)
+                    && !self.beats_pending.contains(id)
+                    && !self.beats_failed.contains(id)
             })
-            .map(|item| (item.id.clone(), item.path.clone()))
+            .map(|(id, item)| (id, item.path.clone()))
             .collect();
         for (id, path) in wanted {
             self.beats_pending.insert(id.clone());
@@ -226,25 +237,29 @@ impl Studio {
     /// the one source-to-timeline map (`reports/Beat detection
     /// 2026-11-19.md`) carries curves too: no marks rather than marks in
     /// the wrong place.
-    pub(super) fn clip_beats(&self, clip: &Clip) -> (Vec<(f64, bool)>, BeatMarks) {
-        if !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video)
-            || clip.speed_curve.is_some()
-            || clip.speed <= 0.0
-        {
-            return Default::default();
-        }
-        let Some(marks) = self.media_item(&clip.media_id).and_then(|item| item.beats) else {
-            return Default::default();
+    pub(super) fn clip_beats(&self, clip: &Item) -> (Vec<(f64, bool)>, BeatMarks) {
+        let none = (Vec::new(), BeatMarks::Zoom);
+        let Some(speed) = doc_view::constant_speed(clip).map(model::Speed::display) else {
+            return none;
         };
-        let Some(beats) = self.beats.get(&clip.media_id) else {
-            return Default::default();
+        if !matches!(self.kind(clip), Kind::Audio | Kind::Video) || speed <= 0.0 {
+            return none;
+        }
+        let Some(media) = doc_view::media_id(clip) else {
+            return none;
+        };
+        let Some(marks) = self.media_item(media).and_then(|item| item.beats.clone()) else {
+            return none;
+        };
+        let Some(beats) = self.beats.get(&media.to_string()) else {
+            return none;
         };
         let placed = placed(
             beats,
-            clip.start,
-            clip.source_start,
-            clip.duration,
-            clip.speed,
+            doc_view::start_s(clip),
+            doc_view::in_point_s(clip),
+            doc_view::len_s(clip),
+            speed,
         );
         (placed, marks)
     }
@@ -255,17 +270,15 @@ impl Studio {
     /// a beat grid does: every beat while beats are [`LEAST_GAP`] pixels
     /// apart or more, else the bars alone, else every fourth bar - never a
     /// wall of ticks that reads as a second waveform.
-    pub(super) fn beat_marks(&self, clip: &Clip) -> (SharedString, SharedString) {
-        if clip.duration <= 0.0 {
-            return Default::default();
-        }
+    pub(super) fn beat_marks(&self, clip: &Item) -> (SharedString, SharedString) {
+        let (start, duration) = (doc_view::start_s(clip), doc_view::len_s(clip));
         let (placed, marks) = self.clip_beats(clip);
-        let placed = chosen(&placed, marks);
+        let placed = chosen(&placed, &marks);
         let (every, bars) = marks_at(&placed, f64::from(self.lanes.seconds_per_pixel));
         let path = |times: &[f64]| -> SharedString {
             let mut path = String::new();
             for time in times {
-                let x = ((time - clip.start) / clip.duration).clamp(0.0, 1.0);
+                let x = ((time - start) / duration).clamp(0.0, 1.0);
                 path.push_str(&format!("M {x:.5} 0 L {x:.5} 1 "));
             }
             path.into()
@@ -278,22 +291,23 @@ impl Studio {
     /// asked for and which, and its tempo for the Tempo row or a sentence
     /// in its place - that it is being listened to, or that it has no beat.
     pub(crate) fn beats_shown(&self) -> BeatsShown {
-        let Some((_, item)) = self.beats_media() else {
+        let Some((song, item)) = self.beats_media() else {
             return BeatsShown::default();
         };
-        let Some(marks) = item.beats else {
+        let Some(marks) = item.beats.as_ref() else {
             return BeatsShown {
                 shown: true,
                 ..BeatsShown::default()
             };
         };
-        let (tempo, note) = match self.beats.get(&item.id).map(|beats| beats.tempo) {
+        let key = song.media.to_string();
+        let (tempo, note) = match self.beats.get(&key).map(|beats| beats.tempo) {
             Some(Some(tempo)) => (
                 crate::i18n::tf("beats.bpm", &[&format!("{tempo:.0}")]),
                 String::new(),
             ),
             Some(None) => (String::new(), crate::i18n::t("beats.none")),
-            None if self.beats_failed.contains(&item.id) => {
+            None if self.beats_failed.contains(&key) => {
                 (String::new(), crate::i18n::t("beats.none"))
             }
             None => (String::new(), crate::i18n::t("beats.listening")),
@@ -316,47 +330,39 @@ impl Studio {
         let Some((song, _)) = self.beats_media() else {
             return;
         };
-        let (placed, marks) = self.clip_beats(&song);
+        let (placed, marks) = self.clip_beats(&song.item);
         let marks = match marks {
-            BeatMarks::Zoom => BeatMarks::Every,
+            BeatMarks::Zoom | BeatMarks::Unknown(_) => BeatMarks::Every,
             marks => marks,
         };
-        let marks: Vec<f64> = chosen(&placed, marks)
+        let marks: Vec<f64> = chosen(&placed, &marks)
             .into_iter()
             .map(|(time, _)| time)
             .collect();
-        let video = self.project().active().video;
-        let rate = concat_core::time::FrameRate::checked(video.rate_num, video.rate_den)
-            .unwrap_or(concat_core::time::FrameRate::THIRTY);
-        let edge = f64::from(MIN_DURATION);
-        let targets: Vec<(String, f64, f64)> = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| clip.id != song.id && clip.track_id != song.track_id)
-            .filter(|clip| !self.locked(&clip.track_id))
-            .filter(|clip| {
-                clip.start < song.start + song.duration && song.start < clip.start + clip.duration
-            })
-            .map(|clip| (clip.id.clone(), clip.start, clip.start + clip.duration))
+        let rate = doc_view::sequence(self.doc())
+            .map_or(concat_doc::Rate::FPS_30, |sequence| sequence.frame.rate);
+        let edge = concat_doc::commands::MIN_LEN;
+        let (song_start, song_end) = (song.item.start, doc_view::end(&song.item));
+        let targets: Vec<(ItemId, Tick, Tick)> = doc_view::items(self.doc())
+            .into_iter()
+            .filter(|(id, clip)| id.to_string() != song.id && clip.lane != song.item.lane)
+            .filter(|(_, clip)| !self.lane_locked(clip.lane))
+            .filter(|(_, clip)| clip.start < song_end && song_start < doc_view::end(clip))
+            .map(|(id, clip)| (id, clip.start, doc_view::end(clip)))
             .collect();
         // Latest first: a split keeps the clip's id on its head, so each
         // earlier cut finds the same clip still under it.
         let mut commands = Vec::new();
         for time in marks.iter().rev() {
-            let at = rate
-                .time_of_frame((time * rate.fps().as_f64()).round() as i64)
-                .as_f64();
-            let ids: Vec<String> = targets
+            let beat = doc_view::tick(*time);
+            let at = rate.snap(beat, concat_doc::Snap::Nearest).unwrap_or(beat);
+            let ids: Vec<ItemId> = targets
                 .iter()
-                .filter(|(_, start, end)| at > start + edge && at < end - edge)
-                .map(|(id, _, _)| id.clone())
+                .filter(|(_, start, end)| at > *start + edge && at + edge < *end)
+                .map(|(id, _, _)| *id)
                 .collect();
             if !ids.is_empty() {
-                commands.push(Command::SplitClips {
-                    clip_ids: ids,
-                    time: at,
-                });
+                commands.push(Command::SplitClips { items: ids, at });
             }
         }
         if commands.is_empty() {
@@ -371,11 +377,10 @@ impl Studio {
     /// for, in timeline seconds: what a dragged edge, a split or the
     /// playhead snaps to beside the cuts, when the timeline snaps.
     pub(super) fn timeline_beats(&self) -> Vec<f64> {
-        self.timeline()
-            .clips
-            .iter()
-            .filter(|clip| clip.muted != Some(true))
-            .flat_map(|clip| self.clip_beats(clip).0.into_iter().map(|(time, _)| time))
+        doc_view::items(self.doc())
+            .into_iter()
+            .filter(|(_, clip)| !clip.sound.muted)
+            .flat_map(|(_, clip)| self.clip_beats(clip).0.into_iter().map(|(time, _)| time))
             .collect()
     }
 }
@@ -402,7 +407,7 @@ fn placed(
 /// The beats Marks asks for of `placed`: all (as the zoom has room for,
 /// or every one), every second beat counted from each bar's first, or the
 /// bars' first beats.
-fn chosen(placed: &[(f64, bool)], marks: BeatMarks) -> Vec<(f64, bool)> {
+fn chosen(placed: &[(f64, bool)], marks: &BeatMarks) -> Vec<(f64, bool)> {
     match marks {
         BeatMarks::Second => {
             let mut since_bar = 0usize;
@@ -464,7 +469,7 @@ fn file_name_of(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use concat_project::model::BeatMarks;
+    use concat_doc::model::BeatMarks;
     use concat_speech::beats::{Beat, Beats};
 
     fn every_half_second() -> Beats {
@@ -509,12 +514,12 @@ mod tests {
     #[test]
     fn marks_picks_the_beats() {
         let placed = super::placed(&every_half_second(), 0.0, 0.0, 10.0, 1.0);
-        assert_eq!(super::chosen(&placed, BeatMarks::Zoom).len(), 20);
-        assert_eq!(super::chosen(&placed, BeatMarks::Every).len(), 20);
-        let second = super::chosen(&placed, BeatMarks::Second);
+        assert_eq!(super::chosen(&placed, &BeatMarks::Zoom).len(), 20);
+        assert_eq!(super::chosen(&placed, &BeatMarks::Every).len(), 20);
+        let second = super::chosen(&placed, &BeatMarks::Second);
         assert_eq!(second.len(), 10);
         assert!((second[1].0 - second[0].0 - 1.0).abs() < 1e-12);
-        let bars = super::chosen(&placed, BeatMarks::Bar);
+        let bars = super::chosen(&placed, &BeatMarks::Bar);
         assert_eq!(bars.len(), 5);
         assert!(bars.iter().all(|(_, bar)| *bar));
     }

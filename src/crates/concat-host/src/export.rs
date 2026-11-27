@@ -66,7 +66,7 @@ pub struct Progress {
 /// The session flattened into a request the engine can render.
 pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) -> ExportRequest {
     request_for(
-        session.project(),
+        &session.document(),
         std::path::Path::new(session.path()),
         spec,
         titles,
@@ -76,23 +76,33 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
 /// [`request`] from a copy of the edit and its folder rather than the
 /// session, for a thread of the export's own: the window hands over a
 /// snapshot and goes on answering while the flattening is done. The
-/// active timeline's frame and rate, as the session's settings are.
+/// frame and rate of the sequence showing; an empty request when the
+/// document shows none.
 pub fn request_for(
-    project: &concat_project::model::Project,
+    project: &concat_doc::Document<concat_doc::model::Model>,
     project_dir: &std::path::Path,
     spec: &ExportSpec,
     titles: Vec<ExportClip>,
 ) -> ExportRequest {
-    let video = project.active().video;
-    let mut clips = concat_export::flatten::flatten_timeline_in(project, None, Some(project_dir));
+    let showing = project.view.showing;
+    let frame = showing
+        .and_then(|sequence| project.sequences.get(sequence))
+        .map_or_else(concat_doc::model::Frame::hd, |sequence| {
+            sequence.frame.clone()
+        });
+    let mut clips = match showing {
+        Some(sequence) => concat_export::flatten::clips(project, sequence, Some(project_dir)),
+        None => Vec::new(),
+    };
     clips.extend(titles);
     let resume = resume_for(project, &clips);
+    let canvas = frame.canvas;
     ExportRequest {
         output: spec.output.clone(),
-        width: video.width,
-        height: video.height,
-        rate_num: video.rate_num,
-        rate_den: video.rate_den,
+        width: frame.width.get(),
+        height: frame.height.get(),
+        rate_num: i64::from(frame.rate.num()),
+        rate_den: i64::from(frame.rate.den()),
         crf: spec.crf,
         preset: spec.preset.clone(),
         codec: spec.codec,
@@ -100,10 +110,10 @@ pub fn request_for(
         rate_mode: spec.rate_mode,
         bitrate_kbps: spec.bitrate_kbps,
         color_range: spec.color_range,
-        color_space: video.color_space,
+        color_space: concat_export::ColorSpace::of(&frame.color),
         hdr: spec.hdr,
         effect_time_offset: 0.0,
-        canvas: video.canvas,
+        canvas: [canvas.r, canvas.g, canvas.b, canvas.a],
         clips,
         resume,
     }
@@ -115,10 +125,10 @@ pub fn request_for(
 /// replaced under the same name is not taken for the one already drawn.
 /// None when the project will not write, and the export starts over.
 fn resume_for(
-    project: &concat_project::model::Project,
+    project: &concat_doc::Document<concat_doc::model::Model>,
     clips: &[ExportClip],
 ) -> Option<concat_export::parts::Resume> {
-    let mut text = serde_json::to_string(project).ok()?;
+    let mut text = concat_doc::file::write(project);
     let mut paths: Vec<&str> = clips.iter().map(|clip| clip.path.as_str()).collect();
     paths.sort_unstable();
     paths.dedup();

@@ -213,13 +213,7 @@ fn bench() -> Bench {
         let Reply::View(view) = reply else {
             panic!("media.import answered with no project");
         };
-        let id = view
-            .project
-            .media
-            .last()
-            .expect("the tone is in the bin")
-            .id
-            .clone();
+        let id = view.created_id.expect("the tone is in the bin");
         bench.send(json!({
             "method": "edit.apply",
             "path": bench.project,

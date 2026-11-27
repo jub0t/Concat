@@ -4,7 +4,7 @@
 //! A clip's mask on the monitor: its outline and its grips, and what a
 //! drag on one of them does to it.
 //!
-//! The mask lives on the picture as it is seen (see `model::MaskAt`): its
+//! The mask lives on the picture as it is seen (see [`MaskAt`]): its
 //! centre a fraction of the picture's width and height from the middle,
 //! its box in the picture's shorter side, its turn on top of the clip's.
 //! This is that arithmetic run forwards into the frame, for the outline and
@@ -15,10 +15,13 @@
 //! mask pulled along with it, which a rotated outline here does not follow:
 //! the grips are placed for the unpulled picture. Rare, and said here.
 
-use concat_core::mask::{self, MaskUniform};
-use concat_project::model::{Mask, MaskShape};
+use concat_core::mask::{self, MaskShape, MaskUniform};
+use concat_doc::Tick;
+use concat_doc::commands::MaskNumber;
+use concat_doc::model::Mask;
 
 use super::Footprint;
+use crate::doc_view;
 
 /// One mask's numbers at one instant, as the monitor draws and drags
 /// them: its keyed numbers at their rides' values and its box at its
@@ -49,20 +52,21 @@ pub struct MaskAt {
 }
 
 impl MaskAt {
-    /// `mask` at `at`, a fraction of its clip. None for a mask that is not
-    /// a shape.
-    pub fn of(mask: &Mask, at: f64) -> Option<MaskAt> {
-        let shape = mask.shape()?;
-        let scale = mask.value_at("scale", at);
+    /// `mask` at `at`, a tick of its item's content time. None for a mask
+    /// that is not a shape this build knows.
+    pub fn of(mask: &Mask, at: Tick) -> Option<MaskAt> {
+        let shape = doc_view::mask_shape(mask)?;
+        let value = |number| doc_view::mask_value_at(mask, number, at);
+        let scale = value(MaskNumber::Scale);
         Some(MaskAt {
             shape,
-            x: mask.value_at("x", at),
-            y: mask.value_at("y", at),
-            width: mask.value_at("width", at) * scale,
-            height: mask.value_at("height", at) * scale,
-            rotation: mask.value_at("rotation", at),
-            roundness: mask.value_at("roundness", at),
-            feather: mask.value_at("feather", at),
+            x: value(MaskNumber::X),
+            y: value(MaskNumber::Y),
+            width: value(MaskNumber::Width) * scale,
+            height: value(MaskNumber::Height) * scale,
+            rotation: value(MaskNumber::Rotation),
+            roundness: value(MaskNumber::Roundness),
+            feather: value(MaskNumber::Feather),
             invert: mask.invert,
             scale,
         })
@@ -71,40 +75,44 @@ impl MaskAt {
     /// A new mask of `shape`, as it starts.
     #[cfg(test)]
     pub fn of_shape(shape: MaskShape) -> MaskAt {
-        MaskAt::of(&Mask::of("", "", shape), 0.0).expect("a shape is a shape")
+        MaskAt::of(
+            &doc_view::mask_of(doc_view::new_mask_id(), shape),
+            Tick::ZERO,
+        )
+        .expect("a shape is a shape")
     }
 
-    /// The numbers a drag can change, by the name the mask writes them
-    /// under, sizes back at a scale of one.
-    pub fn numbers(&self) -> [(&'static str, f64); 7] {
+    /// The numbers a drag can change, sizes back at a scale of one.
+    pub fn numbers(&self) -> [(MaskNumber, f64); 7] {
         let scale = self.scale.max(1e-6);
         [
-            ("x", self.x),
-            ("y", self.y),
-            ("width", self.width / scale),
-            ("height", self.height / scale),
-            ("rotation", self.rotation),
-            ("roundness", self.roundness),
-            ("feather", self.feather),
+            (MaskNumber::X, self.x),
+            (MaskNumber::Y, self.y),
+            (MaskNumber::Width, self.width / scale),
+            (MaskNumber::Height, self.height / scale),
+            (MaskNumber::Rotation, self.rotation),
+            (MaskNumber::Roundness, self.roundness),
+            (MaskNumber::Feather, self.feather),
         ]
     }
 
     /// Every number held to its range, sizes at the drawn scale.
     pub fn tidy(mut self) -> MaskAt {
         let scale = self.scale.max(1e-6);
-        self.x = Mask::clamp("x", self.x);
-        self.y = Mask::clamp("y", self.y);
-        self.width = Mask::clamp("width", self.width / scale) * scale;
-        self.height = Mask::clamp("height", self.height / scale) * scale;
-        self.roundness = Mask::clamp("roundness", self.roundness);
-        self.feather = Mask::clamp("feather", self.feather);
+        let clamp = doc_view::mask_clamp;
+        self.x = clamp(MaskNumber::X, self.x);
+        self.y = clamp(MaskNumber::Y, self.y);
+        self.width = clamp(MaskNumber::Width, self.width / scale) * scale;
+        self.height = clamp(MaskNumber::Height, self.height / scale) * scale;
+        self.roundness = clamp(MaskNumber::Roundness, self.roundness);
+        self.feather = clamp(MaskNumber::Feather, self.feather);
         self
     }
 
     /// The engine's shape with these numbers.
     pub fn engine(&self) -> concat_core::mask::ShapeMask {
         concat_core::mask::ShapeMask {
-            shape: self.shape.engine(),
+            shape: self.shape,
             x: self.x,
             y: self.y,
             width: self.width,
@@ -234,7 +242,7 @@ impl MaskFrame {
     /// Half the box, in frame pixels: none across for a line or a band,
     /// none down for a line.
     fn half(&self) -> (f64, f64) {
-        let shape = self.mask.shape.engine();
+        let shape = self.mask.shape;
         let across = if shape.has_width() {
             self.mask.width * self.short / 2.0
         } else {

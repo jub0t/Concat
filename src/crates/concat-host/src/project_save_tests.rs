@@ -73,7 +73,11 @@ fn info_for(root: &Path) -> ProjectInfo {
 }
 
 fn track_count(session: &Session) -> usize {
-    session.project().active().tracks.len()
+    session.document().lanes.len()
+}
+
+fn add() -> concat_doc::commands::Command {
+    concat_doc::commands::Command::AddTrack { bottom: false }
 }
 
 // ── the write ──
@@ -398,13 +402,16 @@ fn a_capture_is_a_value_that_later_edits_do_not_reach() {
     .expect("creates");
     let mut session = Session::open_info(&info).expect("opens");
     let before = track_count(&session);
-    let (path, captured) = session.prepare_save(None);
-    session
-        .apply(concat_project::Command::AddTrack { bottom: false })
-        .expect("adds a track");
-    assert_ne!(session.prepare_save(None).1, captured);
+    let captured = session.prepare_save(None);
+    session.apply(&add()).expect("adds a track");
+    assert!(
+        !session
+            .prepare_save(None)
+            .document
+            .same_content(&captured.document)
+    );
 
-    projects::save(&path, &captured).expect("writes the capture");
+    crate::session::write_save(&captured).expect("writes the capture");
     let reopened = Session::open_info(&info).expect("reopens");
     assert_eq!(track_count(&reopened), before);
 }
@@ -423,33 +430,48 @@ fn autosaves_queued_before_a_close_never_land_after_it() {
     )
     .expect("creates");
     let mut session = Session::open_info(&info).expect("opens");
-    let add = || concat_project::Command::AddTrack { bottom: false };
 
     // Two autosaves are captured, each before another edit, and wait on a
     // worker that is slow to start.
-    let (path, first) = session.prepare_save(None);
-    let first_ticket = projects::ticket();
-    session.apply(add()).expect("an edit");
-    let (_, second) = session.prepare_save(None);
-    let second_ticket = projects::ticket();
-    session.apply(add()).expect("another edit");
+    let first = session.prepare_save(None);
+    session.apply(&add()).expect("an edit");
+    let second = session.prepare_save(None);
+    session.apply(&add()).expect("another edit");
     let edited = track_count(&session);
+    let write = |pending: &crate::session::PendingSave| {
+        projects::save_document_ordered(
+            &pending.folder,
+            &crate::session::document_path(&pending.folder),
+            &pending.name,
+            &pending.frame,
+            &pending.document,
+            pending.ticket,
+        )
+    };
 
     let (go, wait) = mpsc::channel::<()>();
     let worker = {
-        let path = path.clone();
         std::thread::spawn(move || {
             wait.recv().expect("released");
-            let a = projects::save_ordered(&path, &second, second_ticket);
-            let b = projects::save_ordered(&path, &first, first_ticket);
+            let write = |pending: &crate::session::PendingSave| {
+                projects::save_document_ordered(
+                    &pending.folder,
+                    &crate::session::document_path(&pending.folder),
+                    &pending.name,
+                    &pending.frame,
+                    &pending.document,
+                    pending.ticket,
+                )
+            };
+            let a = write(&second);
+            let b = write(&first);
             (a, b)
         })
     };
 
     // The close captures last and writes at once.
-    let (_, closing) = session.prepare_save(None);
-    let closing_ticket = projects::ticket();
-    let closed = projects::save_ordered(&path, &closing, closing_ticket);
+    let closing = session.prepare_save(None);
+    let closed = write(&closing);
     go.send(()).expect("releases the worker");
     let (late_second, late_first) = worker.join().expect("the worker ends");
 
@@ -554,7 +576,7 @@ fn opening_never_mistakes_a_broken_manifest_for_an_empty_project() {
     )
     .expect("creates");
     let session = Session::open_info(&fresh).expect("a settings-only project opens");
-    assert!(session.project().active().clips.is_empty());
+    assert!(session.document().items.is_empty());
 }
 
 // ── who holds a folder ──

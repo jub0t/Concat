@@ -51,9 +51,24 @@ fn tracks_open(api: &mut Api, path: &str) -> usize {
     match answered(api.dispatch(Request::ProjectGet {
         path: path.to_owned(),
     })) {
-        Reply::View(view) => view.project.active().tracks.len(),
+        Reply::View(view) => lanes(&view.document().expect("the view carries the document")),
         _ => panic!("not a view"),
     }
+}
+
+/// How many lanes the timeline showing has.
+fn lanes(document: &Model) -> usize {
+    let showing = document.view.showing.expect("a timeline shows");
+    document.lanes.index().of(showing).count()
+}
+
+/// What is on disk of the project: its manifest and its document.
+fn on_disk(path: &str) -> (Vec<u8>, Vec<u8>) {
+    let folder = Path::new(path);
+    (
+        std::fs::read(projects::manifest_path(folder)).expect("the manifest"),
+        std::fs::read(concat_host::session::document_path(folder)).expect("the document"),
+    )
 }
 
 /// Puts a directory where the manifest goes, so a save cannot land.
@@ -94,7 +109,7 @@ fn a_save_the_disk_refuses_keeps_the_edit_and_a_later_save_lands() {
     }));
     // Read back by a session of its own, as the next open would.
     let probe = Session::open_info(&projects::open(&path).expect("settings")).expect("opens");
-    assert_eq!(probe.project().active().tracks.len(), before + 1);
+    assert_eq!(lanes(&probe.document()), before + 1);
 }
 
 #[test]
@@ -143,7 +158,7 @@ fn a_close_without_saving_drops_the_edit_and_lets_the_folder_go() {
         path: path.clone(),
         name: None,
     }));
-    let on_disk = std::fs::read(projects::manifest_path(Path::new(&path))).expect("saved");
+    let saved = on_disk(&path);
     add_track(&mut api, &path);
 
     answered(api.dispatch(Request::ProjectClose {
@@ -155,11 +170,7 @@ fn a_close_without_saving_drops_the_edit_and_lets_the_folder_go() {
         !Path::new(&path).join(lock::FILE).exists(),
         "the lock file goes with the session"
     );
-    assert_eq!(
-        std::fs::read(projects::manifest_path(Path::new(&path))).expect("reads"),
-        on_disk,
-        "nothing was written"
-    );
+    assert!(on_disk(&path) == saved, "nothing was written");
 
     answered(api.dispatch(Request::ProjectOpen { path: path.clone() }));
     assert_eq!(tracks_open(&mut api, &path), before);

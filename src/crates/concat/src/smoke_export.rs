@@ -20,6 +20,7 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::doc_view;
 use crate::host::Shell;
 use crate::panes::Msg;
 use crate::panes::export::ExportMsg;
@@ -85,7 +86,7 @@ pub(crate) fn drive(clip: PathBuf) -> slint::Timer {
                         }
                     }
                     Step::Place => {
-                        let first = studio.project().media.first().map(|item| item.id.clone());
+                        let first = doc_view::bin(studio.doc()).next().map(|(id, _)| id.to_string());
                         first.map(|id| {
                             studio.media.selected.clear();
                             studio.media.selected.insert(id);
@@ -93,7 +94,7 @@ pub(crate) fn drive(clip: PathBuf) -> slint::Timer {
                             Step::Export
                         })
                     }
-                    Step::Export => (!studio.timeline().clips.is_empty()).then(|| {
+                    Step::Export => (!doc_view::items(studio.doc()).is_empty()).then(|| {
                         studio.handle(Msg::Export(ExportMsg::Open));
                         studio.handle(Msg::Export(ExportMsg::Start));
                         // Left from a run before on the same device.

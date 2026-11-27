@@ -5,32 +5,32 @@
 //! edit goes by in the log and history, and the English lines the window
 //! shows while a merge starts, runs, finishes, fails or is cancelled.
 
-use concat_project::Command;
-use concat_project::commands::NewMedia;
-use concat_project::model::{MediaKind, MediaOrigin};
+use concat_doc::commands::Command;
+use concat_doc::model::{Media, MediaKind, MediaOrigin, Size};
 
 use super::{command_kind, command_words};
+use crate::doc_view;
 
 const ENGLISH: &str = include_str!("../../locales/en.json");
 
 fn merge_of(path: &str) -> Command {
     Command::ConsolidateClips {
-        clip_ids: vec!["c1".to_owned(), "c2".to_owned()],
-        item: NewMedia {
+        items: vec![
+            doc_view::parse("c1").expect("an id"),
+            doc_view::parse("c2").expect("an id"),
+        ],
+        file: Media {
             path: path.to_owned(),
             name: "Merged clips".to_owned(),
-            duration: Some(4.0),
             kind: MediaKind::Video,
-            width: Some(1920),
-            height: Some(1080),
-            frame_rate: Some(30.0),
-            frame_rate_fraction: Some("30/1".to_owned()),
+            length: Some(doc_view::len(4.0)),
+            rate: Some(concat_doc::Rate::FPS_30),
+            size: Size::new(1920, 1080),
+            has_sound: true,
             video_codec: Some("h264".to_owned()),
             audio_codec: Some("aac".to_owned()),
-            has_audio: true,
-            audio_tracks: Vec::new(),
             origin: Some(MediaOrigin::Processed),
-            color_space: Default::default(),
+            ..Media::default()
         },
     }
 }

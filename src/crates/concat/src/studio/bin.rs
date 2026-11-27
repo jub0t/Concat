@@ -4,6 +4,15 @@
 
 use super::*;
 
+/// The key a cut's waveform is held under: its file's, and the stream it
+/// plays when that is not the file's first.
+fn clip_art_key(clip: &Item) -> Option<String> {
+    match &clip.content {
+        Content::Media(cut) => Some(art_key(&cut.media.to_string(), cut.stream)),
+        _ => None,
+    }
+}
+
 impl Studio {
     // ── the bin ──
 
@@ -11,7 +20,7 @@ impl Studio {
     /// `MediaBin::assign_rows`.
     pub(super) fn assign_media_rows(&mut self) {
         let mut bin = std::mem::take(&mut self.media);
-        bin.assign_rows(self.project());
+        bin.assign_rows(self.doc());
         self.media = bin;
     }
 
@@ -38,22 +47,20 @@ impl Studio {
             Option<concat_media::ColorRange>,
             bool,
         );
-        let unproxied: Vec<Unproxied> = self
-            .project()
-            .media
-            .iter()
+        let unproxied: Vec<Unproxied> = doc_view::bin(self.doc())
             .filter(|_| self.prefs.scrub_copies())
-            .filter(|item| item.kind == model::MediaKind::Video && !item.placeholder)
-            .filter(|item| !self.proxied.contains(&item.id))
-            .filter_map(|item| {
-                let (width, height) = (item.width?, item.height?);
+            .filter(|(_, item)| item.kind == model::MediaKind::Video && !item.placeholder)
+            .map(|(id, item)| (id.to_string(), item))
+            .filter(|(id, _)| !self.proxied.contains(id))
+            .filter_map(|(id, item)| {
+                let size = item.size?;
                 Some((
-                    item.id.clone(),
+                    id,
                     item.path.clone(),
-                    width,
-                    height,
-                    item.color_range.map(concat_export::engine_range),
-                    item.color_space.is_hdr(),
+                    size.width.get(),
+                    size.height.get(),
+                    item.range.as_ref().and_then(concat_export::engine_range),
+                    matches!(item.color, model::ColorSpace::Hlg | model::ColorSpace::Pq),
                 ))
             })
             .collect();
@@ -83,42 +90,44 @@ impl Studio {
             /// proxy written for that reading.
             range: Option<concat_media::ColorRange>,
         }
-        let project = self.project();
-        let mut wanted: Vec<Want> = project
-            .media
-            .iter()
-            .filter(|item| !item.placeholder && !item.path.is_empty())
-            .filter(|item| self.missing_art(&item.id, item.kind, item.has_audio).any())
-            .map(|item| Want {
-                id: item.id.clone(),
-                path: item.path.clone(),
-                kind: item.kind,
-                has_audio: item.has_audio,
-                duration: item.duration,
-                stream: None,
-                range: item.color_range.map(concat_export::engine_range),
+        let doc = self.doc();
+        let want_of = |id: MediaId, item: &model::Media, stream: Option<u32>| Want {
+            id: id.to_string(),
+            path: item.path.clone(),
+            kind: item.kind.clone(),
+            has_audio: item.has_sound,
+            duration: item.length.map(doc_view::len_secs),
+            stream,
+            range: item.range.as_ref().and_then(concat_export::engine_range),
+        };
+        let mut wanted: Vec<Want> = doc_view::bin(doc)
+            .filter(|(_, item)| !item.placeholder && !item.path.is_empty())
+            .filter(|(id, item)| {
+                self.missing_art(&id.to_string(), &item.kind, item.has_sound)
+                    .any()
             })
+            .map(|(id, item)| want_of(id, item, None))
             .collect();
-        // The other streams clips have chosen, once each.
+        // The other streams clips have chosen, once each, on every
+        // timeline.
         let mut asked: HashSet<String> = HashSet::new();
-        for clip in project
-            .timelines
-            .iter()
-            .flat_map(|timeline| timeline.clips.iter())
-        {
-            let Some(stream) = clip.audio_stream else {
+        for (_, clip) in doc.items.iter() {
+            let Content::Media(cut) = &clip.content else {
                 continue;
             };
-            let Some(item) = project.media_by_id(&clip.media_id) else {
+            let Some(stream) = cut.stream else {
+                continue;
+            };
+            let Some(item) = doc_view::media(doc, cut.media) else {
                 continue;
             };
             if item.placeholder
                 || item.path.is_empty()
-                || !(item.kind == model::MediaKind::Audio || item.has_audio)
+                || !(item.kind == model::MediaKind::Audio || item.has_sound)
             {
                 continue;
             }
-            let key = art_key(&item.id, Some(stream));
+            let key = art_key(&cut.media.to_string(), Some(stream));
             if self.peaks.contains_key(&key)
                 || self.art_pending.contains(&key)
                 || self.art_failed.contains(&key)
@@ -126,15 +135,7 @@ impl Studio {
             {
                 continue;
             }
-            wanted.push(Want {
-                id: item.id.clone(),
-                path: item.path.clone(),
-                kind: item.kind,
-                has_audio: item.has_audio,
-                duration: item.duration,
-                stream: Some(stream),
-                range: item.color_range.map(concat_export::engine_range),
-            });
+            wanted.push(want_of(cut.media, item, Some(stream)));
         }
         // Each piece of art is a job of its own, on the scheduler's lane
         // for it (see host.rs): the cards' pictures first and on every
@@ -167,21 +168,22 @@ impl Studio {
             // starting a decoder. Peaks already have their own disk cache in
             // concat-media; thumbnails and filmstrips are what used to be
             // recreated on every project open.
-            let mut missing = self.missing_art(&id, kind, has_audio);
+            let mut missing = self.missing_art(&id, &kind, has_audio);
             if missing.poster || missing.strip {
-                let cached = cached_media_art(&project_path, &id, &path, kind);
+                let cached = cached_media_art(&project_path, &id, &path, kind.clone());
                 if let Some(image) = cached.thumbnail {
                     self.media.thumbs.insert(id.clone(), image);
                 }
                 if let Some(strip) = cached.strip {
                     self.strips.insert(id.clone(), strip.into());
                 }
-                missing = self.missing_art(&id, kind, has_audio);
+                missing = self.missing_art(&id, &kind, has_audio);
             }
 
             if missing.poster {
                 self.art_pending.insert(poster_key(&id));
-                let (id, path, project) = (id.clone(), path.clone(), project.clone());
+                let (id, path, project, kind) =
+                    (id.clone(), path.clone(), project.clone(), kind.clone());
                 spawn_poster(
                     move || media_poster(id, path, kind, duration, project),
                     |studio, _, _, poster: MediaPoster| {
@@ -240,19 +242,19 @@ impl Studio {
     pub(super) fn missing_art(
         &self,
         id: &str,
-        kind: model::MediaKind,
+        kind: &model::MediaKind,
         has_audio: bool,
     ) -> MissingArt {
         let open = |key: &str| !self.art_pending.contains(key) && !self.art_failed.contains(key);
         MissingArt {
-            poster: kind != model::MediaKind::Audio
+            poster: *kind != model::MediaKind::Audio
                 && (!self.media.thumbs.contains_key(id)
-                    || (kind == model::MediaKind::Image && !self.strips.contains_key(id)))
+                    || (*kind == model::MediaKind::Image && !self.strips.contains_key(id)))
                 && open(&poster_key(id)),
-            strip: kind == model::MediaKind::Video
+            strip: *kind == model::MediaKind::Video
                 && !self.strips.contains_key(id)
                 && open(&strip_key(id)),
-            peaks: (kind == model::MediaKind::Audio || has_audio)
+            peaks: (*kind == model::MediaKind::Audio || has_audio)
                 && !self.peaks.contains_key(id)
                 && open(&art_key(id, None)),
         }
@@ -296,11 +298,14 @@ impl Studio {
         }
         let mut shown: HashSet<String> = HashSet::new();
         let mut wanted: Vec<Want> = Vec::new();
-        for clip in &self.timeline().clips {
-            if clip.kind != model::ClipKind::Video {
+        for (_, clip) in doc_view::items(self.doc()) {
+            if self.kind(clip) != Kind::Video {
                 continue;
             }
-            let Some(item) = self.project().media_by_id(&clip.media_id) else {
+            let Some(media) = doc_view::media_id(clip) else {
+                continue;
+            };
+            let Some(item) = doc_view::media(self.doc(), media) else {
                 continue;
             };
             if item.placeholder || item.path.is_empty() {
@@ -312,7 +317,8 @@ impl Studio {
             let Some((level, cell)) = strip_window(start, span, duration) else {
                 continue;
             };
-            let key = window_key(&clip.media_id, level, cell);
+            let id = media.to_string();
+            let key = window_key(&id, level, cell);
             if !shown.insert(key.clone())
                 || self.windows.contains_key(&key)
                 || self.window_pending.contains(&key)
@@ -321,7 +327,7 @@ impl Studio {
             }
             wanted.push(Want {
                 key,
-                id: item.id.clone(),
+                id,
                 path: item.path.clone(),
                 level,
                 cell,
@@ -362,17 +368,26 @@ impl Studio {
     /// A picture clip's cut as fractions of its footage - where it begins
     /// and how much it covers - with the footage's length in seconds.
     /// `None` for a still or footage of unknown length: one frame, all of it.
-    fn cut_of(&self, clip: &Clip) -> Option<(f64, f64, f64)> {
-        let seconds = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.id == clip.media_id)
-            .and_then(|item| item.duration)
+    fn cut_of(&self, clip: &Item) -> Option<(f64, f64, f64)> {
+        let media = doc_view::media_of(self.doc(), clip)?;
+        if media.kind == model::MediaKind::Image {
+            return None;
+        }
+        let seconds = media
+            .length
+            .map(doc_view::len_secs)
             .filter(|seconds| *seconds > 0.0)?;
+        let (from, span) = doc_view::covered(clip)?;
+        let (from, span) = (doc_view::secs(from), doc_view::dur_secs(span));
+        // A cut played backwards covers the same footage from its end.
+        let (from, span) = if span < 0.0 {
+            (from + span, -span)
+        } else {
+            (from, span)
+        };
         Some((
-            (clip.source_start / seconds).clamp(0.0, 1.0),
-            (clip.duration * clip.speed / seconds).clamp(0.0, 1.0),
+            (from / seconds).clamp(0.0, 1.0),
+            (span / seconds).clamp(0.0, 1.0),
             seconds,
         ))
     }
@@ -381,11 +396,14 @@ impl Studio {
     /// where in the footage it starts and how much of the footage it spans,
     /// both as fractions, so the lane can pick the frame under each tile
     /// without knowing about speed or source time.
-    pub(super) fn strip_of(&self, clip: &Clip) -> StripData {
-        if !matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Image) {
+    pub(super) fn strip_of(&self, clip: &Item) -> StripData {
+        if !matches!(self.kind(clip), Kind::Video | Kind::Image) {
             return StripData::default();
         }
-        let Some(mut strip) = self.strips.get(&clip.media_id) else {
+        let Some(media) = doc_view::media_id(clip).map(|id| id.to_string()) else {
+            return StripData::default();
+        };
+        let Some(mut strip) = self.strips.get(&media) else {
             return StripData::default();
         };
         let (mut start, mut span) = (0.0, 1.0);
@@ -396,7 +414,7 @@ impl Studio {
             // window of that cell rather than of the whole file. Until it
             // arrives the file's strip stands in, and the tiles repeat.
             if let Some((level, cell)) = strip_window(start, span, duration)
-                && let Some(window) = self.windows.get(&window_key(&clip.media_id, level, cell))
+                && let Some(window) = self.windows.get(&window_key(&media, level, cell))
             {
                 let (cell_start, cell_span) = (window_start(level, cell), window_span(level));
                 start = ((start - cell_start) / cell_span).clamp(0.0, 1.0);
@@ -440,25 +458,25 @@ impl Studio {
     /// as a fade can reach - half the clip, ten seconds at most, as the
     /// Audio tab bounds its fades - drawn as bars in a 1x1 box: the tab's
     /// fade panes. Empty while the peaks are not in, and for a muted clip.
-    pub(super) fn wave_end(&self, clip: &Clip, tail: bool) -> SharedString {
+    pub(super) fn wave_end(&self, clip: &Item, tail: bool) -> SharedString {
         /// Bars across a pane: about one per three pixels of its width.
         const COLUMNS: usize = 64;
-        if clip.muted == Some(true)
-            || !matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video)
-        {
+        if clip.sound.muted || !matches!(self.kind(clip), Kind::Audio | Kind::Video) {
             return SharedString::default();
         }
-        let art = art_key(&clip.media_id, clip.audio_stream);
+        let Some(art) = clip_art_key(clip) else {
+            return SharedString::default();
+        };
         let Some(peaks) = self.peaks.get(&art) else {
             return SharedString::default();
         };
-        let duration = clip.duration as f32;
+        let duration = doc_view::len_s(clip) as f32;
         let window = (duration / 2.0).clamp(0.1, 10.0).min(duration);
         if window <= 0.0 {
             return SharedString::default();
         }
         let from = if tail { duration - window } else { 0.0 };
-        let source_start = clip.source_start as f32;
+        let source_start = doc_view::in_point_s(clip) as f32;
         let key = format!("end|{art}|{source_start:.3}|{from:.3}|{window:.3}");
         if let Some(cached) = self.waves.borrow().get(&key) {
             return cached.clone();
@@ -479,19 +497,25 @@ impl Studio {
         built
     }
 
-    pub(super) fn wave(&self, clip: &Clip) -> (SharedString, f32, f32) {
-        if clip.muted == Some(true) {
+    pub(super) fn wave(&self, clip: &Item) -> (SharedString, f32, f32) {
+        if clip.sound.muted {
             return Default::default();
         }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
-        let art = art_key(&clip.media_id, clip.audio_stream);
+        let Some(art) = clip_art_key(clip) else {
+            return Default::default();
+        };
         let Some(peaks) = self.peaks.get(&art) else {
             return Default::default();
         };
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
-        let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
+        let (source_start, duration) = (
+            step(doc_view::in_point_s(clip) as f32),
+            step(doc_view::len_s(clip) as f32),
+        );
+        let clip_start = doc_view::start_s(clip) as f32;
         if duration <= 0.0 {
             return Default::default();
         }
@@ -499,8 +523,8 @@ impl Studio {
         let stride = (WAVE_PITCH * seconds_per_pixel * 64.0).max(1.0 / WAVE_STEPS);
         let (from, to) = match self.lanes.published_span() {
             Some((left, right)) => {
-                let from = (left - clip.start as f32).max(0.0);
-                let to = (right - clip.start as f32).min(duration);
+                let from = (left - clip_start).max(0.0);
+                let to = (right - clip_start).min(duration);
                 if to > from {
                     (
                         (from / stride).floor() * stride,

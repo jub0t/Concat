@@ -11,52 +11,55 @@ use super::*;
 use concat_host::consolidate::Consolidation;
 
 /// The clip that starts at `start` seconds.
-fn starting_at(studio: &Studio, start: f64) -> String {
+fn starting_at(studio: &Studio, start: f64) -> ItemId {
     studio
-        .project()
-        .active()
-        .clips
-        .iter()
-        .find(|clip| (clip.start - start).abs() < 1e-6)
+        .clip_ids()
+        .into_iter()
+        .find(|id| (studio.clip(id).start - start).abs() < 1e-6)
         .unwrap_or_else(|| panic!("a clip starts at {start}s"))
-        .id
-        .clone()
 }
 
 /// Renders `ids` the way the window does, into the project's media
 /// folder, and reads the file back.
-fn render(studio: &Studio, ids: &[String], name: &str) -> (Consolidation, PathBuf, Exported) {
-    let plan = Consolidation::new(studio.project(), ids).expect("the selection can be merged");
+fn render(studio: &Studio, ids: &[ItemId], name: &str) -> (Consolidation, PathBuf, Exported) {
+    let plan = Consolidation::new(&studio.project(), ids).expect("the selection can be merged");
     let root = Path::new(studio.session.path()).to_path_buf();
     let folder = root.join("media").join(format!("merged-{name}"));
     std::fs::create_dir_all(&folder).expect("makes the media folder");
     let output = folder.join("merged.mp4");
-    let request = plan.request(studio.project(), &root, &output);
+    let request = plan.request(&studio.project(), &root, &output);
     export::run(&request, &AtomicBool::new(false), |_| {}).expect("the selection renders");
     let file = Exported::read(name, &output, (30, 1));
     (plan, output, file)
 }
 
-/// Puts the rendered file in place of the clips; returns the merged clip.
-fn adopt(studio: &mut Studio, plan: &Consolidation, output: &Path) -> String {
+/// Puts the rendered file in place of the clips; returns the merged clip,
+/// which keeps the earliest clip's id.
+fn adopt(studio: &mut Studio, plan: &Consolidation, output: &Path) -> ItemId {
     let mut item = media::probe(output.to_str().expect("utf-8"))
         .expect("the render probes")
         .to_new_media();
     item.name = "Merged clips".to_owned();
     let command = plan
-        .replacement(studio.project(), item)
+        .replacement(&studio.project(), item)
         .expect("nothing changed while rendering");
-    studio
-        .apply(command)
-        .expect("the merged clip keeps the first clip's id")
+    let lane = plan.lane();
+    studio.apply(command);
+    let document = studio.project();
+    let kept = document
+        .items
+        .index()
+        .on_lane(lane)
+        .map(|(id, _, _)| id)
+        .next();
+    kept.expect("the merged clip is on the lane")
 }
 
 /// Saves, reopens and exports the active timeline at its own rate,
 /// comparing renders rather than the reopened document's raw seconds.
 fn draw_whole(studio: &mut Studio, label: &str) -> Exported {
     studio.session.save(None).expect("saves");
-    let reopened =
-        Session::open(studio.session.path(), studio.session.settings()).expect("reopens");
+    let reopened = studio.reopen();
     let output = studio.exports.join(format!("{label}.mp4"));
     let spec = ExportSpec {
         output: output.to_string_lossy().into_owned(),
@@ -82,18 +85,18 @@ fn a_gap_inside_the_merge_becomes_dark_silent_frames_of_the_file() {
     let mut studio = Studio::new(scratch.path(), "Gap", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&sources.peek);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id,
-        start: 0.0,
+        media: media_id,
+        start: at(0.0),
     });
     for time in [2.0, 4.0] {
         studio.apply(Command::SplitClips {
-            clip_ids: studio.clip_ids(),
-            time,
+            items: studio.clip_ids(),
+            at: at(time),
         });
     }
     let middle = starting_at(&studio, 2.0);
     studio.apply(Command::RemoveClips {
-        clip_ids: vec![middle],
+        items: vec![middle],
         ripple: false,
     });
     let ids = studio.clip_ids();
@@ -113,7 +116,7 @@ fn a_gap_inside_the_merge_becomes_dark_silent_frames_of_the_file() {
 
     let merged = adopt(&mut studio, &plan, &output);
     assert_eq!(merged, first);
-    assert_eq!(studio.clip_ids(), vec![first.clone()]);
+    assert_eq!(studio.clip_ids(), vec![first]);
     let clip = studio.clip(&first);
     assert_eq!(clip.start, 0.0);
     assert!(
@@ -137,27 +140,31 @@ fn seconds_cut_out_of_the_recording_stay_out_of_the_merge() {
     let mut studio = Studio::new(scratch.path(), "Cuts", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&sources.peek);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id,
-        start: 0.0,
+        media: media_id,
+        start: at(0.0),
     });
     for time in [1.0, 3.0] {
         studio.apply(Command::SplitClips {
-            clip_ids: studio.clip_ids(),
-            time,
+            items: studio.clip_ids(),
+            at: at(time),
         });
     }
     let pause = starting_at(&studio, 1.0);
     studio.apply(Command::RemoveClips {
-        clip_ids: vec![pause],
+        items: vec![pause],
         ripple: true,
     });
     let ids = studio.clip_ids();
     assert_eq!(ids.len(), 2);
 
     // A render stopped before it starts leaves nothing behind.
-    let plan = Consolidation::new(studio.project(), &ids).expect("mergeable");
+    let plan = Consolidation::new(&studio.project(), &ids).expect("mergeable");
     let stopped = scratch.path().join("stopped.mp4");
-    let request = plan.request(studio.project(), Path::new(studio.session.path()), &stopped);
+    let request = plan.request(
+        &studio.project(),
+        Path::new(studio.session.path()),
+        &stopped,
+    );
     assert_eq!(
         export::run(&request, &AtomicBool::new(true), |_| {}),
         Err(concat_core::Halt::Cancelled),
@@ -188,23 +195,17 @@ fn a_hidden_muted_lane_is_rendered_whole_and_stays_hidden_and_muted() {
     let sources = Sources::make(scratch.path());
     let mut studio = Studio::new(scratch.path(), "Hidden", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&sources.peek);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 0.0,
-        })
-        .expect("a clip");
-    let lane = studio.clip(&id).track_id.clone();
-    studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 3.0,
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(0.0),
     });
-    for (flag, value) in [(TrackFlag::Visible, false), (TrackFlag::Muted, true)] {
-        studio.apply(Command::SetTrackFlag {
-            track_id: lane.clone(),
-            flag,
-            value,
-        });
+    let lane = studio.clip(&id).track_id;
+    studio.apply(Command::SplitClips {
+        items: studio.clip_ids(),
+        at: at(3.0),
+    });
+    for (flag, value) in [(LaneFlag::Visible, false), (LaneFlag::Muted, true)] {
+        studio.apply(Command::SetTrackFlag { lane, flag, value });
     }
     let ids = studio.clip_ids();
 
@@ -216,11 +217,10 @@ fn a_hidden_muted_lane_is_rendered_whole_and_stays_hidden_and_muted() {
     adopt(&mut studio, &plan, &output);
     let track = studio
         .project()
-        .active()
-        .tracks
-        .iter()
-        .find(|track| track.id == lane)
+        .lanes
+        .get(lane)
         .expect("the lane")
+        .as_ref()
         .clone();
     assert!(
         !track.visible && track.muted,
@@ -236,15 +236,13 @@ fn a_speed_change_is_drawn_into_the_file_and_the_merged_clip_plays_at_normal_spe
     let sources = Sources::make(scratch.path());
     let mut studio = Studio::new(scratch.path(), "Speed", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&sources.peek);
-    let fast = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id: media_id.clone(),
-            start: 0.0,
-        })
-        .expect("a clip");
+    let fast = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(0.0),
+    });
     studio.apply(Command::SetClipSpeed {
-        clip_id: fast.clone(),
-        speed: 2.0,
+        item: fast,
+        speed: pace(2.0),
         ripple: false,
     });
     assert!(
@@ -252,19 +250,17 @@ fn a_speed_change_is_drawn_into_the_file_and_the_merged_clip_plays_at_normal_spe
         "six seconds at double speed"
     );
     let after_fast = studio.end();
-    let normal = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: after_fast,
-        })
-        .expect("a clip");
+    let normal = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(after_fast),
+    });
     assert_eq!(
         studio.clip(&fast).track_id,
         studio.clip(&normal).track_id,
         "both on one lane"
     );
 
-    let (plan, output, file) = render(&studio, &[fast.clone(), normal], "speed");
+    let (plan, output, file) = render(&studio, &[fast, normal], "speed");
     file.expect_length(9.0);
     file.expect_second(0.75, 1);
     file.expect_second(2.25, 4);
@@ -287,21 +283,19 @@ fn a_span_ending_inside_a_frame_is_still_covered_by_the_file() {
     picture(&source, FrameRate::THIRTY, 3, VideoCodec::H264);
     let mut studio = Studio::new(scratch.path(), "Fraction", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 0.0,
-        })
-        .expect("a clip");
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(0.0),
+    });
     studio.apply(Command::TrimClip {
-        clip_id: id,
-        edge: TrimEdge::End,
-        delta: -1.99,
+        item: id,
+        edge: Edge::Tail,
+        delta: by(-1.99),
         ripple: false,
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 0.5,
+        items: studio.clip_ids(),
+        at: at(0.5),
     });
     let ids = studio.clip_ids();
     let span = studio.end();
@@ -334,29 +328,23 @@ fn an_effect_that_moves_with_time_keeps_its_timing_through_a_merge() {
     solid(&source, [200, 200, 200]);
     let mut studio = Studio::new(scratch.path(), "Pulse", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
-    let id = studio
-        .apply(Command::AddClipAtFirstFree {
-            media_id,
-            start: 3.0,
-        })
-        .expect("a clip");
+    let id = studio.made(Command::AddClipAtFirstFree {
+        media: media_id,
+        start: at(3.0),
+    });
     studio.apply(Command::UpdateClip {
-        clip_id: id,
-        patch: ClipPatch {
-            video_effects: Some(vec![AppliedFilter {
-                id: "concat.bloom-pulse".into(),
-                params: [("amount".into(), 90.0), ("speed".into(), 2.0)]
-                    .into_iter()
-                    .collect(),
-                enabled: true,
-                keys: Default::default(),
-            }]),
-            ..Default::default()
+        item: id,
+        patch: ItemPatch {
+            effects: Some(vec![effect_with(
+                "concat.bloom-pulse",
+                &[("amount", 90.0), ("speed", 2.0)],
+            )]),
+            ..ItemPatch::default()
         },
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 4.0,
+        items: studio.clip_ids(),
+        at: at(4.0),
     });
     let original = studio.export("pulse before");
     let ids = studio.clip_ids();
@@ -379,12 +367,12 @@ fn after_a_merge_at_a_fractional_start_every_frame_exports_as_before() {
     let mut studio = Studio::new(scratch.path(), "Grid", video(WIDTH, HEIGHT, 30, 1));
     let media_id = studio.import(&source);
     studio.apply(Command::AddClipAtFirstFree {
-        media_id,
-        start: 2.02,
+        media: media_id,
+        start: at(2.02),
     });
     studio.apply(Command::SplitClips {
-        clip_ids: studio.clip_ids(),
-        time: 3.5,
+        items: studio.clip_ids(),
+        at: at(3.5),
     });
     let before = draw_whole(&mut studio, "grid before");
     let ids = studio.clip_ids();
@@ -495,27 +483,25 @@ fn pieces_cut_between_frames_merge_into_the_frames_they_covered() {
             video(WIDTH, HEIGHT, num, den),
         );
         let media_id = studio.import(&source);
-        let track_id = studio.project().active().tracks[0].id.clone();
+        let track_id = studio.lanes()[0];
         let place = |studio: &mut Studio, start: f64| {
-            studio
-                .apply(Command::AddClip {
-                    media_id: media_id.clone(),
-                    track_id: track_id.clone(),
-                    start,
-                    ripple: false,
-                })
-                .expect("a clip")
+            studio.made(Command::AddClip {
+                media: media_id,
+                lane: track_id,
+                start: at(start),
+                ripple: false,
+            })
         };
         let whole = place(&mut studio, 0.013);
         for time in [0.4371, 0.9123] {
             studio.apply(Command::SplitClips {
-                clip_ids: vec![studio.clip_ids().last().expect("a clip").clone()],
-                time,
+                items: vec![*studio.clip_ids().last().expect("a clip")],
+                at: at(time),
             });
         }
         let gap = starting_at(&studio, 0.4371);
         studio.apply(Command::RemoveClips {
-            clip_ids: vec![gap],
+            items: vec![gap],
             ripple: false,
         });
         let selected = studio.clip_ids();
@@ -526,8 +512,7 @@ fn pieces_cut_between_frames_merge_into_the_frames_they_covered() {
 
         let draw = |studio: &mut Studio, name: &str| {
             studio.session.save(None).expect("saves");
-            let reopened =
-                Session::open(studio.session.path(), studio.session.settings()).expect("reopens");
+            let reopened = studio.reopen();
             let output = studio.exports.join(format!("{name}.mp4"));
             let spec = ExportSpec {
                 output: output.to_string_lossy().into_owned(),
@@ -541,19 +526,19 @@ fn pieces_cut_between_frames_merge_into_the_frames_they_covered() {
         };
         let before = draw(&mut studio, &format!("between-{num}-before"));
 
-        let plan = Consolidation::new(studio.project(), &selected)
+        let plan = Consolidation::new(&studio.project(), &selected)
             .unwrap_or_else(|error| panic!("{label}: cannot merge: {error}"));
         let root = Path::new(studio.session.path()).to_path_buf();
         let folder = root.join("media").join(format!("merged-between-{num}"));
         std::fs::create_dir_all(&folder).expect("makes the media folder");
         let output = folder.join("merged.mp4");
-        let request = plan.request(studio.project(), &root, &output);
+        let request = plan.request(&studio.project(), &root, &output);
         export::run(&request, &AtomicBool::new(false), |_| {}).expect("the selection renders");
         let merged = adopt(&mut studio, &plan, &output);
         assert_eq!(merged, whole, "{label}: the first piece's id is kept");
         assert_eq!(
             studio.clip(&after),
-            &after_before,
+            after_before,
             "{label}: the clip after the merge does not move"
         );
         let after_merge = draw(&mut studio, &format!("between-{num}-after"));

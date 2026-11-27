@@ -9,15 +9,17 @@
 //! changes the window's length; the keys keep their share of the clip.
 //! A speed curve becomes position keys: a straight ramp is one smooth
 //! stretch exactly, and a curve that bends is fitted with eight stretches
-//! to each of its own, each key exact in source.
+//! to each of its own, each key exact in source. The keys are what plays;
+//! the map keeps the graph they were worked out from beside them, as it
+//! was drawn, and [`speed_graph`] gives it back for the speed pane.
 
 use crate::model::{
-    Animated, Content, FASTEST, Item, ItemId, MediaKind, Model, SLOWEST, Speed, TimeCurve, TimeMap,
-    TimePoint,
+    Animated, Content, FASTEST, Item, ItemId, MediaKind, Model, SLOWEST, Speed, SpeedGraph,
+    SpeedPoint, TimeCurve, TimeMap, TimePoint,
 };
 use crate::time::{Tick, TickDur, TickLen, rescale};
 
-use super::{CommandError, Ed, SpeedPoint};
+use super::{CommandError, Ed};
 
 /// A pace from a decimal, to a hundred-thousandth, held from a sixteenth
 /// to sixteen times either way. `None` for zero or a number that is not
@@ -59,32 +61,7 @@ fn map_mut(item: &mut Item) -> Option<&mut TimeMap> {
 /// The source at a content tick, worked out on a smooth stretch too.
 /// `None` past a keyed map's keys and for a map this build cannot read.
 pub(crate) fn source_at(map: &TimeMap, c: Tick) -> Option<Tick> {
-    if let Some(exact) = map.source_at(c) {
-        return Some(exact);
-    }
-    let TimeMap::Keyed { first, rest } = map else {
-        return None;
-    };
-    let mut from = *first;
-    for (curve, to) in rest {
-        if c >= from.at && c <= to.at {
-            let TimeCurve::Smooth { leave, arrive } = curve else {
-                return None;
-            };
-            let w = (to.at.get() - from.at.get()) as f64;
-            let u = (c.get() - from.at.get()) as f64 / w;
-            let (s0, s1) = (from.source.get() as f64, to.source.get() as f64);
-            let (m0, m1) = (leave.display() * w, arrive.display() * w);
-            let (u2, u3) = (u * u, u * u * u);
-            let p = (2.0 * u3 - 3.0 * u2 + 1.0) * s0
-                + (u3 - 2.0 * u2 + u) * m0
-                + (-2.0 * u3 + 3.0 * u2) * s1
-                + (u3 - u2) * m1;
-            return Some(Tick::new(p.round() as i64));
-        }
-        from = *to;
-    }
-    None
+    map.source_of(c)
 }
 
 /// The source the window shows, from its start to its end, signed.
@@ -95,7 +72,8 @@ pub(crate) fn covered(item: &Item) -> Option<(Tick, TickDur)> {
     Some((from, to - from))
 }
 
-/// The map moved so that content tick `at` shows `source`.
+/// The map moved so that content tick `at` shows `source`. Every pace
+/// stays as it is, so a keyed map keeps the graph it was drawn with.
 pub(crate) fn with_in_point(map: &TimeMap, at: Tick, source: Tick) -> Option<TimeMap> {
     let now = source_at(map, at)?;
     let by = source - now;
@@ -104,7 +82,7 @@ pub(crate) fn with_in_point(map: &TimeMap, at: Tick, source: Tick) -> Option<Tim
             src_in: src_in.checked_add(by)?,
             speed: *speed,
         },
-        TimeMap::Keyed { first, rest } => TimeMap::Keyed {
+        TimeMap::Keyed { first, rest, drawn } => TimeMap::Keyed {
             first: TimePoint {
                 at: first.at,
                 source: first.source.checked_add(by)?,
@@ -121,6 +99,7 @@ pub(crate) fn with_in_point(map: &TimeMap, at: Tick, source: Tick) -> Option<Tim
                     ))
                 })
                 .collect::<Option<Vec<_>>>()?,
+            drawn: drawn.clone(),
         },
         TimeMap::Unknown(_) => return None,
     })
@@ -167,7 +146,7 @@ pub(crate) fn window_limits(m: &Model, item: &Item) -> (Option<Tick>, Option<Tic
                 (low, high)
             }
         }
-        TimeMap::Keyed { first, rest } => {
+        TimeMap::Keyed { first, rest, .. } => {
             let last = rest.last().map_or(first.at, |(_, p)| p.at);
             (Some(first.at), Some(last))
         }
@@ -255,24 +234,42 @@ struct Knot {
     slope: f64,
 }
 
-/// The curve as it is played: ordered, held to 0 to 1 and to the speed
-/// range, reaching both ends; smooth ones held monotone between points.
-fn tidy(points: &[SpeedPoint]) -> Option<(Vec<Knot>, bool)> {
-    let smooth = !points.is_empty() && points.iter().all(|p| p.slope.is_some());
+/// A speed graph's points as the document keeps them: those that are
+/// numbers, each share held to 0 to 1 and each speed to the range, in
+/// order of their shares, a slope that is not a number level. Nothing is
+/// added and no slope is limited: these are the points as they were
+/// drawn.
+fn kept(points: &[SpeedPoint]) -> Vec<SpeedPoint> {
     let (low, high) = (SLOWEST.display(), FASTEST.display());
-    let mut knots: Vec<Knot> = points
+    let mut kept: Vec<SpeedPoint> = points
         .iter()
         .filter(|p| p.at.is_finite() && p.speed.is_finite())
-        .map(|p| Knot {
-            x: p.at.clamp(0.0, 1.0),
-            v: p.speed.clamp(low, high),
-            slope: p.slope.filter(|s| s.is_finite()).unwrap_or(0.0),
+        .map(|p| SpeedPoint {
+            // A share of minus nothing is nothing.
+            at: p.at.clamp(0.0, 1.0) + 0.0,
+            speed: p.speed.clamp(low, high),
+            slope: p.slope.map(|s| if s.is_finite() { s } else { 0.0 }),
         })
         .collect();
-    if knots.is_empty() {
+    kept.sort_by(|a, b| a.at.total_cmp(&b.at));
+    kept
+}
+
+/// The curve as it is played, from the points as they are kept: reaching
+/// both ends, and a smooth one held monotone between points.
+fn tidy(points: &[SpeedPoint]) -> Option<(Vec<Knot>, bool)> {
+    if points.is_empty() {
         return None;
     }
-    knots.sort_by(|a, b| a.x.total_cmp(&b.x));
+    let smooth = points.iter().all(|p| p.slope.is_some());
+    let mut knots: Vec<Knot> = points
+        .iter()
+        .map(|p| Knot {
+            x: p.at,
+            v: p.speed,
+            slope: p.slope.unwrap_or(0.0),
+        })
+        .collect();
     if knots[0].x > 0.0 {
         let v = knots[0].v;
         knots.insert(
@@ -363,6 +360,175 @@ fn samples(knots: &[Knot], smooth: bool) -> Vec<(f64, f64, f64, f64)> {
     out
 }
 
+/// Moves the sources of a curve's keys, the first and the last staying,
+/// so that no stretch between two is slower than a sixteenth or faster
+/// than sixteen times: one drawn at either limit can round to a tick
+/// past it. Where no such places exist the keys are left.
+fn hold_paces(points: &mut [(TimePoint, f64, f64)]) {
+    let n = points.len();
+    let first = points[0].0.source;
+    let total = (points[n - 1].0.source - first).get();
+    let (sign, size) = (total.signum(), total.abs());
+    // The least and the most source each stretch may cover.
+    let bounds: Vec<(i64, i64)> = points
+        .windows(2)
+        .map(|pair| {
+            let run = (pair[1].0.at - pair[0].0.at).get();
+            (run.saturating_add(15) / 16, run.saturating_mul(16))
+        })
+        .collect();
+    // The same for all the stretches from each key on.
+    let mut onward = vec![(0_i64, 0_i64); n];
+    for at in (0..n - 1).rev() {
+        onward[at] = (
+            onward[at + 1].0.saturating_add(bounds[at].0),
+            onward[at + 1].1.saturating_add(bounds[at].1),
+        );
+    }
+    let mut held = Vec::with_capacity(n);
+    let mut covered = 0_i64;
+    for at in 1..n - 1 {
+        let (least, most) = bounds[at - 1];
+        let low = covered
+            .saturating_add(least)
+            .max(size.saturating_sub(onward[at].1));
+        let high = covered
+            .saturating_add(most)
+            .min(size.saturating_sub(onward[at].0));
+        if low > high {
+            return;
+        }
+        covered = ((points[at].0.source - first).get() * sign).clamp(low, high);
+        held.push(Tick::new(first.get() + sign * covered));
+    }
+    for (point, source) in points[1..n - 1].iter_mut().zip(held) {
+        point.0.source = source;
+    }
+}
+
+/// How fast a smooth curve's speed changes at share `x`, per unit of
+/// share: the slope of the curve as it is played.
+fn slope_at(knots: &[Knot], x: f64) -> f64 {
+    for pair in knots.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let w = b.x - a.x;
+        if w <= 0.0 || x > b.x {
+            continue;
+        }
+        let u = ((x - a.x) / w).clamp(0.0, 1.0);
+        let (m0, m1) = (a.slope * w, b.slope * w);
+        let d = (6.0 * u * u - 6.0 * u) * a.v
+            + (3.0 * u * u - 4.0 * u + 1.0) * m0
+            + (-6.0 * u * u + 6.0 * u) * b.v
+            + (3.0 * u * u - 2.0 * u) * m1;
+        return d / w;
+    }
+    0.0
+}
+
+/// The size of a keyed map's pace leaving content tick `c`, held to the
+/// range. On a stretch whose curve this build cannot read, the stretch's
+/// mean.
+fn pace_leaving(map: &TimeMap, c: Tick) -> Option<f64> {
+    let pace = map.pace_at(c).or_else(|| {
+        let keys = map.points();
+        let pair = keys
+            .windows(2)
+            .find(|pair| c >= pair[0].at && c < pair[1].at)
+            .or_else(|| keys.windows(2).last().filter(|pair| c == pair[1].at))?;
+        let run = (pair[1].at - pair[0].at).get() as f64;
+        (run > 0.0).then(|| (pair[1].source - pair[0].source).get() as f64 / run)
+    })?;
+    Some(pace.abs().clamp(SLOWEST.display(), FASTEST.display()))
+}
+
+/// The same arriving at `c`: at the map's last key the pace reaching it,
+/// and anywhere before that the pace of the tick before `c`, which is
+/// the last a window ending at `c` shows.
+fn pace_arriving(map: &TimeMap, c: Tick) -> Option<f64> {
+    if map.points().last().is_some_and(|last| last.at == c) {
+        return pace_leaving(map, c);
+    }
+    pace_leaving(map, c.checked_sub(TickDur::new(1))?)
+}
+
+/// The speed graph of an item as the speed pane draws it: its points in
+/// order, each at a share of the item's window, at the size of the pace
+/// there. `None` for an item that plays at one pace or has no time map.
+///
+/// - **Drawn, and the window is the span it was drawn over**: the points
+///   as they were drawn, so setting them again changes nothing.
+/// - **Drawn, and the window trimmed or cut since**: the drawn points
+///   inside the window, at their shares of it, their slopes scaled to
+///   it, between a point at each edge at the pace the map has there.
+/// - **Not drawn**: a point at each key inside the window at the pace
+///   leaving it, between a point at each edge, each running straight to
+///   the next.
+pub fn speed_graph(item: &Item) -> Option<Vec<SpeedPoint>> {
+    let map = map_of(item)?;
+    let TimeMap::Keyed { drawn, .. } = map else {
+        return None;
+    };
+    let (start, end) = (item.offset, item.window_end()?);
+    let len = item.len.get() as f64;
+    let edges = |slopes: Option<(f64, f64)>| -> Option<(SpeedPoint, SpeedPoint)> {
+        Some((
+            SpeedPoint {
+                at: 0.0,
+                speed: pace_leaving(map, start)?,
+                slope: slopes.map(|(head, _)| head),
+            },
+            SpeedPoint {
+                at: 1.0,
+                speed: pace_arriving(map, end)?,
+                slope: slopes.map(|(_, tail)| tail),
+            },
+        ))
+    };
+    if let Some(graph) = drawn {
+        if graph.from == start && graph.len == item.len {
+            return Some(graph.points.clone());
+        }
+        let span = graph.len.get() as f64;
+        // A share of the graph's span as one of the window, and back.
+        let into = (graph.from - start).get() as f64;
+        let share = |at: f64| (into + at * span) / len;
+        let scale = len / span;
+        let slopes = tidy(&graph.points)
+            .filter(|(_, smooth)| *smooth)
+            .map(|(knots, _)| {
+                let at = |share: f64| slope_at(&knots, (share * len - into) / span) * scale;
+                (at(0.0), at(1.0))
+            });
+        if let Some((head, tail)) = edges(slopes) {
+            let mut points = vec![head];
+            points.extend(graph.points.iter().filter_map(|p| {
+                let at = share(p.at);
+                (at > 0.0 && at < 1.0).then(|| SpeedPoint {
+                    at,
+                    speed: p.speed,
+                    slope: p.slope.map(|slope| slope * scale),
+                })
+            }));
+            points.push(tail);
+            return Some(points);
+        }
+    }
+    let (head, tail) = edges(None)?;
+    let mut points = vec![head];
+    for key in map.points() {
+        if key.at > start && key.at < end {
+            points.push(SpeedPoint {
+                at: (key.at - start).get() as f64 / len,
+                speed: pace_leaving(map, key.at)?,
+                slope: None,
+            });
+        }
+    }
+    points.push(tail);
+    Some(points)
+}
+
 impl Ed<'_> {
     /// `setClipSpeed`.
     pub(crate) fn set_speed(
@@ -412,8 +578,8 @@ impl Ed<'_> {
         let Some((from, span)) = covered(&item) else {
             return Ok(());
         };
-        let tidied = curve.and_then(tidy);
-        let Some((knots, smooth)) = tidied else {
+        let drawn = curve.map(kept).unwrap_or_default();
+        let Some((knots, smooth)) = tidy(&drawn) else {
             // A constant pace at the mean, the length kept.
             let Some(TimeMap::Keyed { .. }) = map_of(&item) else {
                 return Ok(());
@@ -438,7 +604,10 @@ impl Ed<'_> {
         let mean = samples.last().map_or(1.0, |s| s.3).max(SLOWEST.display());
         let size = span.get().abs() as f64;
         let sign = if span < TickDur::ZERO { -1.0 } else { 1.0 };
-        let Some(len) = TickLen::new((size / mean).round() as i64) else {
+        // Not so short that the whole of it would play faster than the
+        // fastest pace.
+        let least = (span.get().abs().saturating_add(15)) / 16;
+        let Some(len) = TickLen::new(((size / mean).round() as i64).max(least)) else {
             return Ok(());
         };
         let l = len.get() as f64;
@@ -465,6 +634,7 @@ impl Ed<'_> {
         if points.len() < 2 {
             return Ok(());
         }
+        hold_paces(&mut points);
         let mut rest = Vec::with_capacity(points.len() - 1);
         for pair in points.windows(2) {
             let ((a, _, leave), (b, arrive, _)) = (pair[0], pair[1]);
@@ -494,6 +664,11 @@ impl Ed<'_> {
         let map = TimeMap::Keyed {
             first: points[0].0,
             rest,
+            drawn: Some(SpeedGraph {
+                from: item.offset,
+                len,
+                points: drawn,
+            }),
         };
         self.retime(id, &item, map, len, ripple)
     }

@@ -7,81 +7,86 @@
 //! only turns a press into a command and the document into the rows the
 //! panels read off the `Backdrop` global.
 
-use concat_project::model::{Background, Framing, MediaKind};
+use concat_doc::commands::Framing;
+use concat_doc::model::{Background, Media, MediaKind, Take};
 
 use super::*;
 
 /// The colour a colour background starts at: white, the other plain
 /// background vertical cuts are made with, and one nobody mistakes for none.
-const FIRST_COLOUR: &str = "#ffffff";
+const FIRST_COLOUR: model::Color = model::Color::WHITE;
+
+/// How soft a blur starts: halfway.
+const FIRST_BLUR: f64 = 0.5;
 
 /// The kind as the panels number it: 0 black, 1 blur, 2 colour, 3 a still.
 fn mode_of(background: &Background) -> i32 {
     match background {
-        Background::None => 0,
+        Background::None | Background::Unknown(_) => 0,
         Background::Blur { .. } => 1,
-        Background::Color { .. } => 2,
-        Background::Image { .. } => 3,
+        Background::Color(_) => 2,
+        Background::Image(_) => 3,
     }
 }
 
 impl Studio {
     /// The bin's stills, in the bin's order: the rows of the still picker,
     /// which a row index is read back against.
-    fn stills(&self) -> Vec<&model::MediaItem> {
-        self.project()
-            .media
-            .iter()
-            .filter(|item| item.kind == MediaKind::Image && !item.placeholder)
+    fn stills(&self) -> Vec<(MediaId, &Media)> {
+        doc_view::bin(self.doc())
+            .filter(|(_, item)| item.kind == MediaKind::Image && !item.placeholder)
             .collect()
     }
 
     /// The selected clip, when it is one a background is drawn behind: a
     /// video or a still on the timeline's lowest picture lane.
-    fn backdrop_clip(&self) -> Option<&Clip> {
+    fn backdrop_clip(&self) -> Option<&Item> {
         let id = self.backdrop_clips().into_iter().next()?;
-        self.timeline().clip(&id)
+        self.clip(&id)
     }
 
     /// The pictures on the main lane the inspector edits - one, or a batch
     /// selected together - whose background the Canvas panel sets. The
     /// panel shows the first.
     fn backdrop_clips(&self) -> Vec<String> {
-        let timeline = self.timeline();
-        let lane = timeline.background_lane();
+        let lane = doc_view::picture_lane(self.doc());
         self.edit_targets()
             .into_iter()
             .filter(|id| {
-                timeline.clip(id).is_some_and(|clip| {
-                    clip.kind.is_visual() && lane == Some(clip.track_id.as_str())
-                })
+                self.clip(id)
+                    .is_some_and(|clip| self.kind(clip).is_visual() && lane == Some(clip.lane))
             })
             .collect()
+    }
+
+    /// The timeline's own background; none with nothing open.
+    fn timeline_background(&self) -> Background {
+        doc_view::sequence(self.doc())
+            .map_or(Background::None, |sequence| sequence.background.clone())
     }
 
     /// A background as the panels show it; None is a clip following the
     /// timeline's.
     fn backdrop_data(&self, background: Option<&Background>) -> BackdropData {
-        let still = |media_id: &str| {
+        let still = |media: MediaId| {
             self.stills()
                 .iter()
-                .position(|item| item.id == media_id)
+                .position(|(id, _)| *id == media)
                 .map_or(-1, |row| row as i32)
         };
         let amount = match background {
             Some(Background::Blur { amount }) => *amount,
-            _ => Background::DEFAULT_BLUR,
+            _ => FIRST_BLUR,
         };
         BackdropData {
             mode: background.map_or(-1, mode_of),
             amount: amount as f32,
-            colour: background
-                .and_then(Background::rgb)
-                .map_or(colour_of(FIRST_COLOUR), |[r, g, b]| {
-                    slint::Color::from_rgb_u8(r, g, b)
-                }),
+            colour: doc_view::to_slint(match background {
+                Some(Background::Color(colour)) => model::Color { a: 255, ..*colour },
+                _ => FIRST_COLOUR,
+            }),
             still: match background {
-                Some(Background::Image { media_id }) => still(media_id),
+                Some(Background::Image(media)) => still(*media),
                 _ => -1,
             },
         }
@@ -91,16 +96,16 @@ impl Studio {
     /// clip's, whether it has one to have, and the stills to pick from.
     pub fn publish_backdrop(&self, app: &App) {
         let backdrop = app.global::<Backdrop>();
-        backdrop.set_timeline(self.backdrop_data(Some(&self.timeline().background)));
+        let timeline = self.timeline_background();
+        backdrop.set_timeline(self.backdrop_data(Some(&timeline)));
         let clip = self.backdrop_clip();
         backdrop.set_clip_has(clip.is_some());
         // What the clip draws: its own background, or the timeline's it
         // follows. The panels show that, not a "follows" entry of its own:
         // "Timeline's" beside None and Blur read as one more kind of
         // background, and nobody could say which.
-        let timeline = &self.timeline().background;
         backdrop.set_clip(clip.map_or_else(BackdropData::default, |clip| {
-            self.backdrop_data(Some(clip.background.as_ref().unwrap_or(timeline)))
+            self.backdrop_data(Some(clip.picture.background.as_ref().unwrap_or(&timeline)))
         }));
         backdrop.set_can_frame(self.framing_target().is_some());
         // Written only when it differs, as the audio tracks are: a fresh
@@ -108,7 +113,7 @@ impl Studio {
         let names: Vec<SharedString> = self
             .stills()
             .iter()
-            .map(|item| item.name.as_str().into())
+            .map(|(_, item)| item.name.as_str().into())
             .collect();
         let shown = backdrop.get_stills();
         let same = shown.row_count() == names.len()
@@ -125,9 +130,9 @@ impl Studio {
     /// selected clip's own, None while that follows the timeline's.
     fn backdrop_now(&self, clip: bool) -> Option<Background> {
         if clip {
-            self.backdrop_clip()?.background.clone()
+            self.backdrop_clip()?.picture.background.clone()
         } else {
-            Some(self.timeline().background.clone())
+            Some(self.timeline_background())
         }
     }
 
@@ -138,12 +143,13 @@ impl Studio {
         let command = if clip {
             let mut commands: Vec<Command> = self
                 .backdrop_clips()
-                .into_iter()
-                .map(|clip_id| Command::UpdateClip {
-                    clip_id,
-                    patch: ClipPatch {
+                .iter()
+                .filter_map(|id| doc_view::parse(id))
+                .map(|item| Command::UpdateClip {
+                    item,
+                    patch: ItemPatch {
                         background: Some(background.clone()),
-                        ..ClipPatch::default()
+                        ..ItemPatch::default()
                     },
                 })
                 .collect();
@@ -153,9 +159,12 @@ impl Studio {
                 _ => Command::Batch { commands },
             }
         } else {
+            let Some(sequence) = doc_view::showing(self.doc()) else {
+                return;
+            };
             Command::SetTimelineBackground {
-                timeline_id: self.timeline().id.clone(),
-                background: background.unwrap_or_default(),
+                sequence,
+                background: background.unwrap_or(Background::None),
             }
         };
         match knob {
@@ -179,33 +188,31 @@ impl Studio {
         if clip && self.backdrop_clip().is_none() {
             return;
         }
-        let from = now
-            .clone()
-            .unwrap_or_else(|| self.timeline().background.clone());
+        let from = now.clone().unwrap_or_else(|| self.timeline_background());
         let background = match mode {
             -1 if clip => None,
             1 => Some(Background::Blur {
                 amount: match from {
                     Background::Blur { amount } => amount,
-                    _ => Background::DEFAULT_BLUR,
+                    _ => FIRST_BLUR,
                 },
             }),
-            2 => Some(Background::Color {
-                color: match from {
-                    Background::Color { color } => color,
-                    _ => FIRST_COLOUR.to_owned(),
-                },
-            }),
-            3 => Some(Background::Image {
-                media_id: match from {
-                    Background::Image { media_id } => media_id,
-                    _ => self
-                        .stills()
-                        .first()
-                        .map(|item| item.id.clone())
-                        .unwrap_or_default(),
-                },
-            }),
+            2 => Some(Background::Color(match from {
+                Background::Color(colour) => colour,
+                _ => FIRST_COLOUR,
+            })),
+            3 => {
+                let media = match from {
+                    Background::Image(media) => Some(media),
+                    _ => self.stills().first().map(|(id, _)| *id),
+                };
+                // A still background needs a still: with none in the bin
+                // the picker is shown and nothing is written yet.
+                let Some(media) = media else {
+                    return;
+                };
+                Some(Background::Image(media))
+            }
             _ => Some(Background::None),
         };
         if background != now {
@@ -221,53 +228,59 @@ impl Studio {
 
     /// A colour background's colour, as the picker moves.
     pub fn backdrop_set_colour(&mut self, clip: bool, colour: slint::Color) {
-        let color = hex_of(colour);
-        self.backdrop_write(clip, Some(Background::Color { color }), Some("colour"));
+        let colour = model::Color {
+            a: 255,
+            ..doc_view::from_slint(colour)
+        };
+        self.backdrop_write(clip, Some(Background::Color(colour)), Some("colour"));
     }
 
     /// A still background's still, by its row in the picker.
     pub fn backdrop_set_still(&mut self, clip: bool, row: i32) {
-        let Some(media_id) = usize::try_from(row)
+        let Some(media) = usize::try_from(row)
             .ok()
-            .and_then(|row| self.stills().get(row).map(|item| item.id.clone()))
+            .and_then(|row| self.stills().get(row).map(|(id, _)| *id))
         else {
             return;
         };
-        self.backdrop_write(clip, Some(Background::Image { media_id }), None);
+        self.backdrop_write(clip, Some(Background::Image(media)), None);
     }
 
-    /// The selected picture Fit and Fill can size: one video or still on
-    /// a lane that is not locked, from media whose size the bin knows.
-    pub(super) fn framing_target(&self) -> Option<&Clip> {
+    /// The selected picture Fit and Fill can size: one video or still,
+    /// whole, on a lane that is not locked, from media whose size the bin
+    /// knows.
+    pub(super) fn framing_target(&self) -> Option<&Item> {
         let id = self.sole_selection()?;
         let clip = self.clip(&id)?;
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return None;
         }
-        let media = self.project().media_by_id(&clip.media_id)?;
-        clip.framing_scale(
-            Framing::Fit,
-            (media.width, media.height),
-            self.output_size(),
-            0.0,
-        )
-        .map(|_| clip)
+        let Content::Media(cut) = &clip.content else {
+            return None;
+        };
+        let media = doc_view::media(self.doc(), cut.media)?;
+        (cut.take == Take::Whole
+            && matches!(media.kind, MediaKind::Video | MediaKind::Image)
+            && media.size.is_some())
+        .then_some(clip)
     }
 
     /// Sizes the selected picture to the frame: whole inside it, or
     /// covering it. A keyed scale or position takes its key at the
     /// playhead, as the knobs write one.
     pub fn frame_selected(&mut self, fill: bool) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
         let Some(clip) = self.framing_target() else {
             return;
         };
-        let (clip_id, at) = (clip.id.clone(), place_in(clip, self.playhead));
+        let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
+        let Some(item) = doc_view::parse::<ItemId>(&id) else {
+            return;
+        };
         let framing = if fill { Framing::Fill } else { Framing::Fit };
-        self.apply(Command::FrameClip {
-            clip_id,
-            framing,
-            at,
-        });
+        self.apply(Command::FrameClip { item, framing, at });
     }
 
     /// One edit of a value that is dragged rather than pressed, folded into

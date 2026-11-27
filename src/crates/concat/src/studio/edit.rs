@@ -7,39 +7,65 @@ use super::*;
 impl Studio {
     // ── reading the edit ──
 
-    /// The project as the window should draw it: the echo while a gesture
-    /// runs, the session's otherwise, and nothing at all on the launch screen.
-    pub fn project(&self) -> &Project {
-        self.echo
+    /// The document as the window should draw it: the echo while a
+    /// gesture runs, the session's snapshot otherwise, and an empty one on
+    /// the launch screen.
+    pub fn doc(&self) -> &Doc {
+        self.echo.as_ref().unwrap_or(&self.document)
+    }
+
+    /// The session's snapshot, never the echo: what a commit is measured
+    /// against.
+    pub fn committed(&self) -> &Doc {
+        &self.document
+    }
+
+    /// Takes the session's snapshot again, after anything that changed it.
+    pub(super) fn refresh_document(&mut self) {
+        self.document = self
+            .session
             .as_ref()
-            .or_else(|| self.session.as_ref().map(|session| session.project()))
-            .unwrap_or(&self.empty)
+            .map_or_else(Document::default, |session| session.document());
     }
 
-    pub fn timeline(&self) -> &Timeline {
-        self.project().active()
+    /// The item an id the panels hold names, on the document drawn.
+    pub fn clip(&self, id: &str) -> Option<&Item> {
+        doc_view::item_by(self.doc(), id)
     }
 
-    pub fn clip(&self, id: &str) -> Option<&Clip> {
-        self.timeline().clip(id)
+    /// What an item is to the panels.
+    pub fn kind(&self, item: &Item) -> Kind {
+        doc_view::kind(self.doc(), item)
     }
 
-    /// The active timeline's frame rate. With no project open, the empty
-    /// project's one timeline answers, at the default.
+    /// What the item under an id is; [`Kind::Other`] when it is gone.
+    pub fn kind_by(&self, id: &str) -> Kind {
+        self.clip(id).map_or(Kind::Other, |item| self.kind(item))
+    }
+
+    /// Every item of the sequence showing, each with its id as the panels
+    /// hold it, lane by lane from the bottom.
+    pub fn clips(&self) -> Vec<(String, &Item)> {
+        doc_view::items(self.doc())
+            .into_iter()
+            .map(|(id, item)| (id.to_string(), item))
+            .collect()
+    }
+
+    /// The sequence showing's frame rate; 30 with nothing open.
     pub fn frame_rate(&self) -> f32 {
-        self.project().active().video.rate() as f32
+        doc_view::rate(self.doc()) as f32
     }
 
-    /// The active timeline's output size.
+    /// The sequence showing's output size.
     pub fn output_size(&self) -> (u32, u32) {
-        let video = self.project().active().video;
-        (video.width, video.height)
+        doc_view::frame_size(self.doc())
     }
 
-    /// The monitor's quality tier for the active timeline: 0 full, 1 half,
+    /// The monitor's quality tier for the sequence showing: 0 full, 1 half,
     /// 2 quarter; see `MonitorPane::quality_of`.
     pub fn quality_of(&self) -> usize {
-        self.monitor.quality_of(self.project())
+        self.monitor.quality_of(self.doc())
     }
 
     /// The track a row index names. Rows count from the top of the panel and
@@ -64,17 +90,17 @@ impl Studio {
     }
 
     pub fn ask_remove_track(&mut self, row: i32) {
-        let Some(track_id) = self.row_track(row).map(|track| track.id.clone()) else {
+        let Some(lane) = self.row_track(row) else {
             return;
         };
-        self.confirm = Some(Confirm::RemoveTrack { track_id });
+        self.confirm = Some(Confirm::RemoveTrack { lane });
     }
 
     /// The confirmation sheet's answer: go ahead with what it asked about.
     pub fn confirm_accepted(&mut self) {
         match self.confirm.take() {
-            Some(Confirm::RemoveTrack { track_id }) => {
-                self.apply(Command::RemoveTrack { track_id });
+            Some(Confirm::RemoveTrack { lane }) => {
+                self.apply(Command::RemoveTrack { lane });
             }
             Some(Confirm::ReplaceExport { .. }) => {
                 self.handle(crate::panes::Msg::Export(
@@ -112,13 +138,8 @@ impl Studio {
             return crate::ui::ConfirmData::default();
         };
         match confirm {
-            Confirm::RemoveTrack { track_id } => {
-                let clips = self
-                    .timeline()
-                    .clips
-                    .iter()
-                    .filter(|clip| &clip.track_id == track_id)
-                    .count();
+            Confirm::RemoveTrack { lane } => {
+                let clips = doc_view::on_lane(self.doc(), *lane).count();
                 let message = match clips {
                     0 => t("timeline.deleteTrackEmpty"),
                     1 => t("timeline.deleteTrackOneClip"),
@@ -169,22 +190,19 @@ impl Studio {
         }
     }
 
-    pub fn row_track(&self, row: i32) -> Option<&Track> {
-        let tracks = &self.timeline().tracks;
-        let count = tracks.len() as i32;
-        if row < 0 || row >= count {
-            return None;
-        }
-        tracks.get((count - 1 - row) as usize)
+    /// The lane on row `row` of the panel, rows counted from the top.
+    pub fn row_track(&self, row: i32) -> Option<LaneId> {
+        doc_view::lane_at_row(self.doc(), usize::try_from(row).ok()?)
     }
 
-    pub fn row_of(&self, track_id: &str) -> i32 {
-        let tracks = &self.timeline().tracks;
-        tracks
-            .iter()
-            .position(|track| track.id == track_id)
-            .map(|index| tracks.len() as i32 - 1 - index as i32)
-            .unwrap_or(0)
+    /// The row of a lane; the top row for one not showing.
+    pub fn row_of_lane(&self, lane: LaneId) -> i32 {
+        doc_view::row_of(self.doc(), lane).map_or(0, |row| row as i32)
+    }
+
+    /// Whether a lane is locked on the panel.
+    pub fn lane_locked(&self, lane: LaneId) -> bool {
+        self.locked(&lane.to_string())
     }
 
     pub fn locked(&self, track_id: &str) -> bool {
@@ -204,28 +222,24 @@ impl Studio {
     /// How tall one lane is drawn: a lane takes the height of the tallest
     /// thing on it, without the lanes having to be typed. An empty one takes
     /// the middle size.
-    pub(super) fn lane_height(&self, lane: &Track) -> f32 {
-        match self.lane_size(&lane.id) {
+    pub(super) fn lane_height(&self, lane: LaneId) -> f32 {
+        match self.lane_size(&lane.to_string()) {
             TrackSize::Small => LANE_SMALL,
             TrackSize::Medium => LANE_MEDIUM,
             TrackSize::Large => LANE_LARGE,
             TrackSize::Auto => {
-                let tallest = self
-                    .timeline()
-                    .clips
-                    .iter()
-                    .filter(|clip| clip.track_id == lane.id)
-                    .map(|clip| match clip.kind {
-                        model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
-                        model::ClipKind::Audio => LANE_MEDIUM,
+                let tallest = doc_view::on_lane(self.doc(), lane)
+                    .map(|(_, item)| match self.kind(item) {
+                        Kind::Video | Kind::Image | Kind::Other => LANE_LARGE,
+                        Kind::Audio => LANE_MEDIUM,
                         // A title is its name strip alone; a layer has no
                         // picture at all; a shape's name says what it is.
                         // None needs a body's height.
-                        model::ClipKind::Text
-                        | model::ClipKind::Layer
-                        | model::ClipKind::SoundLayer
-                        | model::ClipKind::Shape
-                        | model::ClipKind::Transition => LANE_SMALL,
+                        Kind::Text
+                        | Kind::Layer
+                        | Kind::SoundLayer
+                        | Kind::Shape
+                        | Kind::Transition => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -235,9 +249,8 @@ impl Studio {
 
     /// Every lane's height, top-most first.
     pub fn lane_heights(&self) -> Vec<f32> {
-        self.timeline()
-            .tracks
-            .iter()
+        doc_view::lanes(self.doc())
+            .into_iter()
             .rev()
             .map(|lane| self.lane_height(lane))
             .collect()
@@ -249,9 +262,7 @@ impl Studio {
 
     /// Seconds the project runs to, for Fit and for the scroll floor.
     pub fn duration(&self) -> f32 {
-        self.timeline().clips.iter().fold(0.0_f64, |longest, clip| {
-            longest.max(clip.start + clip.duration)
-        }) as f32
+        doc_view::secs(doc_view::duration(self.doc())) as f32
     }
 
     /// The edit point next to the playhead - the nearest clip start or end
@@ -261,11 +272,9 @@ impl Studio {
     /// cut is on it and the next press goes on to the one beyond, however
     /// the seconds round. Up and Down, as Premiere and Resolve put them.
     pub fn edit_point(&self, forward: bool) -> f32 {
-        let spans: Vec<(f64, f64)> = self
-            .timeline()
-            .clips
-            .iter()
-            .map(|clip| (clip.start, clip.duration))
+        let spans: Vec<(f64, f64)> = doc_view::items(self.doc())
+            .into_iter()
+            .map(|(_, item)| (doc_view::start_s(item), doc_view::len_s(item)))
             .collect();
         edit_point(&spans, self.playhead, self.frame_rate(), forward)
     }
@@ -283,12 +292,13 @@ impl Studio {
             return 0.0;
         }
         let mut targets = vec![0.0, self.playhead];
-        for clip in &self.timeline().clips {
-            if moving.contains(&clip.id.as_str()) {
+        let moving: Vec<ItemId> = moving.iter().filter_map(|id| doc_view::parse(id)).collect();
+        for (id, item) in doc_view::items(self.doc()) {
+            if moving.contains(&id) {
                 continue;
             }
-            targets.push(clip.start as f32);
-            targets.push((clip.start + clip.duration) as f32);
+            targets.push(doc_view::start_s(item) as f32);
+            targets.push(doc_view::end_s(item) as f32);
         }
         let mut best = 0.0;
         let mut best_distance = threshold;
@@ -319,12 +329,13 @@ impl Studio {
         };
         consider(0.0);
         consider(self.playhead);
-        for clip in &self.timeline().clips {
-            if clip.id == exclude {
+        let exclude: Option<ItemId> = doc_view::parse(exclude);
+        for (id, item) in doc_view::items(self.doc()) {
+            if Some(id) == exclude {
                 continue;
             }
-            consider(clip.start as f32);
-            consider((clip.start + clip.duration) as f32);
+            consider(doc_view::start_s(item) as f32);
+            consider(doc_view::end_s(item) as f32);
         }
         // The song's beats, so a cut lands on the beat.
         for beat in self.timeline_beats() {
@@ -376,53 +387,57 @@ impl Studio {
         }
     }
 
-    pub fn apply(&mut self, command: Command) -> Option<String> {
+    pub fn apply(&mut self, command: Command) -> Option<AnyId> {
         // An edit ends whatever burst the view was in.
         self.end_burst();
         let words = command_words(&command);
         Asked::log(format_args!("edit: {words}"));
         self.flush_commit();
-        self.echo = None;
         // Anything but an inspector commit ends the coalescing window; the
         // commit path sets `last_commit` again right after calling here.
         self.last_commit = None;
-        let session = self.session.as_mut()?;
-        let chosen = matches!(command, Command::SetTimelineVideo { .. });
-        let before = session.video().color_space;
-        match session.apply(command) {
-            Ok(view) => {
-                let after = session.video().color_space;
-                self.after_change();
-                if !chosen {
-                    self.tell_of_hdr(before, after);
-                }
-                view.created_id
-            }
-            Err(error) => {
-                log::warn!("edit: {words} was asked for and refused: {error}; nothing changed");
-                self.notify(&error, true);
-                None
-            }
-        }
+        self.apply_as(None, command, words)
     }
 
     /// [`Studio::apply`] as one move of an inspector gesture: the same
-    /// bookkeeping, but the editor folds it into the gesture's undo step
+    /// bookkeeping, but the session folds it into the gesture's undo step
     /// and the coalescing window stays open for the next move.
-    pub(super) fn apply_within(&mut self, gesture: &str, command: Command) -> Option<String> {
+    pub(super) fn apply_within(&mut self, gesture: &str, command: Command) -> Option<AnyId> {
         // A knob's gesture, folded into one step; said at Debug, since a
         // dial turned is many of these.
         let words = command_words(&command);
         log::debug!("edit: {words} (part of one gesture)");
+        self.apply_as(Some(gesture), command, words)
+    }
+
+    /// The command made on the session, as a step of its own or as a move
+    /// of `gesture`. The echo, if any, is dropped either way, because the
+    /// session's document is the truth again; a refusal becomes a notice.
+    /// The selection the edit reports becomes the window's.
+    fn apply_as(
+        &mut self,
+        gesture: Option<&str>,
+        command: Command,
+        words: String,
+    ) -> Option<AnyId> {
         self.echo = None;
+        let selection = self.selected_ids();
         let session = self.session.as_mut()?;
-        let before = session.video().color_space;
-        match session.apply_within(Some(gesture), command) {
-            Ok(view) => {
-                let after = session.video().color_space;
+        session.set_selection(selection);
+        let chosen = matches!(command, Command::SetTimelineVideo { .. });
+        let before = colour_of_showing(&self.document);
+        match session.apply_within(gesture, &command) {
+            Ok(change) => {
+                self.refresh_document();
+                let after = colour_of_showing(&self.document);
+                if let Some(selection) = &change.applied.selection {
+                    self.selection = selection.iter().map(ItemId::to_string).collect();
+                }
                 self.after_change();
-                self.tell_of_hdr(before, after);
-                view.created_id
+                if !chosen {
+                    self.tell_of_hdr(&before, &after);
+                }
+                change.applied.created
             }
             Err(error) => {
                 log::warn!("edit: {words} was asked for and refused: {error}; nothing changed");
@@ -435,19 +450,36 @@ impl Studio {
     /// [`Studio::apply`], or [`Studio::apply_within`] when `gesture` names
     /// one: for the edits that are a step of their own from one caller and
     /// part of a larger step from another, as laying a copy is.
-    pub(super) fn apply_in(&mut self, gesture: Option<&str>, command: Command) -> Option<String> {
+    pub(super) fn apply_in(&mut self, gesture: Option<&str>, command: Command) -> Option<AnyId> {
         match gesture {
             Some(gesture) => self.apply_within(gesture, command),
             None => self.apply(command),
         }
     }
 
-    /// Says so when an edit turned the active timeline HDR - its first HDR
-    /// clip, which the editor follows (see `Editor::follow_first_hdr`) - so
-    /// the change is never a surprise, and says where it is set back.
-    fn tell_of_hdr(&mut self, before: model::ColorSpace, after: model::ColorSpace) {
-        if before.is_sdr() && after.is_hdr() {
-            let name = self.timeline().name.clone();
+    /// [`Studio::apply`] for an edit that makes an item, answering with its
+    /// id as the panels hold it.
+    pub(crate) fn apply_making(&mut self, command: Command) -> Option<String> {
+        made_item(self.apply(command))
+    }
+
+    /// The selection as the document's ids, for the history to keep.
+    pub(super) fn selected_ids(&self) -> Vec<ItemId> {
+        self.selection
+            .iter()
+            .filter_map(|id| doc_view::parse(id))
+            .collect()
+    }
+
+    /// Says so when an edit turned the sequence showing HDR, so the change
+    /// is never a surprise, and says where it is set back.
+    fn tell_of_hdr(&mut self, before: &model::ColorSpace, after: &model::ColorSpace) {
+        if *before == model::ColorSpace::Sdr
+            && matches!(after, model::ColorSpace::Hlg | model::ColorSpace::Pq)
+        {
+            let name = doc_view::sequence(self.doc())
+                .map(|sequence| sequence.name.clone())
+                .unwrap_or_default();
             self.notify(&tf("studio.timelineNowHdr", &[&name]), false);
         }
     }
@@ -458,12 +490,7 @@ impl Studio {
         self.dirty = true;
         self.revision += 1;
         self.assign_media_rows();
-        let survivors: HashSet<String> = self
-            .timeline()
-            .clips
-            .iter()
-            .map(|clip| clip.id.clone())
-            .collect();
+        let survivors: HashSet<String> = self.clips().into_iter().map(|(id, _)| id).collect();
         self.selection.retain(|id| survivors.contains(id));
         self.schedule_autosave();
         self.sync_audio();
@@ -476,45 +503,52 @@ impl Studio {
     }
 
     pub fn undo(&mut self) {
-        self.flush_commit();
-        self.echo = None;
-        self.words = None;
-        if let Some(session) = self.session.as_mut()
-            && session.can_undo()
-        {
-            session.undo();
-            Asked::log(format_args!("edit: Undo"));
-            self.after_change();
-        } else {
-            log::debug!("edit: Undo was asked for with nothing to undo");
-        }
+        self.step_history(true);
     }
 
     pub fn redo(&mut self) {
+        self.step_history(false);
+    }
+
+    /// Undo when `back`, redo otherwise: the step taken, and the selection
+    /// that comes back with it.
+    fn step_history(&mut self, back: bool) {
+        let word = if back { "Undo" } else { "Redo" };
         self.flush_commit();
         self.echo = None;
         self.words = None;
-        if let Some(session) = self.session.as_mut()
-            && session.can_redo()
-        {
-            session.redo();
-            Asked::log(format_args!("edit: Redo"));
-            self.after_change();
-        } else {
-            log::debug!("edit: Redo was asked for with nothing to redo");
+        let selection = self.selected_ids();
+        let change = self.session.as_mut().and_then(|session| {
+            session.set_selection(selection);
+            if back { session.undo() } else { session.redo() }
+        });
+        let Some(change) = change else {
+            log::debug!("edit: {word} was asked for with nothing to take");
+            return;
+        };
+        self.refresh_document();
+        if let Some(selection) = &change.applied.selection {
+            self.selection = selection.iter().map(ItemId::to_string).collect();
         }
+        Asked::log(format_args!("edit: {word}"));
+        self.after_change();
     }
 
-    /// Starts a gesture's preview: the echo is a clone of the project the
-    /// pointer will mutate.
+    /// Starts a gesture's preview: the echo is a copy of the document the
+    /// pointer will change, a pointer per table to make.
     pub fn begin_echo(&mut self) {
         if self.echo.is_none() {
-            self.echo = Some(self.project().clone());
+            self.echo = Some(Doc::clone(self.doc()));
         }
     }
 
-    pub fn echo_clip_mut(&mut self, id: &str) -> Option<&mut Clip> {
-        self.echo.as_mut()?.active_mut().clip_mut(id)
+    /// Changes one item on the echo, as a gesture previews it. False when
+    /// there is no echo or no such item.
+    pub fn echo_edit(&mut self, id: &str, change: impl FnOnce(&mut Item)) -> bool {
+        let (Some(echo), Some(id)) = (self.echo.as_mut(), doc_view::parse::<ItemId>(id)) else {
+            return false;
+        };
+        echo.items.update(id, change).is_ok()
     }
 
     fn schedule_autosave(&mut self) {
@@ -545,17 +579,17 @@ impl Studio {
             return;
         };
         self.autosave.stop();
-        let (path, document) = session.prepare_save(None);
-        // Capture the write order with the snapshot, not later when a
+        // The write order is captured with the snapshot, not later when a
         // worker happens to pick it up.
-        let ticket = projects::ticket();
+        let pending = session.prepare_save(None);
+        let path = pending.folder.to_string_lossy().into_owned();
         self.dirty = false;
         let name = self.project_name.clone();
         let began = std::time::Instant::now();
         crate::host::spawn_save(
-            path.clone(),
+            path,
             announce,
-            move || projects::save_ordered(&path, &document, ticket),
+            move || concat_host::session::write_save(&pending),
             move |studio, _, _, result, announce| match result {
                 Ok(_) if announce => {
                     log::info!(

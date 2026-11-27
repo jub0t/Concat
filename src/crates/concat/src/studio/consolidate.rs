@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::Halt;
 use concat_host::consolidate::Consolidation;
-use concat_project::consolidation_clips;
 
 use super::*;
 
@@ -44,11 +43,11 @@ impl Studio {
         }
         if self.selection.iter().any(|id| {
             self.clip(id)
-                .is_some_and(|clip| self.locked(&clip.track_id))
+                .is_some_and(|clip| self.lane_locked(clip.lane))
         }) {
             return Some(t("studio.mergeTrackLocked"));
         }
-        consolidation_clips(self.timeline(), &self.selection)
+        Consolidation::new(self.doc(), &self.selected_ids())
             .err()
             .map(|error| error.to_string())
     }
@@ -82,7 +81,7 @@ impl Studio {
         let Some(session) = self.session.as_ref() else {
             return;
         };
-        let plan = match Consolidation::new(session.project(), &self.selection) {
+        let plan = match Consolidation::new(self.committed(), &self.selected_ids()) {
             Ok(plan) => plan,
             Err(error) => {
                 self.notify(&error, true);
@@ -113,7 +112,14 @@ impl Studio {
             keep: false,
         };
         let output = folder.join("merged.mp4");
-        let request = plan.request(session.project(), &root, &output);
+        let request = plan.request(self.committed(), &root, &output);
+        // The earliest piece keeps its id and becomes the rendered clip.
+        let kept = self
+            .selection
+            .iter()
+            .filter_map(|id| Some((self.clip(id)?.start, id.clone())))
+            .min()
+            .map(|(_, id)| id);
         let compositor = self.host.monitor.off_thread();
         self.merge_job = Some(MergeJob {
             cancel: job.cancel_handle(),
@@ -147,7 +153,7 @@ impl Studio {
                 let cancel = job.cancel_handle();
                 (plan, rendered, output, cancel, result)
             },
-            |studio, _, _, (plan, mut rendered, output, cancel, result)| {
+            move |studio, _, _, (plan, mut rendered, output, cancel, result)| {
                 studio.merge_job = None;
                 // Cancelled is the render's own word for it. One asked to
                 // stop as it wrote its last frame comes back whole, and is
@@ -166,18 +172,21 @@ impl Studio {
                 };
                 let outcome = written.and_then(|()| {
                     let summary = media::probe(&output.to_string_lossy())?;
-                    let mut item = summary.to_new_media();
-                    item.name = t("studio.mergedClips");
-                    item.origin = Some(model::MediaOrigin::Processed);
+                    let mut file = summary.to_new_media();
+                    file.name = t("studio.mergedClips");
+                    file.origin = Some(model::MediaOrigin::Processed);
                     studio.flush_commit();
-                    let command = plan.replacement(studio.project(), item)?;
+                    let command = plan.replacement(studio.committed(), file)?;
                     // Locking a lane while rendering must also prevent adoption.
-                    if studio.locked(plan.track_id()) {
+                    if studio.lane_locked(plan.lane()) {
                         return Err(t("studio.mergeTrackLocked"));
                     }
-                    studio
-                        .apply(command)
-                        .ok_or_else(|| t("studio.mergeCouldNotReplace"))
+                    let before = studio.revision;
+                    studio.apply(command);
+                    match kept {
+                        Some(kept) if studio.revision != before => Ok(kept),
+                        _ => Err(t("studio.mergeCouldNotReplace")),
+                    }
                 });
                 match outcome {
                     Ok(id) => {

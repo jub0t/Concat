@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use concat_project::model::{AppliedFilter, ParamKey};
+use crate::applied::{AppliedFilter, ParamKey};
 use serde::Deserialize;
 
 use crate::Error;
@@ -1300,7 +1300,7 @@ impl Catalogue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use concat_project::model::KeyEase;
+    use concat_core::animate::Ease as KeyEase;
 
     /// A link to a retired key or blur opens as its stand-in, its knobs
     /// carried over as the `[[replaces]]` table says - the screen's colour,

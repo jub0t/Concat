@@ -46,9 +46,11 @@
 
 use std::path::{Path, PathBuf};
 
+use concat_doc::model::{Color, TextAlign, TextCase, TextRun, Title};
 use concat_host::AppDirs;
-use concat_project::model::{TextAlign, TextStyle};
 use serde::Deserialize;
+
+use crate::doc_view;
 
 /// One look a title can be given.
 pub struct TextPreset {
@@ -56,7 +58,7 @@ pub struct TextPreset {
     pub id: String,
     pub name: String,
     /// The look, with `content` as the words the card places.
-    pub style: TextStyle,
+    pub style: Title,
     /// Where the title sits, as a frame-height fraction from the centre,
     /// when the preset has an opinion - a lower third does.
     pub offset_y: Option<f64>,
@@ -102,7 +104,7 @@ struct PresetStyle {
     font_size: Option<f64>,
     font_weight: Option<f64>,
     italic: Option<bool>,
-    text_case: Option<concat_project::model::TextCase>,
+    text_case: Option<PresetCase>,
     underline: Option<bool>,
     strikethrough: Option<bool>,
     color: Option<String>,
@@ -119,15 +121,100 @@ struct PresetStyle {
     tracking: Option<f64>,
     max_width: Option<f64>,
     max_height: Option<f64>,
-    /// Some of the words in a look of their own; see `TextStyle::runs`.
-    runs: Option<Vec<concat_project::model::TextRun>>,
+    /// Some of the words in a look of their own; see `Title::runs`.
+    runs: Option<Vec<PresetRun>>,
+}
+
+/// How a preset cases its words, as a preset file names it.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+enum PresetCase {
+    Upper,
+    Lower,
+    Sentence,
+    Original,
+}
+
+impl From<PresetCase> for TextCase {
+    fn from(case: PresetCase) -> TextCase {
+        match case {
+            PresetCase::Upper => TextCase::Upper,
+            PresetCase::Lower => TextCase::Lower,
+            PresetCase::Sentence => TextCase::Sentence,
+            PresetCase::Original => TextCase::Original,
+        }
+    }
+}
+
+/// Some of a preset's words in a look of their own, as a preset file
+/// writes it: where, counted in characters, and any of the run's fields.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PresetRun {
+    start: u32,
+    end: u32,
+    color: Option<String>,
+    font_scale: Option<f64>,
+    font_weight: Option<f64>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    strikethrough: Option<bool>,
+    stroke_color: Option<String>,
+}
+
+impl PresetRun {
+    fn run(self) -> TextRun {
+        let colour = |text: Option<String>| text.as_deref().and_then(doc_view::parse_hex);
+        TextRun {
+            start: self.start,
+            end: self.end,
+            color: colour(self.color),
+            font_scale: self.font_scale.map(|scale| scale.clamp(0.1, 10.0)),
+            font_weight: self.font_weight.map(|weight| weight.clamp(100.0, 900.0)),
+            italic: self.italic,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            stroke_color: colour(self.stroke_color),
+        }
+    }
+}
+
+/// Runs as a title keeps them: in order, each inside the words and after
+/// the one before it, none empty. A run that starts inside the one before
+/// starts where that one ends.
+pub fn tidy_runs(mut runs: Vec<TextRun>, words: &str) -> Vec<TextRun> {
+    let length = u32::try_from(words.chars().count()).unwrap_or(u32::MAX);
+    runs.sort_by_key(|run| (run.start, run.end));
+    let mut tidy: Vec<TextRun> = Vec::with_capacity(runs.len());
+    for mut run in runs {
+        let floor = tidy.last().map_or(0, |before| before.end);
+        run.start = run.start.max(floor).min(length);
+        run.end = run.end.min(length);
+        if run.end > run.start {
+            tidy.push(run);
+        }
+    }
+    tidy
 }
 
 impl PresetStyle {
-    fn over(self, name: &str) -> TextStyle {
-        let base = TextStyle::default();
-        let mut style = TextStyle {
-            content: self.content.unwrap_or_else(|| name.to_owned()),
+    fn over(self, name: &str) -> Title {
+        let base = Title::default();
+        let colour = |text: Option<String>, fallback: Color| {
+            text.as_deref()
+                .and_then(doc_view::parse_hex)
+                .unwrap_or(fallback)
+        };
+        let content = self.content.unwrap_or_else(|| name.to_owned());
+        let runs = self
+            .runs
+            .unwrap_or_default()
+            .into_iter()
+            .map(PresetRun::run)
+            .collect();
+        Title {
+            runs: tidy_runs(runs, &content),
+            content,
             font_family: self
                 .font_family
                 .unwrap_or_else(|| "Hanken Grotesk".to_owned()),
@@ -137,10 +224,10 @@ impl PresetStyle {
                 .unwrap_or(base.font_weight)
                 .clamp(100.0, 900.0),
             italic: self.italic.unwrap_or(false),
-            text_case: self.text_case.unwrap_or_default(),
+            case: self.text_case.map_or(TextCase::Original, TextCase::from),
             underline: self.underline.unwrap_or(false),
             strikethrough: self.strikethrough.unwrap_or(false),
-            color: self.color.unwrap_or(base.color),
+            color: colour(self.color, base.color),
             align: match self.align.as_deref() {
                 Some("left") => TextAlign::Left,
                 Some("right") => TextAlign::Right,
@@ -148,31 +235,23 @@ impl PresetStyle {
             },
             opacity: self.opacity.unwrap_or(1.0).clamp(0.0, 1.0),
             stroke_width: self.stroke_width.unwrap_or(0.0).max(0.0),
-            stroke_color: self.stroke_color.unwrap_or(base.stroke_color),
+            stroke_color: colour(self.stroke_color, base.stroke_color),
             shadow: self.shadow.unwrap_or(true),
-            background: self.background.unwrap_or_default(),
-            background_radius: self
-                .background_radius
-                .unwrap_or(base.background_radius)
-                .max(0.0),
-            background_padding_x: self
+            plate: self.background.as_deref().and_then(doc_view::parse_hex),
+            plate_radius: self.background_radius.unwrap_or(base.plate_radius).max(0.0),
+            plate_padding_x: self
                 .background_padding_x
-                .unwrap_or(base.background_padding_x)
+                .unwrap_or(base.plate_padding_x)
                 .max(0.0),
-            background_padding_y: self
+            plate_padding_y: self
                 .background_padding_y
-                .unwrap_or(base.background_padding_y)
+                .unwrap_or(base.plate_padding_y)
                 .max(0.0),
             line_height: self.line_height.unwrap_or(base.line_height).max(0.5),
             tracking: self.tracking.unwrap_or(0.0),
             max_width: self.max_width.unwrap_or(0.0).max(0.0),
             max_height: self.max_height.unwrap_or(0.0).max(0.0),
-            runs: self.runs.unwrap_or_default(),
-        };
-        // A hand-written run past the words, or on top of another, comes
-        // out in the shape the editor keeps them in.
-        style.tidy_runs();
-        style
+        }
     }
 }
 
@@ -431,10 +510,11 @@ mod tests {
         )
         .expect("parses");
         let style = file.style.over(&file.name);
-        assert_eq!(style.color, "#ff0000");
+        assert_eq!(style.color, Color::rgb(255, 0, 0));
         assert_eq!(style.align, TextAlign::Left);
         assert_eq!(style.content, "Red");
-        assert_eq!(style.font_weight, TextStyle::default().font_weight);
+        assert_eq!(style.font_weight, Title::default().font_weight);
+        assert_eq!(style.plate, None);
         assert_eq!(file.offset_y, Some(0.3));
         assert!(style.runs.is_empty());
     }
@@ -463,8 +543,51 @@ mod tests {
         .expect("parses");
         let style = file.style.over(&file.name);
         assert_eq!(style.runs.len(), 2);
-        assert_eq!(style.runs[0].style.color.as_deref(), Some("#ff0000"));
-        assert_eq!(style.runs[0].style.font_weight, Some(900.0));
+        assert_eq!(style.runs[0].color, Some(Color::rgb(255, 0, 0)));
+        assert_eq!(style.runs[0].font_weight, Some(900.0));
         assert_eq!((style.runs[1].start, style.runs[1].end), (9, 13));
+    }
+
+    /// Runs written out of order, on top of each other or empty come out
+    /// in order, apart, and each with something in it.
+    #[test]
+    fn runs_are_tidied_into_order() {
+        let run = |start, end| TextRun {
+            start,
+            end,
+            ..TextRun::default()
+        };
+        let tidy = tidy_runs(
+            vec![run(4, 8), run(0, 6), run(3, 3), run(9, 20)],
+            "0123456789",
+        );
+        let spans: Vec<(u32, u32)> = tidy.iter().map(|run| (run.start, run.end)).collect();
+        assert_eq!(spans, vec![(0, 6), (6, 8), (9, 10)]);
+    }
+
+    /// A plate's colour is read from the file, alpha and all.
+    #[test]
+    fn a_preset_background_is_the_plate() {
+        let file: PresetFile = toml::from_str(
+            r##"
+            id = "t.plate"
+            name = "Plate"
+            [style]
+            background = "#0d1117e6"
+            textCase = "upper"
+            "##,
+        )
+        .expect("parses");
+        let style = file.style.over(&file.name);
+        assert_eq!(
+            style.plate,
+            Some(Color {
+                r: 0x0d,
+                g: 0x11,
+                b: 0x17,
+                a: 0xe6
+            })
+        );
+        assert_eq!(style.case, TextCase::Upper);
     }
 }

@@ -1185,13 +1185,13 @@ dependencies = [
  "block2 0.6.2",
  "concat-api",
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-host",
  "concat-log",
  "concat-mcp",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-server",
  "concat-speech",
@@ -1224,10 +1224,10 @@ version = "0.2.12"
 dependencies = [
  "base64 0.22.1",
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-host",
- "concat-project",
  "concat-speech",
  "png 0.17.16",
  "schemars",
@@ -1292,7 +1292,6 @@ name = "concat-effects"
 version = "0.2.12"
 dependencies = [
  "concat-core",
- "concat-project",
  "naga",
  "proptest",
  "serde",
@@ -1305,14 +1304,15 @@ name = "concat-export"
 version = "0.2.12"
 dependencies = [
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-log",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-vision",
  "log",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1320,11 +1320,11 @@ name = "concat-host"
 version = "0.2.12"
 dependencies = [
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-log",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-sched",
  "concat-text",
@@ -1348,6 +1348,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-import"
+version = "0.2.12"
+dependencies = [
+ "concat-doc",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "concat-log"
 version = "0.2.12"
 dependencies = [
@@ -1360,6 +1369,7 @@ name = "concat-mcp"
 version = "0.2.12"
 dependencies = [
  "concat-api",
+ "concat-doc",
  "concat-server",
  "serde_json",
  "tempfile",
@@ -1386,10 +1396,10 @@ dependencies = [
  "android_logger",
  "concat-api",
  "concat-core",
+ "concat-doc",
  "concat-export",
  "concat-host",
  "concat-media",
- "concat-project",
  "concat-speech",
  "jni-sys 0.3.1",
  "log",
@@ -1402,17 +1412,6 @@ dependencies = [
  "thiserror 2.0.20",
  "uniffi",
  "wgpu",
-]
-
-[[package]]
-name = "concat-project"
-version = "0.2.12"
-dependencies = [
- "concat-core",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1504,7 +1503,7 @@ name = "concat-vision"
 version = "0.2.12"
 dependencies = [
  "concat-core",
- "concat-project",
+ "concat-doc",
  "log",
  "ort",
  "png 0.17.16",

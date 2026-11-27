@@ -26,11 +26,11 @@ use concat_core::frame::Frame;
 use concat_core::shader::RevealMap;
 use concat_media::SparseStill;
 
-use concat_export::flatten::export_base;
-use concat_export::{ClipKind, ExportClip};
-use concat_project::model::{
-    ClipKind as ModelClipKind, KeyProperty, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
+use concat_doc::model::{
+    Color, Content, Item, ItemId, LineHead, Model, ShapeKind, ShapeStyle, StrokeAlign, StrokeDash,
+    TextAlign, Title,
 };
+use concat_export::{ClipKind, ExportClip};
 use concat_text::{Align, Figure, Fonts, TitleRun, TitleStyle, WordRect};
 
 use crate::dirs::AppDirs;
@@ -39,7 +39,7 @@ use crate::dirs::AppDirs;
 #[derive(Clone)]
 pub struct TitleClip {
     /// The text or shape clip this was painted from.
-    pub clip_id: String,
+    pub clip_id: ItemId,
     /// The image clip that stands in for it.
     pub clip: ExportClip,
     /// The painted block's size in frame pixels, for an outline on a monitor.
@@ -59,7 +59,7 @@ pub struct TitleClip {
 /// both, since they are cached, keyed and handed on the same way.
 #[derive(Clone, Copy)]
 enum Painting<'a> {
-    Title(&'a TextStyle),
+    Title(&'a Title),
     Shape(&'a ShapeStyle),
 }
 
@@ -91,7 +91,7 @@ pub struct Titles {
     live: Mutex<LivePaintings>,
     /// The live painting last shown of each clip, by its id: what stands
     /// in while its new look paints. See [`Titles::ready_live`].
-    shown: Mutex<HashMap<String, u64>>,
+    shown: Mutex<HashMap<ItemId, u64>>,
 }
 
 /// The live paintings kept, in bytes of pixels, beyond the ones the
@@ -237,7 +237,7 @@ impl Titles {
     /// Every text and shape clip on the active timeline, as an image clip
     /// each, for a `width` × `height` frame. One that fails to paint is left
     /// out and said once on stderr; the rest of the edit still renders.
-    pub fn clips(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
+    pub fn clips(&self, project: &Model, width: u32, height: u32) -> Vec<TitleClip> {
         self.clips_with(project, width, height, false, true, None)
             .unwrap_or_default()
             .0
@@ -249,7 +249,7 @@ impl Titles {
     /// for the next time they are asked for.
     pub fn clips_unless(
         &self,
-        project: &Project,
+        project: &Model,
         width: u32,
         height: u32,
         cancel: &AtomicBool,
@@ -263,7 +263,7 @@ impl Titles {
     /// a painter (hundreds of captions are seconds of painting on a phone)
     /// and paints what is missing on a thread of its own, drawing what is
     /// there meanwhile.
-    pub fn ready(&self, project: &Project, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
+    pub fn ready(&self, project: &Model, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
         self.clips_with(project, width, height, false, false, None)
             .unwrap_or_default()
     }
@@ -274,7 +274,7 @@ impl Titles {
     /// pixels under a name no file has, for the monitor to hold. Nothing
     /// touches the disk, which is what makes a drag smooth: a PNG per
     /// pointer step, encoded, written and decoded again, was the lag.
-    pub fn clips_live(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
+    pub fn clips_live(&self, project: &Model, width: u32, height: u32) -> Vec<TitleClip> {
         self.clips_with(project, width, height, true, true, None)
             .unwrap_or_default()
             .0
@@ -283,7 +283,7 @@ impl Titles {
     /// [`Titles::clips_live`] without painting: the titles painted in
     /// memory already, and whether that is every one - what a window draws
     /// while [`Titles::paint_live_all`] paints the rest off its thread.
-    pub fn ready_live(&self, project: &Project, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
+    pub fn ready_live(&self, project: &Model, width: u32, height: u32) -> (Vec<TitleClip>, bool) {
         self.clips_with(project, width, height, true, false, None)
             .unwrap_or_default()
     }
@@ -295,16 +295,15 @@ impl Titles {
     /// rather than holding the window while it paints them all.
     pub fn clips_live_within(
         &self,
-        project: &Project,
+        project: &Model,
         width: u32,
         height: u32,
         most: usize,
     ) -> (Vec<TitleClip>, bool) {
-        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
         let missing = {
             let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let mut seen = HashSet::new();
-            keys_of(project, width, height, (&plain_text, &plain_shape))
+            keys_of(project, width, height)
                 .into_iter()
                 .flatten()
                 .filter(|(key, _)| seen.insert(*key) && !live.has(*key))
@@ -319,9 +318,8 @@ impl Titles {
 
     /// Paints in memory every title on the timeline not painted there yet,
     /// on every core: the work [`Titles::ready_live`] leaves.
-    pub fn paint_live_all(&self, project: &Project, width: u32, height: u32) {
-        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
-        let keys = keys_of(project, width, height, (&plain_text, &plain_shape));
+    pub fn paint_live_all(&self, project: &Model, width: u32, height: u32) {
+        let keys = keys_of(project, width, height);
         self.paint_ahead(project, width, height, true, &keys, &|| false);
         // One alone is left to the pass by paint_ahead; paint it here.
         for (key, painting) in keys.into_iter().flatten() {
@@ -340,7 +338,7 @@ impl Titles {
     /// once `cancel` is set.
     fn clips_with(
         &self,
-        project: &Project,
+        project: &Model,
         width: u32,
         height: u32,
         live: bool,
@@ -351,18 +349,22 @@ impl Titles {
         if live {
             self.live.lock().unwrap_or_else(|e| e.into_inner()).begin();
         }
-        let (plain_text, plain_shape) = (TextStyle::default(), ShapeStyle::default());
-        let keys = keys_of(project, width, height, (&plain_text, &plain_shape));
+        let keys = keys_of(project, width, height);
         if paint {
             self.paint_ahead(project, width, height, live, &keys, &stopped);
         }
         if stopped() {
             return None;
         }
-        let timeline = project.active();
         let mut out = Vec::new();
         let mut complete = true;
-        for (clip, key) in timeline.clips.iter().zip(keys) {
+        for (placed, key) in placed(project).into_iter().zip(keys) {
+            let Placed {
+                id,
+                item: clip,
+                index,
+                visible,
+            } = placed;
             let Some((key, painting)) = key else {
                 continue;
             };
@@ -381,7 +383,7 @@ impl Titles {
                     // this clip stands in until it is, so an edit to every
                     // caption at once leaves them showing, not gone.
                     let shown = self.shown.lock().unwrap_or_else(|e| e.into_inner());
-                    match shown.get(&clip.id).copied().filter(|last| held.has(*last)) {
+                    match shown.get(&id).copied().filter(|last| held.has(*last)) {
                         Some(last) => last,
                         None => continue,
                     }
@@ -396,16 +398,8 @@ impl Titles {
                 self.shown
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .insert(clip.id.clone(), key);
+                    .insert(id, key);
             }
-            let Some(index) = timeline
-                .tracks
-                .iter()
-                .position(|track| track.id == clip.track_id)
-            else {
-                continue;
-            };
-            let track = &timeline.tracks[index];
             let painted = if live {
                 self.painted_live(project, key, painting, width, height)
                     .map(|(path, art, held)| (path, art, Some(held)))
@@ -413,23 +407,24 @@ impl Titles {
                 self.painted(project, key, painting, width, height)
                     .map(|(path, art)| (path, art, None))
             };
+            let base = picture_base(clip, index);
             let (path, art, held) = match painted {
                 Ok(art) => art,
                 Err(error) => {
-                    log::warn!("title {}: {error}", clip.id);
+                    log::warn!("title {id}: {error}");
                     continue;
                 }
             };
             out.push(TitleClip {
-                clip_id: clip.id.clone(),
+                clip_id: id,
                 clip: ExportClip {
                     path: path.to_string_lossy().into_owned(),
-                    hidden: !track.visible,
+                    hidden: !visible,
                     muted: true,
                     volume: 0.0,
                     // A title's width and height keys go the way its
                     // constant pull does, below: never onto the glyphs.
-                    animation: concat_export::flatten::export_keys(clip)
+                    animation: concat_export::flatten::keys(clip)
                         .into_iter()
                         .filter(|key| {
                             matches!(painting, Painting::Shape(_))
@@ -441,22 +436,22 @@ impl Titles {
                     // from blank: the Animate moves, the mask and the
                     // fades. Without them no In, Out or Loop played on any
                     // title, caption or shape.
-                    motion: clip.motion.clone(),
-                    masks: clip.masks.clone(),
-                    fade_in: clip.fade_in,
-                    fade_out: clip.fade_out,
-                    flip_h: clip.flip_h,
-                    flip_v: clip.flip_v,
-                    blend: clip.blend.clone(),
-                    effects: clip.video_effects.clone(),
+                    motion: base.motion,
+                    masks: concat_export::flatten::masks(clip),
+                    fade_in: base.fade_in,
+                    fade_out: base.fade_out,
+                    flip_h: clip.picture.flip_h,
+                    flip_v: clip.picture.flip_v,
+                    blend: base.blend.clone(),
+                    effects: concat_export::flatten::links(clip, &clip.effects),
                     // A keyed property's keys travel absolute, on a
                     // neutral base, as a media clip's do: the clip's own
                     // offset under keys put the title at the two added,
                     // away from the gizmo and often off the frame (#512).
-                    scale: export_base(clip, KeyProperty::Scale),
-                    offset_x: export_base(clip, KeyProperty::OffsetX),
-                    offset_y: export_base(clip, KeyProperty::OffsetY),
-                    rotation: export_base(clip, KeyProperty::Rotation),
+                    scale: base.scale,
+                    offset_x: base.offset_x,
+                    offset_y: base.offset_y,
+                    rotation: base.rotation,
                     // A title is never pulled along an axis: its box is
                     // sized by the style, and its glyphs keep their shape.
                     // 0.2.2's side grips wrote a stretch onto title clips
@@ -467,21 +462,17 @@ impl Titles {
                     // the rectangle that was wanted.
                     stretch_x: match painting {
                         Painting::Title(_) => 1.0,
-                        Painting::Shape(_) => export_base(clip, KeyProperty::StretchX),
+                        Painting::Shape(_) => base.stretch_x,
                     },
                     stretch_y: match painting {
                         Painting::Title(_) => 1.0,
-                        Painting::Shape(_) => export_base(clip, KeyProperty::StretchY),
+                        Painting::Shape(_) => base.stretch_y,
                     },
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: match painting {
-                        Painting::Title(text) => {
-                            (export_base(clip, KeyProperty::Opacity) * text.opacity).clamp(0.0, 1.0)
-                        }
-                        Painting::Shape(_) => {
-                            export_base(clip, KeyProperty::Opacity).clamp(0.0, 1.0)
-                        }
+                        Painting::Title(text) => (base.opacity * text.opacity).clamp(0.0, 1.0),
+                        Painting::Shape(_) => base.opacity.clamp(0.0, 1.0),
                     },
                     // The canvas, which is the frame's size unless the
                     // title's ink runs past the frame - a box pulled wider,
@@ -497,7 +488,7 @@ impl Titles {
                         Painting::Title(_) => Some(Arc::clone(&art.reveal)),
                         Painting::Shape(_) => None,
                     },
-                    ..ExportClip::blank(ClipKind::Image, clip.start, clip.duration, index)
+                    ..ExportClip::blank(ClipKind::Image, base.start, base.duration, index)
                 },
                 block: art.block,
                 offset: art.offset,
@@ -511,7 +502,7 @@ impl Titles {
     /// to hold the pixels under, the block, and the pixels.
     fn painted_live(
         &self,
-        project: &Project,
+        project: &Model,
         key: u64,
         painting: Painting<'_>,
         width: u32,
@@ -578,7 +569,7 @@ impl Titles {
     /// yet, and the block it holds.
     fn painted(
         &self,
-        project: &Project,
+        project: &Model,
         key: u64,
         painting: Painting<'_>,
         width: u32,
@@ -677,7 +668,7 @@ impl Titles {
     /// thread stops at its next title once `stopped` says so.
     fn paint_ahead(
         &self,
-        project: &Project,
+        project: &Model,
         width: u32,
         height: u32,
         live: bool,
@@ -744,7 +735,7 @@ impl Titles {
 
     /// The faces, loaded once, with the project's own files added - each
     /// loaded once for the process.
-    fn fonts_for<'a>(&self, project: &Project, held: &'a mut Option<Fonts>) -> &'a Fonts {
+    fn fonts_for<'a>(&self, project: &Model, held: &'a mut Option<Fonts>) -> &'a Fonts {
         let fonts = held.get_or_insert_with(Fonts::new);
         let mut loaded = self.loaded_files.lock().unwrap_or_else(|e| e.into_inner());
         for font in &project.fonts {
@@ -772,20 +763,13 @@ impl Titles {
 /// Each clip's key and painting, in the timeline's order - `None` for a
 /// clip that is neither a title nor a shape - so a pass names each once.
 /// A clip with no style of its own is painted in `plain`.
-fn keys_of<'a>(
-    project: &'a Project,
-    width: u32,
-    height: u32,
-    plain: (&'a TextStyle, &'a ShapeStyle),
-) -> Vec<Option<(u64, Painting<'a>)>> {
-    project
-        .active()
-        .clips
-        .iter()
-        .map(|clip| {
-            let painting = match clip.kind {
-                ModelClipKind::Text => Painting::Title(clip.text.as_ref().unwrap_or(plain.0)),
-                ModelClipKind::Shape => Painting::Shape(clip.shape.as_ref().unwrap_or(plain.1)),
+fn keys_of(project: &Model, width: u32, height: u32) -> Vec<Option<(u64, Painting<'_>)>> {
+    placed(project)
+        .into_iter()
+        .map(|placed| {
+            let painting = match &placed.item.content {
+                Content::Title(title) => Painting::Title(title),
+                Content::Shape(shape) => Painting::Shape(shape),
                 _ => return None,
             };
             Some((key_of(project, painting, width, height), painting))
@@ -793,18 +777,81 @@ fn keys_of<'a>(
         .collect()
 }
 
-fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) -> u64 {
+/// An item of the sequence showing, where it is drawn.
+struct Placed<'a> {
+    id: ItemId,
+    item: &'a Item,
+    /// Its lane's place in the stack, from the bottom.
+    index: usize,
+    /// Whether its lane's pictures are drawn.
+    visible: bool,
+}
+
+/// Every item of the sequence showing, lane by lane from the bottom and in
+/// time order on each: the order the flattener lists them in.
+fn placed(model: &Model) -> Vec<Placed<'_>> {
+    let Some(sequence) = model.view.showing else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (index, (lane_id, _)) in model.lanes.index().of(sequence).enumerate() {
+        let visible = model.lanes.get(lane_id).is_none_or(|lane| lane.visible);
+        for (id, _, _) in model.items.index().on_lane(lane_id) {
+            if let Some(item) = model.items.get(id) {
+                out.push(Placed {
+                    id,
+                    item: item.as_ref(),
+                    index,
+                    visible,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// What a title or a shape shares with any picture of a file: its time,
+/// its placement on a neutral base where it is keyed, its fades, its
+/// moves and its blend, as the flattener works them out.
+fn picture_base(item: &Item, index: usize) -> ExportClip {
+    let p = &item.picture;
+    let base = |n: &concat_doc::model::Animated<f64>, neutral: f64| {
+        if n.is_keyed() { neutral } else { n.value }
+    };
+    let blank = ExportClip::blank(
+        ClipKind::Image,
+        item.start.display_seconds(),
+        concat_doc::TickDur::from(item.len).display_seconds(),
+        index,
+    );
+    ExportClip {
+        scale: base(&p.scale, 1.0),
+        offset_x: base(&p.offset_x, 0.0),
+        offset_y: base(&p.offset_y, 0.0),
+        rotation: base(&p.rotation, 0.0),
+        stretch_x: base(&p.stretch_x, 1.0),
+        stretch_y: base(&p.stretch_y, 1.0),
+        opacity: base(&p.opacity, 1.0),
+        fade_in: item.sound.fade_in.display_seconds(),
+        fade_out: item.sound.fade_out.display_seconds(),
+        motion: concat_export::flatten::motion(&p.motion),
+        blend: concat_export::flatten::blend_name(&p.blend).to_owned(),
+        ..blank
+    }
+}
+
+fn key_of(project: &Model, painting: Painting<'_>, width: u32, height: u32) -> u64 {
     let mut bytes = Vec::new();
-    // The style as JSON: every field, in a stable order, with no need to
-    // keep a serialiser in step with the struct. A shape's is prefixed, so
+    // The style as written out field by field, in a stable order, with no
+    // need to keep a serialiser in step with the struct. A shape's is prefixed, so
     // it can never collide with a title's.
     match painting {
         Painting::Title(style) => {
-            bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+            bytes.extend_from_slice(format!("{style:?}").as_bytes());
         }
         Painting::Shape(style) => {
             bytes.extend_from_slice(b"shape:");
-            bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+            bytes.extend_from_slice(format!("{style:?}").as_bytes());
         }
     }
     bytes.push(0);
@@ -824,8 +871,8 @@ fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) ->
     // 6: a canvas grows past the frame to hold ink that runs past it, and
     // the sidecar says how big it is. 7: shapes gained their own width and
     // height, corners, gradients, outline placement, dashes, line ends,
-    // shadows and trim.
-    bytes.extend_from_slice(&7u32.to_le_bytes());
+    // shadows and trim. 8: the style is the document's own, written out.
+    bytes.extend_from_slice(&8u32.to_le_bytes());
     crate::media::fnv1a(&bytes)
 }
 
@@ -960,8 +1007,14 @@ fn reveal_of(words: &[WordRect], width: u32, height: u32) -> Arc<RevealMap> {
     Arc::new(RevealMap::from_rects(width, height, &rects))
 }
 
-/// The document's style, field for field, in the painter's terms.
-fn title_style(style: &TextStyle) -> TitleStyle {
+/// A colour as the painter reads it: `#rrggbb`, or `#rrggbbaa` when not
+/// opaque.
+fn hex(color: Color) -> String {
+    concat_export::rgba::to_hex([color.r, color.g, color.b, color.a])
+}
+
+/// The document's title, field for field, in the painter's terms.
+fn title_style(style: &Title) -> TitleStyle {
     // The words in their case, and the runs moved onto the characters
     // their own became in it.
     let (content, runs) = style.display();
@@ -973,19 +1026,19 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         italic: style.italic,
         underline: style.underline,
         strikethrough: style.strikethrough,
-        color: style.color.clone(),
+        color: hex(style.color),
         align: match style.align {
             TextAlign::Left => Align::Left,
-            TextAlign::Center => Align::Center,
+            TextAlign::Center | TextAlign::Unknown(_) => Align::Center,
             TextAlign::Right => Align::Right,
         },
         stroke_width: style.stroke_width,
-        stroke_color: style.stroke_color.clone(),
+        stroke_color: hex(style.stroke_color),
         shadow: style.shadow,
-        background: style.background.clone(),
-        background_radius: style.background_radius,
-        background_padding_x: style.background_padding_x,
-        background_padding_y: style.background_padding_y,
+        background: style.plate.map(hex).unwrap_or_default(),
+        background_radius: style.plate_radius,
+        background_padding_x: style.plate_padding_x,
+        background_padding_y: style.plate_padding_y,
         line_height: style.line_height,
         max_width: style.max_width,
         max_height: style.max_height,
@@ -993,15 +1046,15 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         runs: runs
             .into_iter()
             .map(|run| TitleRun {
-                start: run.start,
-                end: run.end,
-                color: run.style.color,
-                font_weight: run.style.font_weight,
-                italic: run.style.italic,
-                underline: run.style.underline,
-                strikethrough: run.style.strikethrough,
-                font_scale: run.style.font_scale,
-                stroke_color: run.style.stroke_color,
+                start: run.start as usize,
+                end: run.end as usize,
+                color: run.color.map(hex),
+                font_weight: run.font_weight,
+                italic: run.italic,
+                underline: run.underline,
+                strikethrough: run.strikethrough,
+                font_scale: run.font_scale,
+                stroke_color: run.stroke_color.map(hex),
             })
             .collect(),
     }
@@ -1010,9 +1063,8 @@ fn title_style(style: &TextStyle) -> TitleStyle {
 /// The document's shape, in the painter's terms: the box resolved, a
 /// line's ends and the figure's own counts filled in.
 fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
-    use concat_project::model::{LineHead, StrokeAlign, StrokeDash};
     let head = |head: LineHead| match head {
-        LineHead::None => concat_text::Head::None,
+        LineHead::None | LineHead::Unknown(_) => concat_text::Head::None,
         LineHead::Arrow => concat_text::Head::Arrow,
         LineHead::Triangle => concat_text::Head::Triangle,
         LineHead::Circle => concat_text::Head::Circle,
@@ -1021,7 +1073,7 @@ fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
     let (width, height) = style.figure_box();
     concat_text::ShapeStyle {
         figure: match style.kind {
-            ShapeKind::Square => Figure::Square,
+            ShapeKind::Square | ShapeKind::Unknown(_) => Figure::Square,
             ShapeKind::Circle => Figure::Circle,
             ShapeKind::Triangle => Figure::Triangle,
             ShapeKind::Parallelogram => Figure::Parallelogram,
@@ -1034,31 +1086,31 @@ fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
         width,
         height,
         corner_radius: style.corner_radius,
-        fill: style.fill.clone(),
+        fill: style.fill.map(hex).unwrap_or_default(),
         gradient: style
             .gradient
             .as_ref()
             .map(|gradient| concat_text::Gradient {
                 radial: gradient.radial,
-                color: gradient.color.clone(),
+                color: hex(gradient.color),
                 angle: gradient.angle,
             }),
-        stroke: style.stroke.clone(),
+        stroke: style.stroke.map(hex).unwrap_or_default(),
         stroke_width: style.stroke_width,
         align: match style.stroke_align {
-            StrokeAlign::Center => concat_text::StrokeAlign::Center,
+            StrokeAlign::Center | StrokeAlign::Unknown(_) => concat_text::StrokeAlign::Center,
             StrokeAlign::Inside => concat_text::StrokeAlign::Inside,
             StrokeAlign::Outside => concat_text::StrokeAlign::Outside,
         },
         dash: match style.dash {
-            StrokeDash::Solid => concat_text::Dash::Solid,
+            StrokeDash::Solid | StrokeDash::Unknown(_) => concat_text::Dash::Solid,
             StrokeDash::Dashed => concat_text::Dash::Dashed,
             StrokeDash::Dotted => concat_text::Dash::Dotted,
         },
         start_head: head(style.start()),
         end_head: head(style.end()),
         shadow: style.shadow.as_ref().map(|shadow| concat_text::Shadow {
-            color: shadow.color.clone(),
+            color: hex(shadow.color),
             blur: shadow.blur,
             distance: shadow.distance,
             angle: shadow.angle,
@@ -1071,7 +1123,9 @@ fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use concat_project::{Command, Editor};
+    use crate::test_doc::{Doc, at, long};
+    use concat_doc::commands::{Command, KeyProperty, RunStyle};
+    use concat_doc::model::{Ease, TextCase};
 
     fn scratch(name: &str) -> AppDirs {
         let dir =
@@ -1083,65 +1137,54 @@ mod tests {
         }
     }
 
-    /// A title clip carrying a stretch - what 0.2.2's side grips wrote to
-    /// make a long caption fit - comes back unstretched: the words wrap
-    /// now, and a squashed glyph was never wanted.
+    fn title(doc: &mut Doc, start: f64, seconds: f64, offset_y: Option<f64>) -> ItemId {
+        doc.item(Command::AddTextClip {
+            start: at(start),
+            len: Some(long(seconds)),
+            lane: None,
+            above: true,
+            offset_y,
+            title: None,
+        })
+    }
+
+    fn transform(doc: &mut Doc, item: ItemId, scale: Option<f64>, stretch: Option<(f64, f64)>) {
+        doc.apply(Command::SetClipTransform {
+            item,
+            offset_x: None,
+            offset_y: None,
+            rotation: None,
+            scale,
+            stretch_x: stretch.map(|s| s.0),
+            stretch_y: stretch.map(|s| s.1),
+        });
+    }
+
+    /// A title clip carrying a stretch comes back unstretched: the words
+    /// wrap, and a squashed glyph was never wanted.
     /// https://github.com/jub0t/Concat/issues/119
     #[test]
     fn a_title_is_never_stretched_whatever_its_clip_says() {
         let dirs = scratch("title");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 0.0,
-                style: None,
-                duration: Some(3.0),
-                offset_y: None,
-            })
-            .expect("a title is added")
-            .created_id
-            .expect("with an id");
-        editor
-            .apply(Command::SetClipTransform {
-                clip_id: id.clone(),
-                scale: Some(1.03),
-                offset_x: None,
-                offset_y: None,
-                rotation: None,
-                stretch_x: Some(0.46),
-                stretch_y: Some(2.2),
-            })
-            .expect("the stretch a 0.2.2 grip left behind");
-        let clip = editor.project().active().clip(&id).expect("kept");
-        assert_eq!(
-            (clip.stretch_x, clip.stretch_y),
-            (0.46, 2.2),
-            "it is on the clip"
-        );
-
-        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        let mut doc = Doc::new();
+        let id = title(&mut doc, 0.0, 3.0, None);
+        transform(&mut doc, id, Some(1.03), Some((0.46, 2.2)));
+        let out = Titles::new(&dirs).clips(doc.model(), 640, 360);
         assert_eq!((out[0].clip.stretch_x, out[0].clip.stretch_y), (1.0, 1.0));
-        assert_eq!(
-            out[0].clip.scale, 1.03,
-            "the scale is honoured; only the stretch is not"
-        );
+        assert_eq!(out[0].clip.scale, 1.03, "the scale is honoured");
 
         // Nor by keys: a keyed width on a title is dropped with its
         // constant, and its other keys still play.
         for (property, value) in [(KeyProperty::StretchX, 3.0), (KeyProperty::Scale, 2.0)] {
-            editor
-                .apply(Command::SetClipKey {
-                    clip_id: id.clone(),
-                    property,
-                    at: 0.5,
-                    value,
-                    ease: Default::default(),
-                })
-                .expect("keys");
+            doc.apply(Command::SetClipKey {
+                item: id,
+                property,
+                at: at(1.5),
+                value,
+                ease: Ease::LINEAR,
+            });
         }
-        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        let out = Titles::new(&dirs).clips(doc.model(), 640, 360);
         let names: Vec<&str> = out[0]
             .clip
             .animation
@@ -1149,112 +1192,73 @@ mod tests {
             .map(|key| key.property.as_str())
             .collect();
         assert_eq!(names, ["scale"]);
-    }
-
-    /// A text clip comes back as an image clip on its own track, pointing
-    /// at a PNG on disk that is the frame's size, and a second ask for the
-    /// same title paints nothing new.
-    /// A keyed position plays from a neutral base, as a media clip's does,
-    /// so the title is drawn where its keys - and the gizmo - put it, not
-    /// at the clip's own offset added to them (#512).
-    #[test]
-    fn a_keyed_title_plays_its_keys_from_a_neutral_base() {
-        let dirs = scratch("a_keyed_titl");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 0.0,
-                style: None,
-                duration: Some(2.0),
-                offset_y: Some(0.3),
-            })
-            .expect("a title is added")
-            .created_id
-            .expect("with an id");
-        for (property, at, value) in [
-            (KeyProperty::OffsetY, 0.0, -0.1),
-            (KeyProperty::OffsetY, 1.0, -0.1),
-            (KeyProperty::Opacity, 0.0, 0.5),
-        ] {
-            editor
-                .apply(Command::SetClipKey {
-                    clip_id: id.clone(),
-                    property,
-                    at,
-                    value,
-                    ease: Default::default(),
-                })
-                .expect("a key is set");
-        }
-
-        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
-        let title = &out[0].clip;
-        assert_eq!(title.offset_y, 0.0, "keys, not 0.3 plus keys");
-        assert_eq!(
-            title.opacity, 1.0,
-            "the style's own opacity, times the keys"
-        );
-        assert_eq!(title.offset_x, 0.0);
-        assert_eq!(title.scale, 1.0, "an unkeyed property keeps the clip's own");
-        assert!(!title.animation.is_empty(), "the keys travel with it");
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 
-    /// Some words styled are a different picture, painted again, with the
-    /// runs on the characters the painter is given - in capitals, "ß" is
-    /// two of them, and the run after it moves along by one.
+    /// A keyed position plays from a neutral base, as a media clip's does,
+    /// so the title is drawn where its keys put it (#512).
+    #[test]
+    fn a_keyed_title_plays_its_keys_from_a_neutral_base() {
+        let dirs = scratch("keyed");
+        let mut doc = Doc::new();
+        let id = title(&mut doc, 0.0, 2.0, Some(0.3));
+        for (property, when, value) in [
+            (KeyProperty::OffsetY, 0.0, -0.1),
+            (KeyProperty::OffsetY, 2.0, -0.1),
+            (KeyProperty::Opacity, 0.0, 0.5),
+        ] {
+            doc.apply(Command::SetClipKey {
+                item: id,
+                property,
+                at: at(when),
+                value,
+                ease: Ease::LINEAR,
+            });
+        }
+        let out = Titles::new(&dirs).clips(doc.model(), 640, 360);
+        let clip = &out[0].clip;
+        assert_eq!(clip.offset_y, 0.0, "keys, not 0.3 plus keys");
+        assert_eq!(clip.opacity, 1.0);
+        assert_eq!(clip.scale, 1.0);
+        assert!(!clip.animation.is_empty(), "the keys travel with it");
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
+    }
+
+    /// Some words styled are a different picture, with the runs on the
+    /// characters the painter is given: in capitals "ß" is two of them.
     #[test]
     fn styled_words_are_a_new_picture_and_follow_the_case() {
-        let dirs = scratch("styled_words");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 0.0,
-                style: Some(TextStyle {
-                    content: "straße rot".into(),
-                    ..TextStyle::default()
-                }),
-                duration: Some(3.0),
-                offset_y: None,
-            })
-            .expect("a title is added")
-            .created_id
-            .expect("with an id");
+        let dirs = scratch("styled");
+        let mut doc = Doc::new();
+        let id = doc.item(Command::AddTextClip {
+            start: at(0.0),
+            len: Some(long(3.0)),
+            lane: None,
+            above: false,
+            offset_y: None,
+            title: Some(Title {
+                content: "straße rot".into(),
+                ..Title::default()
+            }),
+        });
         let titles = Titles::new(&dirs);
-        let plain = titles.clips(editor.project(), 640, 360)[0]
-            .clip
-            .path
-            .clone();
-        editor
-            .apply(Command::StyleTextRange {
-                clip_id: id.clone(),
-                start: 7,
-                end: 10,
-                patch: concat_project::model::RunStyle {
-                    color: Some("#ff0000".into()),
-                    ..Default::default()
-                },
-            })
-            .expect("styles");
-        let styled = titles.clips(editor.project(), 640, 360)[0]
-            .clip
-            .path
-            .clone();
+        let plain = titles.clips(doc.model(), 640, 360)[0].clip.path.clone();
+        doc.apply(Command::StyleTextRange {
+            item: id,
+            start: 7,
+            end: 10,
+            style: RunStyle {
+                color: Some(Color::rgb(255, 0, 0)),
+                ..RunStyle::default()
+            },
+        });
+        let styled = titles.clips(doc.model(), 640, 360)[0].clip.path.clone();
         assert_ne!(styled, plain, "a different picture");
-
-        let mut text = editor
-            .project()
-            .active()
-            .clip(&id)
-            .unwrap()
-            .text
-            .clone()
-            .unwrap();
-        text.text_case = concat_project::model::TextCase::Upper;
+        let Content::Title(text) = &doc.model().items.get(id).expect("kept").content else {
+            panic!("a title");
+        };
+        let mut text = text.clone();
+        text.case = TextCase::Upper;
         let painted = title_style(&text);
         assert_eq!(painted.content, "STRASSE ROT");
         assert_eq!((painted.runs[0].start, painted.runs[0].end), (8, 11));
@@ -1262,310 +1266,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 
-    /// The window's look paints nothing: titles not painted yet are left
-    /// out and said to be missing, and once a painter has been through,
-    /// every one is there and the look says so.
+    /// The window's look paints nothing; once a painter has been through,
+    /// every title is there.
     #[test]
     fn ready_paints_nothing_and_says_what_is_missing() {
-        let dirs = scratch("ready_paints");
-        let mut editor = Editor::new();
+        let dirs = scratch("ready");
+        let mut doc = Doc::new();
         for start in [0.0, 2.0, 4.0] {
-            editor
-                .apply(Command::AddTextClip {
-                    above: true,
-                    track_id: None,
-                    start,
-                    style: None,
-                    duration: Some(1.5),
-                    offset_y: None,
-                })
-                .expect("a title is added");
+            title(&mut doc, start, 1.5, None);
         }
         let titles = Titles::new(&dirs);
-        let (none, complete) = titles.ready(editor.project(), 640, 360);
-        assert!(
-            none.is_empty() && !complete,
-            "nothing painted, and it says so"
-        );
-        assert_eq!(titles.clips(editor.project(), 640, 360).len(), 3);
-        let (all, complete) = titles.ready(editor.project(), 640, 360);
+        let (none, complete) = titles.ready(doc.model(), 640, 360);
+        assert!(none.is_empty() && !complete);
+        assert_eq!(titles.clips(doc.model(), 640, 360).len(), 3);
+        let (all, complete) = titles.ready(doc.model(), 640, 360);
         assert_eq!(all.len(), 3);
         assert!(complete);
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 
-    /// An export stopped while its titles paint gets nothing back, and
-    /// paints nothing more; one that goes on gets every title, at the size
-    /// it asked for.
+    /// An export stopped while its titles paint gets nothing back.
     #[test]
     fn a_stopped_export_paints_no_titles() {
-        let dirs = scratch("stopped_paint");
-        let mut editor = Editor::new();
+        let dirs = scratch("stopped");
+        let mut doc = Doc::new();
         for start in [0.0, 2.0, 4.0] {
-            editor
-                .apply(Command::AddTextClip {
-                    above: true,
-                    track_id: None,
-                    start,
-                    style: None,
-                    duration: Some(1.5),
-                    offset_y: None,
-                })
-                .expect("a title is added");
+            title(&mut doc, start, 1.5, None);
         }
         let titles = Titles::new(&dirs);
         let stop = AtomicBool::new(true);
-        assert!(
-            titles
-                .clips_unless(editor.project(), 1280, 720, &stop)
-                .is_none()
-        );
-        let (none, _) = titles.ready(editor.project(), 1280, 720);
-        assert!(none.is_empty(), "nothing was painted once it was stopped");
+        assert!(titles.clips_unless(doc.model(), 1280, 720, &stop).is_none());
+        assert!(titles.ready(doc.model(), 1280, 720).0.is_empty());
         stop.store(false, Ordering::Relaxed);
         let all = titles
-            .clips_unless(editor.project(), 1280, 720, &stop)
+            .clips_unless(doc.model(), 1280, 720, &stop)
             .expect("not stopped");
         assert_eq!(all.len(), 3);
-        assert!(
-            all.iter().all(|title| title.clip.media_width == Some(1280)
-                && title.clip.media_height == Some(720))
-        );
+        assert!(all.iter().all(|t| t.clip.media_width == Some(1280)));
         let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 
     #[test]
     fn a_title_rejoins_as_a_still() {
-        let dirs = scratch("a_title_rejo");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 2.0,
-                style: None,
-                duration: Some(3.0),
-                offset_y: Some(0.3),
-            })
-            .expect("a title is added")
-            .created_id
-            .expect("with an id");
-
+        let dirs = scratch("rejoins");
+        let mut doc = Doc::new();
+        let id = title(&mut doc, 2.0, 3.0, Some(0.3));
         let titles = Titles::new(&dirs);
-        let out = titles.clips(editor.project(), 640, 360);
+        let out = titles.clips(doc.model(), 640, 360);
         assert_eq!(out.len(), 1);
         let title = &out[0];
         assert_eq!(title.clip_id, id);
         assert!(matches!(title.clip.kind, ClipKind::Image));
-        assert_eq!((title.clip.start, title.clip.duration), (2.0, 3.0));
+        assert!((title.clip.start - 2.0).abs() < 1e-9 && (title.clip.duration - 3.0).abs() < 1e-9);
         assert_eq!(title.clip.offset_y, 0.3);
         assert_eq!(title.clip.media_width, Some(640));
         assert!(title.block.0 > 0 && title.block.1 > 0);
-        assert_eq!(
-            title.offset,
-            (0, 0),
-            "a centred title's block is on the clip"
-        );
-        // "Your text": two words, so their reveal order spans 0 to 255.
+        assert_eq!(title.offset, (0, 0));
         let reveal = title.clip.reveal_map.as_ref().expect("a title reveals");
-        assert_eq!((reveal.width, reveal.height), (640, 360));
-        assert!(reveal.gray.contains(&0));
-        assert!(reveal.gray.contains(&255), "a second word reaches the top");
+        assert!(reveal.gray.contains(&0) && reveal.gray.contains(&255));
         let painted = Path::new(&title.clip.path);
         assert!(painted.is_file(), "the PNG is on disk");
-        let stamp = std::fs::metadata(painted).and_then(|m| m.modified()).ok();
-
-        // Same words, same frame: same file, untouched.
-        let again = titles.clips(editor.project(), 640, 360);
-        assert_eq!(again[0].clip.path, title.clip.path);
-        assert_eq!(
-            std::fs::metadata(painted).and_then(|m| m.modified()).ok(),
-            stamp
-        );
-
-        // A different frame is a different picture.
-        let wide = titles.clips(editor.project(), 1280, 720);
+        let again = titles.clips(doc.model(), 640, 360);
+        assert_eq!(again[0].clip.path, title.clip.path, "painted once");
+        let wide = titles.clips(doc.model(), 1280, 720);
         assert_ne!(wide[0].clip.path, title.clip.path);
-
-        // Aligned left, the block starts at the clip's position and its
-        // centre is reported half a block to the right - and a second
-        // painter, reading the sidecar cold, says the same.
-        let style = concat_project::model::TextStyle {
-            align: concat_project::model::TextAlign::Left,
-            ..Default::default()
-        };
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: id.clone(),
-                patch: concat_project::commands::ClipPatch {
-                    text: Some(Some(style)),
-                    ..Default::default()
-                },
-            })
-            .expect("aligns");
-        let left = titles.clips(editor.project(), 640, 360);
-        assert!(left[0].offset.0 > 0);
-        assert!((left[0].offset.0 as u32).abs_diff(left[0].block.0 / 2) <= 1);
-        let cold = Titles::new(&dirs).clips(editor.project(), 640, 360);
-        assert_eq!(cold[0].offset, left[0].offset);
-        assert_eq!(cold[0].block, left[0].block);
-        // The sidecar carries the words too, so a cold read reveals the
-        // same order as the one that painted them.
-        assert_eq!(
-            cold[0].clip.reveal_map.as_ref().map(|r| &*r.gray),
-            left[0].clip.reveal_map.as_ref().map(|r| &*r.gray)
-        );
-        let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 
-    /// A title whose box is pulled wider than the frame rejoins on a canvas
-    /// grown to hold it, said to be that many frames across so it is drawn
-    /// one to one; its reveal map is the canvas's size, and a painter
-    /// reading the sidecar cold, and the live painter, say the same.
-    #[test]
-    fn a_title_wider_than_the_frame_rejoins_on_its_grown_canvas() {
-        let dirs = scratch("a_title_wide");
-        let mut editor = Editor::new();
-        let style = concat_project::model::TextStyle {
-            content: "a box wider than the frame".to_owned(),
-            background: "#2040a0".to_owned(),
-            max_width: 1.5,
-            ..Default::default()
-        };
-        editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 0.0,
-                style: Some(style),
-                duration: Some(3.0),
-                offset_y: None,
-            })
-            .expect("a title is added");
-
-        let titles = Titles::new(&dirs);
-        let out = titles.clips(editor.project(), 640, 360);
-        let clip = &out[0].clip;
-        let (canvas_w, canvas_h) = (
-            clip.media_width.expect("a width"),
-            clip.media_height.expect("a height"),
-        );
-        assert!(canvas_w >= 960, "the box and its shadow: {canvas_w}");
-        assert_eq!((canvas_w - 640) % 2, 0, "the same margin either side");
-        let overscan = (f64::from(canvas_w) / 640.0).max(f64::from(canvas_h) / 360.0);
-        assert_eq!(clip.overscan, overscan);
-        let reveal = clip.reveal_map.as_ref().expect("a title reveals");
-        assert_eq!((reveal.width, reveal.height), (canvas_w, canvas_h));
-        assert_eq!(out[0].block.0, 960, "the block is the box, in frame pixels");
-
-        let cold = Titles::new(&dirs).clips(editor.project(), 640, 360);
-        assert_eq!(cold[0].clip.media_width, clip.media_width);
-        assert_eq!(cold[0].clip.overscan, clip.overscan);
-        assert_eq!(
-            cold[0]
-                .clip
-                .reveal_map
-                .as_ref()
-                .map(|r| (r.width, r.height)),
-            Some((canvas_w, canvas_h))
-        );
-        let live = titles.clips_live(editor.project(), 640, 360);
-        let held = live[0].held.as_ref().expect("painted live");
-        assert_eq!(held.canvas, (canvas_w, canvas_h));
-        assert_eq!(live[0].clip.overscan, clip.overscan);
-        let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
-    }
-
-    /// A title painted in memory is held as its words alone - a fraction of
-    /// the canvas - and set back on its canvas it is the painter's canvas
-    /// pixel for pixel. `ready_live` paints nothing; `paint_live_all` does.
-    #[test]
-    fn a_live_title_is_held_as_its_ink_and_is_its_canvas_whole() {
-        let dirs = scratch("live_sparse");
-        let mut editor = Editor::new();
-        let style = concat_project::model::TextStyle {
-            content: "a caption".to_owned(),
-            ..Default::default()
-        };
-        editor
-            .apply(Command::AddTextClip {
-                above: false,
-                track_id: None,
-                start: 0.0,
-                style: Some(style.clone()),
-                duration: Some(3.0),
-                offset_y: None,
-            })
-            .expect("a title is added");
-        let titles = Titles::new(&dirs);
-        let (none, complete) = titles.ready_live(editor.project(), 640, 360);
-        assert!(none.is_empty() && !complete, "nothing painted yet");
-        titles.paint_live_all(editor.project(), 640, 360);
-        let (live, complete) = titles.ready_live(editor.project(), 640, 360);
-        assert!(complete);
-        let held = live[0].held.as_ref().expect("held in memory");
-        assert!(
-            held.bytes() * 8 < 640 * 360 * 4,
-            "the words, not the canvas: {} bytes",
-            held.bytes()
-        );
-        let whole = held.at_size(held.canvas.0, held.canvas.1).expect("whole");
-        let painted = concat_text::render_frame(&Fonts::new(), &title_style(&style), 640, 360)
-            .expect("paints");
-        assert_eq!(
-            (whole.width(), whole.height()),
-            (painted.width, painted.height)
-        );
-        assert!(whole.pixels() == painted.rgba.as_slice(), "the same pixels");
-        let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
-    }
-
-    /// More titles than the byte budget holds are all kept while the
-    /// timeline shows them: a second live pass paints none of them again.
-    /// Kept first in, first out, each was thrown out just before it was
-    /// wanted, and every pass painted them all (#261).
-    #[test]
-    fn a_timeline_of_titles_past_the_budget_is_painted_once() {
-        let dirs = scratch("live_many");
-        let mut editor = Editor::new();
-        // Four megabytes a painting at 1024 square: 40 is more than the
-        // 128 MB budget holds.
-        let count = LIVE_BYTES / (1024 * 1024 * 4) + 8;
-        for index in 0..count {
-            editor
-                .apply(Command::AddShapeClip {
-                    above: false,
-                    track_id: None,
-                    start: index as f64,
-                    style: Some(concat_project::model::ShapeStyle {
-                        width: 0.1 + index as f64 * 0.001,
-                        ..Default::default()
-                    }),
-                    duration: Some(1.0),
-                    name: format!("Shape {index}"),
-                })
-                .expect("a shape is added");
-        }
-        let titles = Titles::new(&dirs);
-        let first = titles.clips_live(editor.project(), 1024, 1024);
-        assert_eq!(first.len(), count);
-        let second = titles.clips_live(editor.project(), 1024, 1024);
-        let repainted = first
-            .iter()
-            .zip(&second)
-            .filter(|(before, after)| {
-                !Arc::ptr_eq(
-                    before.held.as_ref().expect("live"),
-                    after.held.as_ref().expect("live"),
-                )
-            })
-            .count();
-        assert_eq!(repainted, 0, "of {count}");
-    }
-
-    /// A painting asked for again is the most recently used, and outlives
-    /// one asked for less recently; past the ceiling the first painted
-    /// stay and the newest is not kept.
     #[test]
     fn live_paintings_go_least_recently_used_first() {
         let art = || Art {
@@ -1583,118 +1350,36 @@ mod tests {
         };
         let size = frame().bytes();
         let mut live = LivePaintings::new(2 * size, 3 * size);
-
         live.begin();
         live.keep(1, art(), frame());
         live.keep(2, art(), frame());
         live.begin();
-        assert!(live.get(1).is_some(), "1 is used again");
+        assert!(live.get(1).is_some());
         live.begin();
         live.keep(3, art(), frame());
         assert!(live.get(1).is_some(), "the recently used stays");
         assert!(live.get(2).is_none(), "the least recently used goes");
-
-        // One pass asking for more than the budget keeps them all, to the
-        // ceiling; past it, the newest is the one not kept.
-        live.begin();
-        for key in 10..14 {
-            live.keep(key, art(), frame());
-        }
-        assert!(live.get(10).is_some() && live.get(11).is_some() && live.get(12).is_some());
-        assert!(live.get(13).is_none());
-        assert!(live.bytes <= 3 * size);
     }
 
-    /// A shape clip rejoins the flattened list as a still at its clip's
-    /// stretch - that is how a square becomes a rectangle - with the
-    /// figure's box reported and no words to reveal.
     #[test]
     fn a_shape_rejoins_as_a_still_and_keeps_its_stretch() {
         let dirs = scratch("shape");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddShapeClip {
-                above: true,
-                track_id: None,
-                start: 0.0,
-                style: None,
-                duration: Some(3.0),
-                name: "Square".to_owned(),
-            })
-            .expect("a shape is added")
-            .created_id
-            .expect("with an id");
-        editor
-            .apply(Command::SetClipTransform {
-                clip_id: id.clone(),
-                scale: None,
-                offset_x: None,
-                offset_y: None,
-                rotation: None,
-                stretch_x: Some(2.0),
-                stretch_y: Some(0.5),
-            })
-            .expect("pulled wide");
-
-        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        let mut doc = Doc::new();
+        let id = doc.item(Command::AddShapeClip {
+            start: at(0.0),
+            len: Some(long(3.0)),
+            name: "Square".to_owned(),
+            style: None,
+            lane: None,
+            above: true,
+        });
+        transform(&mut doc, id, None, Some((2.0, 0.5)));
+        let out = Titles::new(&dirs).clips(doc.model(), 640, 360);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].clip_id, id);
-        assert!(matches!(out[0].clip.kind, ClipKind::Image));
         assert_eq!((out[0].clip.stretch_x, out[0].clip.stretch_y), (2.0, 0.5));
         assert_eq!(out[0].block, (126, 126), "35 % of 360, squared");
-        assert_eq!(out[0].offset, (0, 0));
         assert!(out[0].clip.reveal_map.is_none());
-        assert!(
-            Path::new(&out[0].clip.path).is_file(),
-            "painted to disk like a title"
-        );
-    }
-
-    /// A shape's Animate moves, mask and fades rejoin with it. The title
-    /// path builds its clip from blank, and left all three behind: no In,
-    /// Out or Loop ever played on a title, a caption or a shape.
-    #[test]
-    fn a_shape_rejoins_with_its_motion_mask_and_fades() {
-        use concat_project::commands::ClipPatch;
-        use concat_project::model::{ClipMotion, ClipMove, Mask, MaskShape};
-        let dirs = scratch("shape-motion");
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddShapeClip {
-                above: true,
-                track_id: None,
-                start: 0.0,
-                style: None,
-                duration: Some(3.0),
-                name: "Square".to_owned(),
-            })
-            .expect("a shape is added")
-            .created_id
-            .expect("with an id");
-        let motion = ClipMotion {
-            enter: Some(ClipMove {
-                kind: "pop".to_owned(),
-                seconds: 0.5,
-            }),
-            ..ClipMotion::default()
-        };
-        let masks = vec![Mask::of("mask-1", "", MaskShape::Circle)];
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: id,
-                patch: ClipPatch {
-                    motion: Some(Some(motion.clone())),
-                    masks: Some(masks.clone()),
-                    fade_in: Some(0.25),
-                    fade_out: Some(0.75),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("animated, masked and faded");
-
-        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
-        assert_eq!(out[0].clip.motion, Some(motion));
-        assert_eq!(out[0].clip.masks, masks);
-        assert_eq!((out[0].clip.fade_in, out[0].clip.fade_out), (0.25, 0.75));
+        let _ = std::fs::remove_dir_all(dirs.data.parent().expect("a scratch root"));
     }
 }

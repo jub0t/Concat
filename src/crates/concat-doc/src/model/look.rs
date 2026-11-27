@@ -357,3 +357,165 @@ pub enum LineHead {
     /// A head this build does not know.
     Unknown(Raw),
 }
+
+impl Title {
+    /// The words as they are painted, in the title's case, and the runs
+    /// moved onto the characters their own became: a case can turn one
+    /// character into two (a German sharp s, upper-cased, is "SS"), so a
+    /// run's ends count characters of what is painted, not of what was
+    /// typed. A case this build does not know paints the words as typed.
+    pub fn display(&self) -> (String, Vec<TextRun>) {
+        let mut out = String::with_capacity(self.content.len());
+        // Where each typed character starts in what is painted, and one
+        // past the last.
+        let mut starts: Vec<u32> = Vec::with_capacity(self.content.len() + 1);
+        let mut count: u32 = 0;
+        let mut sentence_start = true;
+        for c in self.content.chars() {
+            starts.push(count);
+            let mut push = |s: &mut String, piece: &mut dyn Iterator<Item = char>| {
+                for p in piece {
+                    s.push(p);
+                    count += 1;
+                }
+            };
+            match self.case {
+                TextCase::Upper => push(&mut out, &mut c.to_uppercase()),
+                TextCase::Lower => push(&mut out, &mut c.to_lowercase()),
+                TextCase::Sentence => {
+                    if sentence_start && c.is_alphabetic() {
+                        push(&mut out, &mut c.to_uppercase());
+                        sentence_start = false;
+                    } else {
+                        push(&mut out, &mut c.to_lowercase());
+                        if c.is_alphanumeric() {
+                            sentence_start = false;
+                        }
+                    }
+                    if matches!(c, '.' | '!' | '?' | '\n') {
+                        sentence_start = true;
+                    }
+                }
+                TextCase::Original | TextCase::Unknown(_) => {
+                    push(&mut out, &mut std::iter::once(c))
+                }
+            }
+        }
+        starts.push(count);
+        let at = |i: u32| starts.get(i as usize).copied().unwrap_or(count);
+        let runs = self
+            .runs
+            .iter()
+            .map(|run| TextRun {
+                start: at(run.start),
+                end: at(run.end),
+                ..run.clone()
+            })
+            .filter(|run| run.end > run.start)
+            .collect();
+        (out, runs)
+    }
+}
+
+impl ShapeKind {
+    /// The figure's height over its width when it is given no height of
+    /// its own: one for the figures drawn in a square, less for the ones
+    /// that are wider than tall. A line has no height but its stroke's.
+    pub fn natural_height(&self) -> f64 {
+        match self {
+            ShapeKind::Triangle => 0.866,
+            ShapeKind::Parallelogram | ShapeKind::Trapezoid => 0.6,
+            ShapeKind::Line | ShapeKind::Arrow => 0.0,
+            ShapeKind::Square
+            | ShapeKind::Circle
+            | ShapeKind::Polygon
+            | ShapeKind::Star
+            | ShapeKind::Heart
+            | ShapeKind::Unknown(_) => 1.0,
+        }
+    }
+
+    /// Whether the figure is a line, with ends that wear heads.
+    pub fn is_line(&self) -> bool {
+        matches!(self, ShapeKind::Line | ShapeKind::Arrow)
+    }
+}
+
+impl ShapeStyle {
+    /// The figure's box, width and height as fractions of the frame's
+    /// height: the height its own, or the kind's natural proportion of
+    /// the width when it is zero. A line's height is its stroke's width.
+    pub fn figure_box(&self) -> (f64, f64) {
+        let width = self.width.max(0.0);
+        let height = if self.kind.is_line() {
+            self.stroke_width.max(0.0)
+        } else if self.height > 0.0 {
+            self.height
+        } else {
+            width * self.kind.natural_height()
+        };
+        (width, height)
+    }
+
+    /// What a line's start wears: its own, or nothing.
+    pub fn start(&self) -> LineHead {
+        self.start_head.clone().unwrap_or(LineHead::None)
+    }
+
+    /// What a line's end wears: its own, or the kind's - an arrowhead on
+    /// an arrow, nothing on a line.
+    pub fn end(&self) -> LineHead {
+        match (&self.end_head, &self.kind) {
+            (Some(head), _) => head.clone(),
+            (None, ShapeKind::Arrow) => LineHead::Arrow,
+            (None, _) => LineHead::None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_title_paints_in_its_case_and_its_runs_follow_the_characters() {
+        let title = Title {
+            content: "straße. hello".to_owned(),
+            case: TextCase::Upper,
+            runs: vec![TextRun {
+                start: 8,
+                end: 13,
+                italic: Some(true),
+                ..TextRun::default()
+            }],
+            ..Title::default()
+        };
+        let (words, runs) = title.display();
+        assert_eq!(words, "STRASSE. HELLO");
+        assert_eq!((runs[0].start, runs[0].end), (9, 14));
+        let sentence = Title {
+            content: "one. TWO! three".to_owned(),
+            case: TextCase::Sentence,
+            ..Title::default()
+        };
+        assert_eq!(sentence.display().0, "One. Two! Three");
+    }
+
+    #[test]
+    fn a_shape_box_takes_its_kind_s_proportion_and_an_arrow_its_head() {
+        let square = ShapeStyle::default();
+        assert_eq!(square.figure_box(), (0.35, 0.35));
+        let tall = ShapeStyle {
+            height: 0.5,
+            ..ShapeStyle::default()
+        };
+        assert_eq!(tall.figure_box(), (0.35, 0.5));
+        let arrow = ShapeStyle {
+            kind: ShapeKind::Arrow,
+            ..ShapeStyle::default()
+        };
+        assert_eq!(arrow.end(), LineHead::Arrow);
+        assert_eq!(arrow.start(), LineHead::None);
+        assert_eq!(arrow.figure_box().1, arrow.stroke_width);
+    }
+}

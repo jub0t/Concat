@@ -547,6 +547,7 @@ impl Ed<'_> {
                 .clone_from(&last.picture.motion.exit);
             item.markers.extend(markers);
         })?;
+        self.out.created = Some(first_id.any());
         Ok(())
     }
 

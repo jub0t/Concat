@@ -177,6 +177,14 @@
 //! 49. A caption lane's look has no words and no runs of its own: each
 //!     caption's are the caption's. *a_caption_look_with_words_is_refused*
 //!
+//! **Speed graphs**
+//!
+//! 50. The speed graph a keyed time map was drawn with has at least one
+//!     point; its numbers are finite; each point's share is from 0 to 1
+//!     and the points are in order of their shares; each speed is from a
+//!     sixteenth to sixteen times; and its span is within the range.
+//!     *a_broken_speed_graph_is_refused*
+//!
 //! The empty document keeps every rule (*an_empty_document_is_valid*).
 //! A random run of edits is checked two ways, by what changed and by
 //! reading the whole result as a file is read, and the two always agree
@@ -213,6 +221,7 @@ pub mod sequence;
 use crate::document::{ChangePart, ChangeSet, Changed, Schema};
 use crate::id::{AnyId, RawId, TypedId};
 use crate::table::{AnyTable, Table, TableChanges};
+use crate::time::Tick;
 
 pub use animated::{Animated, Ease, Key};
 pub use check::{Rule, Violation};
@@ -237,8 +246,8 @@ pub use media::{
 pub use order::{NotAnOrderKey, OrderKey};
 pub use sequence::{Background, Color, Cover, Font, Frame, Held, Lane, Marker, Sequence, View};
 pub use timing::{
-    FASTEST, SLOWEST, Speed, TICK_LIMIT, TimeCurve, TimeMap, TimePoint, dur_in_range, len_in_range,
-    tick_in_range,
+    FASTEST, GraphFault, SLOWEST, Speed, SpeedGraph, SpeedPoint, TICK_LIMIT, TimeCurve, TimeMap,
+    TimePoint, dur_in_range, len_in_range, tick_in_range,
 };
 
 /// A table of rows, as the comparison reads it: a plain one, or one that
@@ -383,6 +392,27 @@ model! {
         view: View, check::view;
         /// The document's own fields that this build does not know.
         residual: Residual, check::residual;
+    }
+}
+
+impl Model {
+    /// Where a sequence ends: where the last item on any of its lanes
+    /// does. Zero for a sequence with nothing on it.
+    pub fn end_of(&self, sequence: SequenceId) -> Tick {
+        self.lanes
+            .index()
+            .of(sequence)
+            .filter_map(|(lane, _)| self.items.index().on_lane(lane).last())
+            .map(|(_, _, end)| end)
+            .max()
+            .unwrap_or(Tick::ZERO)
+    }
+
+    /// Where the sequence showing ends; zero when none is showing.
+    pub fn showing_end(&self) -> Tick {
+        self.view
+            .showing
+            .map_or(Tick::ZERO, |sequence| self.end_of(sequence))
     }
 }
 

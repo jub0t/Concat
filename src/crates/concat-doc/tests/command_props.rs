@@ -9,10 +9,11 @@
 //! the last one.
 
 use concat_doc::commands::{
-    ClipMove, Command, Cue, Edge, KeyProperty, SpeedPoint, run, speed_from_decimal,
+    ClipMove, Command, CommandError, Cue, Edge, KeyProperty, run, speed_from_decimal, speed_graph,
 };
 use concat_doc::model::{
-    CaptionLook, Ease, ItemId, LaneId, Media, MediaId, MediaKind, Model, SequenceId, Size,
+    CaptionLook, Content, Ease, ItemId, LaneId, Media, MediaId, MediaKind, Model, Rule, SequenceId,
+    Size, SpeedPoint, TimeMap,
 };
 use concat_doc::{
     Budget, Document, Entry, History, Origin, TICKS_PER_SECOND, Tick, TickDur, TickLen,
@@ -183,22 +184,37 @@ fn command(m: &Model, op: &Op) -> Option<Command> {
             speed: speed_from_decimal(f64::from(*s) / 8.0)?,
             ripple: *ripple,
         },
-        Op::Curve(item, a, b, ripple) => Command::SetClipSpeedCurve {
-            item: pick(&items(m), item)?,
-            curve: Some(vec![
+        Op::Curve(item, a, b, ripple) => {
+            // Straight between its points, or eased through three.
+            let slope = (a % 2 == 0).then_some(f64::from(*b) - 30.0);
+            let mut curve = vec![
                 SpeedPoint {
                     at: 0.0,
                     speed: f64::from(*a) / 8.0,
-                    slope: None,
+                    slope,
                 },
                 SpeedPoint {
                     at: 1.0,
                     speed: f64::from(*b) / 8.0,
-                    slope: None,
+                    slope,
                 },
-            ]),
-            ripple: *ripple,
-        },
+            ];
+            if slope.is_some() {
+                curve.insert(
+                    1,
+                    SpeedPoint {
+                        at: f64::from(*b) / 64.0,
+                        speed: f64::from(*a) / 4.0,
+                        slope: Some(0.0),
+                    },
+                );
+            }
+            Command::SetClipSpeedCurve {
+                item: pick(&items(m), item)?,
+                curve: Some(curve),
+                ripple: *ripple,
+            }
+        }
         Op::Key(item, at) => Command::SetClipKey {
             item: pick(&items(m), item)?,
             property: KeyProperty::Opacity,
@@ -285,7 +301,27 @@ proptest! {
                         h.record(commit, Entry::new(vec![command.clone()], (), ())).unwrap();
                     }
                 }
-                Err(_) => prop_assert!(Document::ptr_eq(h.current(), &before)),
+                Err(error) => {
+                    prop_assert!(Document::ptr_eq(h.current(), &before));
+                    // No curve makes a time map the rules refuse.
+                    if let CommandError::Broken(broken) = &error {
+                        let timing = broken.iter().any(|violation| matches!(
+                            violation.rule,
+                            Rule::SpeedNotAllowed { .. }
+                                | Rule::TimeKeysTooFew
+                                | Rule::TimeKeysOutOfOrder
+                                | Rule::TimeNotMonotone
+                                | Rule::WindowPastKeys
+                                | Rule::WindowPastSource { .. }
+                                | Rule::SpeedGraphEmpty
+                        ) || matches!(
+                            violation.rule,
+                            Rule::NotFinite { what } | Rule::OutOfBounds { what } | Rule::KeysOutOfOrder { what }
+                                if what == "content.time.drawn"
+                        ));
+                        prop_assert!(!timing, "{:?}: {}", command, error);
+                    }
+                }
             }
             // Read whole, as a file is read, it keeps every rule.
             let current = h.current();
@@ -296,6 +332,35 @@ proptest! {
         // of the history.
         while h.redo().is_some() {}
         let last = h.current().clone();
+        // Saved and opened, it is the same document, with nothing to say.
+        let text = concat_doc::file::write(&last);
+        let opened = concat_doc::file::read(text.as_bytes());
+        prop_assert!(opened.is_ok(), "{:?}", opened.err());
+        let opened = opened.unwrap();
+        prop_assert_eq!(&opened.notes, &vec![]);
+        prop_assert_eq!(opened.document.tables(), last.tables());
+        // Every speed graph is one the speed pane can draw, and one that
+        // shows the window it was drawn over changes nothing when set.
+        for (id, item) in last.items.iter() {
+            let Some(points) = speed_graph(item) else { continue };
+            prop_assert!(points.len() >= 2);
+            prop_assert_eq!((points[0].at, points[points.len() - 1].at), (0.0, 1.0));
+            prop_assert!(points.windows(2).all(|pair| pair[0].at <= pair[1].at), "{:?}", points);
+            prop_assert!(points.iter().all(|p| (1.0 / 16.0..=16.0).contains(&p.speed)), "{:?}", points);
+            let whole = match &item.content {
+                Content::Media(cut) => matches!(
+                    &cut.time,
+                    TimeMap::Keyed { drawn: Some(graph), .. }
+                        if graph.from == item.offset && graph.len == item.len
+                ),
+                _ => false,
+            };
+            if whole {
+                let again = Command::SetClipSpeedCurve { item: id, curve: Some(points), ripple: false };
+                let outcome = run(&last, &again, Origin(0));
+                prop_assert!(outcome.is_ok_and(|outcome| outcome.commit.is_none()), "{}", id);
+            }
+        }
         while h.undo().is_some() {}
         prop_assert_eq!(without_view(h.current().tables()), without_view(empty.tables()));
         prop_assert!(h.current().view.showing.is_none());
