@@ -92,6 +92,8 @@ export struct ExportData {
     done-size: string,
     /// nothing on the timeline to export
     empty: bool,
+    /// H.264 8-bit SDR at 30 fps and 10 Mbps for TikTok uploads
+    tiktok-preset-active: bool,
 }
 
 // One tile of the summary block.
@@ -302,8 +304,24 @@ component OutputSection inherits DialogSection {
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
     callback hdr-changed(on: bool);
+    callback apply-tiktok-preset();
 
     title: I18n.t("export.output");
+
+    DialogRow {
+        label: I18n.t("export.preset");
+        HorizontalLayout {
+            alignment: end;
+            Button {
+                glyph: root.data.tiktok-preset-active ? Glyph.check : Glyph.sparkle;
+                label: root.data.tiktok-preset-active
+                    ? I18n.t("export.tiktokPresetActive")
+                    : I18n.t("export.tiktokPreset");
+                primary: root.data.tiktok-preset-active;
+                clicked => { root.apply-tiktok-preset(); }
+            }
+        }
+    }
 
     DialogRow {
         label: I18n.t("export.resolution");
@@ -607,6 +625,7 @@ export component ExportDialog inherits Rectangle {
     callback ten-bit-changed(on: bool);
     callback hdr-changed(on: bool);
     callback bitrate-changed(mbps: float);
+    callback apply-tiktok-preset();
     callback begin();
     callback cancel();
     callback reveal();
@@ -743,6 +762,7 @@ export component ExportDialog inherits Rectangle {
                             codec-changed(index) => { root.codec-changed(index); }
                             ten-bit-changed(on) => { root.ten-bit-changed(on); }
                             hdr-changed(on) => { root.hdr-changed(on); }
+                            apply-tiktok-preset => { root.apply-tiktok-preset(); }
                         }
                     }
 
@@ -783,6 +803,7 @@ export component ExportDialog inherits Rectangle {
                                 codec-changed(index) => { root.codec-changed(index); }
                                 ten-bit-changed(on) => { root.ten-bit-changed(on); }
                                 hdr-changed(on) => { root.hdr-changed(on); }
+                                apply-tiktok-preset => { root.apply-tiktok-preset(); }
                             }
                         }
                     }
@@ -818,6 +839,7 @@ export component ExportDialog inherits Rectangle {
                                 codec-changed(index) => { root.codec-changed(index); }
                                 ten-bit-changed(on) => { root.ten-bit-changed(on); }
                                 hdr-changed(on) => { root.hdr-changed(on); }
+                                apply-tiktok-preset => { root.apply-tiktok-preset(); }
                             }
                         }
 

@@ -51,6 +51,7 @@ import {
 } from "dialogs/relink.slint";
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
+import { ThreadsData, ThreadsDialog } from "dialogs/threads.slint";
 import { Speech, SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { NewVoiceData, NewVoiceDialog } from "dialogs/new-voice.slint";
 import { AvatarData } from "primitives/avatar.slint";
@@ -241,7 +242,7 @@ export component App inherits Window {
     }
     property <bool> sheet-open: root.export.open || root.settings.open
         || root.project-sheet.open || root.captions.open || Speech.data.open
-        || root.start.composing || root.new-voice.open;
+        || root.start.composing || root.new-voice.open || root.threads.open;
     changed sheet-open => {
         if (!root.sheet-open) {
             keys.focus();
@@ -260,6 +261,7 @@ export component App inherits Window {
     // bound rather than during the window's own construction.
     in property <bool> on-start: true;
     in property <StartData> start;
+    in property <ThreadsData> threads;
     in property <[ChipOption]> start-aspects;
     in property <[ChipOption]> start-sizes;
     in property <[ChipOption]> start-rates;
@@ -267,6 +269,25 @@ export component App inherits Window {
 
     /// Put up the new-project sheet, and take it down again.
     callback start-compose();
+    callback start-threads();
+    callback threads-closed();
+    callback threads-url-edited(url: string);
+    callback threads-extract();
+    callback threads-select-frame(index: int);
+    callback threads-frame-author-edited(author: string);
+    callback threads-frame-text-edited(text: string);
+    callback threads-move-frame-up(index: int);
+    callback threads-move-frame-down(index: int);
+    callback threads-remove-frame(index: int);
+    callback threads-add-custom-frame();
+    callback threads-add-next-comment();
+    callback threads-reset-frames();
+    callback threads-sort-changed(index: int);
+    callback threads-voice-rate-changed(index: int);
+    callback threads-generate-voiceovers();
+    callback threads-choose-meme();
+    callback threads-remove-meme();
+    callback threads-create-project();
     callback start-dismiss();
     callback start-name-edited(name: string);
     callback start-location-edited(path: string);
@@ -385,6 +406,7 @@ export component App inherits Window {
     callback export-ten-bit-changed(on: bool);
     callback export-hdr-changed(on: bool);
     callback export-bitrate-changed(mbps: float);
+    callback export-apply-tiktok-preset();
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -770,8 +792,10 @@ export component App inherits Window {
                 phone: root.phone;
                 version: root.app-version;
                 capcut: root.capcut;
+                threads-busy: root.threads.running;
 
                 compose => { root.start-compose(); }
+                threads-video => { root.start-threads(); }
                 open => { root.start-open(); }
                 import-capcut => { root.start-import-capcut(); }
                 open-settings => { root.open-settings(); }
@@ -941,6 +965,38 @@ export component App inherits Window {
         dismiss-error => { root.start-dismiss-error(); }
     }
 
+    ThreadsDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
+        data: root.threads;
+
+        closed => { root.threads-closed(); }
+        url-edited(url) => { root.threads-url-edited(url); }
+        extract => { root.threads-extract(); }
+        select-frame(index) => { root.threads-select-frame(index); }
+        frame-author-edited(author) => { root.threads-frame-author-edited(author); }
+        frame-text-edited(text) => { root.threads-frame-text-edited(text); }
+        move-frame-up(index) => { root.threads-move-frame-up(index); }
+        move-frame-down(index) => { root.threads-move-frame-down(index); }
+        remove-frame(index) => { root.threads-remove-frame(index); }
+        add-custom-frame => { root.threads-add-custom-frame(); }
+        add-next-comment => { root.threads-add-next-comment(); }
+        reset-frames => { root.threads-reset-frames(); }
+        sort-changed(index) => { root.threads-sort-changed(index); }
+        voice-rate-changed(index) => { root.threads-voice-rate-changed(index); }
+        generate-voiceovers => { root.threads-generate-voiceovers(); }
+        choose-meme => { root.threads-choose-meme(); }
+        remove-meme => { root.threads-remove-meme(); }
+        create-project => { root.threads-create-project(); }
+    }
+
     ExportDialog {
         inset-top: root.safe-area-insets.top;
         inset-bottom: root.safe-area-insets.bottom;
@@ -966,6 +1022,7 @@ export component App inherits Window {
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
         hdr-changed(on) => { root.export-hdr-changed(on); }
         bitrate-changed(mbps) => { root.export-bitrate-changed(mbps); }
+        apply-tiktok-preset => { root.export-apply-tiktok-preset(); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }

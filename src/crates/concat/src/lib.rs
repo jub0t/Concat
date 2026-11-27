@@ -61,6 +61,7 @@ mod srt;
 mod start_watch;
 mod studio;
 mod sysinfo;
+mod tgs;
 /// Native Wayland file drops, which winit does not report; see the module.
 #[cfg(target_os = "linux")]
 mod wayland_drop;
@@ -919,6 +920,73 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // ── the launch screen ──
     app.on_start_compose(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Compose));
+    }));
+    app.on_start_threads(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Open));
+    }));
+    app.on_threads_closed(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Close));
+    }));
+    app.on_threads_url_edited(on_window!(|state, url: SharedString| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::UrlEdited(
+            url.to_string(),
+        )));
+    }));
+    app.on_threads_extract(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::Extract));
+    }));
+    app.on_threads_select_frame(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::SelectFrame(index)));
+    }));
+    app.on_threads_frame_author_edited(on_window!(|state, author: SharedString| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::FrameAuthorEdited(author.to_string()),
+        ));
+    }));
+    app.on_threads_frame_text_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::FrameTextEdited(
+            text.to_string(),
+        )));
+    }));
+    app.on_threads_move_frame_up(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::MoveFrameUp(index)));
+    }));
+    app.on_threads_move_frame_down(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::MoveFrameDown(
+            index,
+        )));
+    }));
+    app.on_threads_remove_frame(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::RemoveFrame(index)));
+    }));
+    app.on_threads_add_custom_frame(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::AddCustomFrame));
+    }));
+    app.on_threads_add_next_comment(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::AddNextComment));
+    }));
+    app.on_threads_reset_frames(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::ResetFrames));
+    }));
+    app.on_threads_sort_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::SortChanged(index)));
+    }));
+    app.on_threads_voice_rate_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::VoiceRateChanged(index),
+        ));
+    }));
+    app.on_threads_generate_voiceovers(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::GenerateVoiceovers));
+    }));
+    app.on_threads_choose_meme(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::ChooseMeme));
+    }));
+    app.on_threads_remove_meme(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::RemoveMeme));
+    }));
+    app.on_threads_create_project(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::CreateProject));
     }));
     app.on_start_dismiss(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Dismiss));
@@ -2363,6 +2431,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     }));
     app.on_export_bitrate_changed(on_window!(|state, mbps: f32| {
         state.handle(Msg::Export(ExportMsg::BitrateChanged(mbps)));
+    }));
+    app.on_export_apply_tiktok_preset(on_window!(|state| {
+        state.handle(Msg::Export(ExportMsg::ApplyTikTokPreset));
     }));
     app.on_export_again(on_window!(|state| {
         state.handle(Msg::Export(ExportMsg::Again));

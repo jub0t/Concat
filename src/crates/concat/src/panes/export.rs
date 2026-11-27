@@ -55,6 +55,8 @@ pub enum ExportMsg {
     HdrChanged(bool),
     /// The target bitrate field, in Mbps: the bitrate becomes a custom one.
     BitrateChanged(f32),
+    /// Apply TikTok-ready vertical upload defaults: H.264 MP4, 8-bit SDR, 30 fps, 10 Mbps.
+    ApplyTikTokPreset,
     /// Back to the form after a finished or failed render.
     Again,
     /// Pick the destination folder.
@@ -168,6 +170,7 @@ impl ExportPane {
                     self.custom = true;
                 }
             }
+            ExportMsg::ApplyTikTokPreset => self.apply_tiktok_preset(studio),
             ExportMsg::Again => {
                 self.phase = ExportPhase::Idle;
                 self.progress = 0.0;
@@ -438,6 +441,29 @@ impl ExportPane {
     /// switch asks and the codec can be written that deep here.
     pub fn deep(&self, studio: &Studio) -> bool {
         self.hdr(studio) || (self.ten_bit && self.codec(studio).ten_bit_available())
+    }
+
+    /// Configures the sheet for TikTok uploads: MP4 (H.264), 8-bit SDR,
+    /// 30 fps when offered, and 10 Mbps to keep text cards crisp.
+    pub fn apply_tiktok_preset(&mut self, studio: &Studio) {
+        let video = studio.project().active().video;
+        self.apply_tiktok_preset_for_rate((video.rate_num, video.rate_den.max(1)));
+    }
+
+    pub fn apply_tiktok_preset_for_rate(&mut self, own_rate: (i64, i64)) {
+        self.codec = concat_media::VideoCodec::ALL
+            .iter()
+            .position(|codec| *codec == concat_media::VideoCodec::H264)
+            .unwrap_or(0);
+        self.ten_bit = false;
+        self.sdr = true;
+        let rates = Self::rates_around(own_rate);
+        self.rate = rates
+            .iter()
+            .position(|&(num, den)| num == 30 && den == 1)
+            .unwrap_or(0);
+        self.bitrate = 10_000;
+        self.custom = true;
     }
 
     /// Starts the render on a worker, once the name is a file's and no
@@ -750,6 +776,11 @@ impl ExportPane {
             message: self.message.as_str().into(),
             done_size: bytes(self.size_bytes(studio)).into(),
             empty: clips == 0,
+            tiktok_preset_active: self.codec(studio) == concat_media::VideoCodec::H264
+                && !self.deep(studio)
+                && self.custom
+                && self.bitrate == 10_000
+                && self.rate(studio) == (30, 1),
         }
     }
 }
@@ -816,5 +847,23 @@ mod tests {
         assert_eq!(ExportPane::rate_name((25, 1)), "25 fps");
         assert_eq!(ExportPane::rate_name((15, 1)), "15 fps");
         assert_eq!(ExportPane::rate_name((12500, 1000)), "12.5 fps");
+    }
+
+    #[test]
+    fn tiktok_preset_configures_h264_sdr_30fps_10mbps() {
+        let mut pane = ExportPane::default();
+        pane.ten_bit = true;
+        pane.codec = 2;
+        pane.apply_tiktok_preset_for_rate((24, 1));
+        assert_eq!(
+            concat_media::VideoCodec::ALL[pane.codec],
+            concat_media::VideoCodec::H264
+        );
+        assert!(!pane.ten_bit);
+        assert!(pane.sdr);
+        assert!(pane.custom);
+        assert_eq!(pane.bitrate, 10_000);
+        let rates = ExportPane::rates_around((24, 1));
+        assert_eq!(rates[pane.rate], (30, 1));
     }
 }

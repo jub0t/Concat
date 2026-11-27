@@ -1018,6 +1018,7 @@ same_with_models! {
     same_settings: crate::ui::SettingsData => shortcuts;
     same_relink: crate::ui::RelinkData => items;
     same_start: crate::ui::StartData => rate_options;
+    same_threads: crate::ui::ThreadsData => frames;
     same_captions: crate::ui::CaptionsSheetData => sources;
 }
 
@@ -1153,6 +1154,8 @@ pub struct Studio {
     // ── the launch screen ──
     pub on_start: bool,
     pub start: crate::panes::start::StartPane,
+    /// The optional Threads quick-video workflow, separate from normal project creation.
+    pub threads: crate::panes::threads::ThreadsPane,
     pub recents: Vec<projects::Recent>,
     pub posters: HashMap<String, slint::Image>,
     posters_pending: HashSet<String>,
@@ -2998,6 +3001,7 @@ impl Studio {
             toast: ToastState::default(),
             on_start: true,
             start,
+            threads: crate::panes::threads::ThreadsPane::default(),
             recents,
             posters: HashMap::new(),
             posters_pending: HashSet::new(),

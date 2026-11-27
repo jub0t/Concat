@@ -114,6 +114,11 @@ cd src
 cargo run -p concat          # the editor window
 ```
 
+On Windows, `Run-Threads.cmd` starts the local TGS API if needed and then
+launches Concat with the Threads quick-video workflow ready. It leaves a TGS
+server that was already running alone. The default TGS checkout is
+`D:\Work\TGS`; set `TGS_ROOT` first if yours is elsewhere.
+
 Other useful commands:
 
 ```sh

@@ -1823,6 +1823,12 @@ impl Studio {
         set_changed(app.get_start(), self.start.data(), same_start, |data| {
             app.set_start(data)
         });
+        set_changed(
+            app.get_threads(),
+            self.threads.data(),
+            same_threads,
+            |data| app.set_threads(data),
+        );
         app.set_recents_total(self.recents.len() as i32);
         sync(
             &models.recents,

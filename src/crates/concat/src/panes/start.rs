@@ -8,12 +8,15 @@
 use std::path::{Path, PathBuf};
 
 use concat_host::projects;
+use concat_project::commands::{Command, TrimEdge};
+use concat_project::model::{MediaKind, MediaOrigin, TextStyle};
 
 use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::{
     ASPECTS, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
 };
+use crate::tgs::Extraction;
 use crate::ui::StartData;
 
 /// Everything that can happen to the launch screen's sheet.
@@ -68,6 +71,26 @@ pub enum StartMsg {
 pub const SORT_RECENT: i32 = 0;
 /// The projects by name, A to Z.
 pub const SORT_NAME: i32 = 1;
+
+#[derive(Clone)]
+struct SavedProjectSetup {
+    name: String,
+    aspect: usize,
+    size: usize,
+    rate: usize,
+    custom_size: (u32, u32),
+    custom_rate: (i64, i64),
+}
+
+struct ThreadsProjectSetup {
+    extraction: Extraction,
+    voiceovers: Vec<crate::tgs::VoiceoverAudio>,
+    meme_path: Option<PathBuf>,
+    saved: SavedProjectSetup,
+}
+
+const THREADS_MEME_DURATION: f64 = 1.5;
+const CONCAT_DEFAULT_IMAGE_DURATION: f64 = 5.0;
 
 /// The recents the grid shows: those whose name or folder holds every
 /// word of the query, ignoring case, newest first or by name. A missing
@@ -154,6 +177,8 @@ pub struct StartPane {
     /// sheet is about to make: imported into it once it opens, and let go
     /// if the sheet is put down instead.
     pub dropped: Vec<PathBuf>,
+    /// A Threads extraction waiting for the regular project sheet to finish.
+    threads_setup: Option<ThreadsProjectSetup>,
 }
 
 impl Default for StartPane {
@@ -175,6 +200,7 @@ impl Default for StartPane {
             query: String::new(),
             sort: SORT_RECENT,
             dropped: Vec::new(),
+            threads_setup: None,
         }
     }
 }
@@ -226,6 +252,261 @@ fn first_free_untitled(taken: impl Fn(&str) -> bool) -> String {
 }
 
 impl StartPane {
+    /// Opens the normal new-project sheet with vertical video defaults and
+    /// remembers the user's previous choices so the quick flow does not
+    /// change later project creation.
+    pub fn begin_threads_creation(
+        &mut self,
+        extraction: Extraction,
+        voiceovers: Vec<crate::tgs::VoiceoverAudio>,
+        meme_path: Option<PathBuf>,
+    ) {
+        let saved = SavedProjectSetup {
+            name: self.name.clone(),
+            aspect: self.aspect,
+            size: self.size,
+            rate: self.rate,
+            custom_size: self.custom_size,
+            custom_rate: self.custom_rate,
+        };
+        let title = extraction.title.trim();
+        self.name = if title.is_empty() {
+            self.free_untitled()
+        } else {
+            title.to_owned()
+        };
+        self.aspect = ASPECTS
+            .iter()
+            .position(|(name, _, _)| *name == "9:16")
+            .unwrap_or(0);
+        self.size = SIZES
+            .iter()
+            .position(|(name, _)| *name == "1080p")
+            .unwrap_or(1);
+        self.rate = RATES
+            .iter()
+            .position(|(name, _, _)| *name == "30")
+            .unwrap_or(6);
+        self.composing = true;
+        self.error.clear();
+        self.dropped.clear();
+        self.threads_setup = Some(ThreadsProjectSetup {
+            extraction,
+            voiceovers,
+            meme_path,
+            saved,
+        });
+    }
+
+    fn restore_project_setup(&mut self, saved: SavedProjectSetup) {
+        self.name = saved.name;
+        self.aspect = saved.aspect;
+        self.size = saved.size;
+        self.rate = saved.rate;
+        self.custom_size = saved.custom_size;
+        self.custom_rate = saved.custom_rate;
+    }
+
+    fn place_threads_frames(
+        extraction: &Extraction,
+        voiceovers: &[crate::tgs::VoiceoverAudio],
+        meme_path: Option<&Path>,
+        project_path: &Path,
+        studio: &mut Studio,
+    ) {
+        let meme_requested = meme_path.is_some();
+        let meme_media_id = meme_path.and_then(|source| {
+            let extension = source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase)
+                .filter(|extension| matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp"));
+            let Some(extension) = extension else {
+                studio.notify(&t("threads.memeUnsupported"), true);
+                return None;
+            };
+            let media_dir = project_path.join("media");
+            if let Err(error) = std::fs::create_dir_all(&media_dir) {
+                studio.notify(&format!("Could not create the media folder: {error}"), true);
+                return None;
+            }
+            let path = media_dir.join(format!("threads-meme.{extension}"));
+            if let Err(error) = std::fs::copy(source, &path) {
+                studio.notify(&format!("Could not copy the meme image: {error}"), true);
+                return None;
+            }
+            match concat_host::media::probe(&path.to_string_lossy()) {
+                Ok(summary) if summary.kind == MediaKind::Image => {
+                    let stored_path = summary.path.clone();
+                    let item = summary.to_new_media();
+                    let id = studio.apply(Command::AddMedia { item });
+                    id.or_else(|| {
+                        studio
+                            .project()
+                            .media
+                            .iter()
+                            .find(|media| media.path == stored_path)
+                            .map(|media| media.id.clone())
+                    })
+                }
+                Ok(_) => {
+                    studio.notify(&t("threads.memeUnsupported"), true);
+                    None
+                }
+                Err(error) => {
+                    studio.notify(&format!("Could not read the meme image: {error}"), true);
+                    None
+                }
+            }
+        });
+
+        let audio_dir = project_path.join("audio");
+        let audio_dir_ready = match std::fs::create_dir_all(&audio_dir) {
+            Ok(()) => true,
+            Err(error) => {
+                studio.notify(
+                    &format!("Could not create the voiceover folder: {error}"),
+                    true,
+                );
+                false
+            }
+        };
+
+        let mut at = 0.0;
+        let mut titles = Vec::with_capacity(extraction.frames.len());
+        let mut audio_clips = Vec::with_capacity(extraction.frames.len());
+        let mut meme_starts = Vec::with_capacity(extraction.frames.len());
+        let mut audio_count = 0;
+
+        for (index, frame) in extraction.frames.iter().enumerate() {
+            let mut audio_duration = voiceovers
+                .get(index)
+                .map(|audio| audio.duration_seconds)
+                .unwrap_or_default();
+            let mut media_id = None;
+            if audio_dir_ready && let Some(audio) = voiceovers.get(index) {
+                let path = audio_dir.join(format!("threads-frame-{}.mp3", index + 1));
+                match std::fs::write(&path, &audio.bytes) {
+                    Ok(()) => match concat_host::media::probe(&path.to_string_lossy()) {
+                        Ok(summary) => {
+                            audio_duration = summary
+                                .duration
+                                .unwrap_or(audio_duration)
+                                .max(audio_duration);
+                            let mut item = summary.to_new_media();
+                            item.origin = Some(MediaOrigin::Speech);
+                            media_id = studio.apply(Command::AddMedia { item }).or_else(|| {
+                                studio
+                                    .project()
+                                    .media
+                                    .iter()
+                                    .find(|item| item.path == path.to_string_lossy())
+                                    .map(|item| item.id.clone())
+                            });
+                        }
+                        Err(error) => log::error!(
+                            "threads: could not read generated voiceover for {}: {error}",
+                            frame.label
+                        ),
+                    },
+                    Err(error) => log::error!(
+                        "threads: could not save generated voiceover for {}: {error}",
+                        frame.label
+                    ),
+                }
+            }
+
+            let scene_duration = audio_duration.max(3.5) + 0.35;
+            let mut style = TextStyle::default();
+            let text = frame.text.trim();
+            style.content = if text.is_empty() {
+                format!("{}\n— {}", frame.label, frame.author)
+            } else {
+                format!("{}\n— {}\n\n{}", frame.label, frame.author, text)
+            };
+            style.font_size = match text.chars().count() {
+                0..=140 => 0.055,
+                141..=280 => 0.045,
+                281..=480 => 0.037,
+                _ => 0.03,
+            };
+            style.max_width = 0.84;
+            style.background = "#111827e8".to_owned();
+            titles.push(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: at,
+                style: Some(style),
+                duration: Some(scene_duration),
+                offset_y: None,
+            });
+            if let Some(media_id) = media_id {
+                audio_count += 1;
+                audio_clips.push(Command::AddClipAtFirstFree {
+                    media_id,
+                    start: at,
+                });
+            }
+            if meme_media_id.is_some() {
+                meme_starts.push(at + scene_duration);
+                at += scene_duration + THREADS_MEME_DURATION;
+            } else {
+                at += scene_duration;
+            }
+        }
+
+        let titles_added = !titles.is_empty();
+        let added = titles_added
+            .then(|| studio.apply(Command::Batch { commands: titles }))
+            .flatten();
+        let clips_added = added.is_some();
+        if let Some(last_clip) = added {
+            studio.selection = vec![last_clip];
+        }
+        let mut meme_count = 0;
+        if clips_added && let Some(media_id) = meme_media_id.as_ref() {
+            for start in meme_starts {
+                let Some(clip_id) = studio.apply(Command::AddClipAtFirstFree {
+                    media_id: media_id.clone(),
+                    start,
+                }) else {
+                    continue;
+                };
+                studio.apply(Command::TrimClip {
+                    clip_id,
+                    edge: TrimEdge::End,
+                    delta: THREADS_MEME_DURATION - CONCAT_DEFAULT_IMAGE_DURATION,
+                    ripple: false,
+                });
+                meme_count += 1;
+            }
+        }
+        let mut voice_clips_added = false;
+        if clips_added && !audio_clips.is_empty() {
+            voice_clips_added = studio
+                .apply(Command::Batch {
+                    commands: audio_clips,
+                })
+                .is_some();
+        }
+        if clips_added && voice_clips_added && audio_count == extraction.frames.len() {
+            studio.notify(&t("threads.voiceoversAdded"), false);
+        } else {
+            studio.notify(&t("threads.voiceoversImportPartial"), true);
+        }
+        if meme_requested {
+            if meme_media_id.is_some() && meme_count == extraction.frames.len() {
+                studio.notify(&t("threads.memeAdded"), false);
+            } else {
+                studio.notify(&t("threads.memeImportPartial"), true);
+            }
+        }
+        let video = studio.project().active().video;
+        studio
+            .export
+            .apply_tiktok_preset_for_rate((video.rate_num, video.rate_den.max(1)));
+    }
+
     /// Applies one message. The studio is the rest of the window; while
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: StartMsg, studio: &mut Studio) {
@@ -245,6 +526,9 @@ impl StartPane {
                 // dropped to start it.
                 self.error.clear();
                 self.dropped.clear();
+                if let Some(setup) = self.threads_setup.take() {
+                    self.restore_project_setup(setup.saved);
+                }
             }
             StartMsg::NameEdited(name) => self.name = name,
             StartMsg::LocationEdited(path) => self.location = path,
@@ -416,10 +700,23 @@ impl StartPane {
                     "project: making {name} failed: {error}; the new-project sheet stays up"
                 );
             })
-            .and_then(|info| studio.open_project(info));
+            .and_then(|info| {
+                let path = info.path.clone();
+                studio.open_project(info).map(|()| PathBuf::from(path))
+            });
         self.busy = false;
         match opened {
-            Ok(()) => {
+            Ok(project_path) => {
+                if let Some(setup) = self.threads_setup.take() {
+                    self.restore_project_setup(setup.saved);
+                    Self::place_threads_frames(
+                        &setup.extraction,
+                        &setup.voiceovers,
+                        setup.meme_path.as_deref(),
+                        &project_path,
+                        studio,
+                    );
+                }
                 studio.prefs.last_project_location = Some(self.location.clone());
                 studio.prefs.save(&studio.host.dirs);
                 self.composing = false;

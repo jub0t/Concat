@@ -1756,9 +1756,9 @@ component NewsCard inherits Pressable {
 //
 // Two panels on the window's ground, the shape a creative tool's home has:
 //
-// - a sidebar that stays put: the verbs at its head - New project, Open
-//   project and, where CapCut has drafts here, Import - then what is new in
-//   this version, and the page's links as a column of lines at its foot;
+// - a sidebar that stays put: the verbs at its head - New project, Threads
+//   video, Open project and, where CapCut has drafts here, Import - then what
+//   is new in this version, and the page's links as a column of lines at its foot;
 // - the projects, in a panel of their own that takes every pixel the
 //   sidebar leaves and scrolls by itself, so the verbs and the links never
 //   leave the screen however many projects there are.
@@ -1771,9 +1771,11 @@ component WideHome inherits Rectangle {
     in property <string> version;
     /// CapCut has drafts on this machine, which can come in as projects.
     in property <bool> capcut;
+    in property <bool> threads-busy;
 
     callback compose();
     callback open();
+    callback threads-video();
     callback import-capcut();
     callback open-recent(path: string);
     callback forget-recent(path: string);
@@ -1804,7 +1806,7 @@ component WideHome inherits Rectangle {
         border-radius: 18px;
         background: Theme.launch-panel;
 
-        property <int> verbs: root.capcut ? 3 : 2;
+        property <int> verbs: root.capcut ? 5 : 4;
         property <length> verbs-h: self.verbs * 44px + (self.verbs - 1) * 8px;
         property <length> links-h: Links.desk.length * 34px;
         property <length> news-h: 156px;
@@ -1822,6 +1824,13 @@ component WideHome inherits Rectangle {
                 title: I18n.t("start.newProject");
                 enabled: !root.busy;
                 clicked => { root.compose(); }
+            }
+
+            SideButton {
+                glyph: Glyph.film;
+                title: I18n.t("threads.startAction");
+                enabled: !root.busy && !root.threads-busy;
+                clicked => { root.threads-video(); }
             }
 
             SideButton {
@@ -2018,9 +2027,11 @@ component NarrowHome inherits Rectangle {
     /// https://github.com/jub0t/Concat/issues/222
     in property <bool> phone;
     in property <bool> capcut;
+    in property <bool> threads-busy;
 
     callback compose();
     callback open();
+    callback threads-video();
     callback import-capcut();
     callback open-settings();
     callback open-recent(path: string);
@@ -2119,6 +2130,15 @@ component NarrowHome inherits Rectangle {
                 clicked => { root.compose(); }
             }
 
+            if !root.phone: CreateTile {
+                height: 64px;
+                glyph: Glyph.film;
+                title: I18n.t("threads.startAction");
+                note: I18n.t("threads.startNote");
+                enabled: !root.busy && !root.threads-busy;
+                clicked => { root.threads-video(); }
+            }
+
             Rectangle { height: 32px; }
 
             SectionHead {
@@ -2205,9 +2225,11 @@ export component StartScreen inherits Rectangle {
     in property <bool> phone;
     /// CapCut has drafts on this machine.
     in property <bool> capcut;
+    in property <bool> threads-busy;
 
     /// Put up the sheet a new project is described on.
     callback compose();
+    callback threads-video();
     /// Open a project that already exists, picked from disk.
     callback open();
     /// Make a project of a CapCut draft, picked from CapCut's drafts.
@@ -2236,7 +2258,9 @@ export component StartScreen inherits Rectangle {
         busy: root.busy;
         version: root.version;
         capcut: root.capcut;
+        threads-busy: root.threads-busy;
         compose => { root.compose(); }
+        threads-video => { root.threads-video(); }
         open => { root.open(); }
         import-capcut => { root.import-capcut(); }
         open-recent(path) => { root.open-recent(path); }
@@ -2257,7 +2281,9 @@ export component StartScreen inherits Rectangle {
         version: root.version;
         phone: root.phone;
         capcut: root.capcut;
+        threads-busy: root.threads-busy;
         compose => { root.compose(); }
+        threads-video => { root.threads-video(); }
         open => { root.open(); }
         import-capcut => { root.import-capcut(); }
         open-settings => { root.open-settings(); }

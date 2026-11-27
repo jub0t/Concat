@@ -868,6 +868,9 @@ export component Field inherits Rectangle {
     in property <string> placeholder;
     /// numbers, paths and names read better in the technical face
     in property <bool> technical;
+    /// Whether typing is currently allowed. Most fields stay editable; a
+    /// long-running request can turn this off until its result is returned.
+    in property <bool> editable: true;
     /// Drawn as dots, the way a password field is: for a token that is
     /// shown on a screen other people can see. What is typed and what
     /// `edited` reports are the real characters either way.
@@ -900,6 +903,7 @@ export component Field inherits Rectangle {
     border-width: 1px;
     border-color: input.has-focus ? Theme.accent : Colors.transparent;
     clip: true;
+    opacity: root.editable ? 1 : 0.65;
 
     animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -926,7 +930,8 @@ export component Field inherits Rectangle {
     }
 
     touch := TouchArea {
-        mouse-cursor: MouseCursor.text;
+        enabled: root.editable;
+        mouse-cursor: root.editable ? MouseCursor.text : MouseCursor.default;
         clicked => { input.focus(); }
     }
 
@@ -959,6 +964,7 @@ export component Field inherits Rectangle {
             font-family: root.technical ? Theme.font-technical : Theme.font;
             font-size: Theme.fs;
             single-line: true;
+            enabled: root.editable;
             selection-background-color: Theme.accent;
             selection-foreground-color: Theme.on-accent;
 
