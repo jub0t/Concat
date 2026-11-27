@@ -41,11 +41,10 @@ impl Studio {
         if self.host.exporter.is_busy() {
             return Some(t("studio.mergeExportBusy"));
         }
-        if self
-            .selection
-            .iter()
-            .any(|id| self.clip(id).is_some_and(|clip| self.lane_locked(clip.lane)))
-        {
+        if self.selection.iter().any(|id| {
+            self.clip(id)
+                .is_some_and(|clip| self.lane_locked(clip.lane))
+        }) {
             return Some(t("studio.mergeTrackLocked"));
         }
         Consolidation::new(self.doc(), &self.selected_ids())

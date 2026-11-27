@@ -375,7 +375,13 @@ fn placed() -> (Bench, ItemId) {
 }
 
 fn item(bench: &Bench, id: ItemId) -> Item {
-    bench.doc().items.get(id).expect("the clip").as_ref().clone()
+    bench
+        .doc()
+        .items
+        .get(id)
+        .expect("the clip")
+        .as_ref()
+        .clone()
 }
 
 /// `before` as the Speed tab previews a pace of `speed` on the echo: the

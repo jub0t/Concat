@@ -402,7 +402,10 @@ impl Runner<'_> {
         // of undo: walking back past the edit that made a timeline lets go
         // of its place among them. The walk is this check's own, so it puts
         // the view back as the case left it, by the commands a person has.
-        let tabs = ended["view"]["tabs"].as_array().cloned().unwrap_or_default();
+        let tabs = ended["view"]["tabs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let showing = ended["view"]["showing"].as_str().map(str::to_owned);
         let mut view = Vec::new();
         for (index, tab) in tabs.iter().enumerate() {
@@ -534,8 +537,8 @@ impl Runner<'_> {
         let answer = serde_json::to_value(&view)
             .map_err(|error| format!("step {at}: the answer does not encode: {error}"))?;
         for (name, pointer) in pointers {
-            let pointer = named_pointer(&pointer, bindings)
-                .map_err(|error| format!("step {at}: {error}"))?;
+            let pointer =
+                named_pointer(&pointer, bindings).map_err(|error| format!("step {at}: {error}"))?;
             let found = match answer.pointer(&pointer) {
                 Some(Value::String(text)) => text.clone(),
                 Some(Value::Number(number)) => number.to_string(),

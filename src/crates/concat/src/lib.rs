@@ -2740,7 +2740,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                         }
                         "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
                         "linkage" => {
-                            let on = !doc_view::sequence(state.doc()).is_some_and(|sequence| sequence.linkage);
+                            let on = !doc_view::sequence(state.doc())
+                                .is_some_and(|sequence| sequence.linkage);
                             state.handle(Msg::Timeline(TimelineMsg::LinkageChanged(on)))
                         }
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
@@ -3581,10 +3582,7 @@ mod tests {
             write(&old)
         });
         let left = Cell::new(false);
-        let outcome = close_window(
-            || write(&new).map(|_| ()),
-            || left.set(true),
-        );
+        let outcome = close_window(|| write(&new).map(|_| ()), || left.set(true));
         // Always release and join the worker before asserting, including
         // when the close write unexpectedly fails.
         release.send(()).expect("releases the worker");

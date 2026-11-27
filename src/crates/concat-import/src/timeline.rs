@@ -39,7 +39,12 @@ pub(crate) struct Made<'a> {
 }
 
 /// The frame a timeline is drawn to, from its `video` block.
-pub(crate) fn frame(build: &mut Build, place: &str, video: Option<&Value>, kept: &mut Kept) -> Frame {
+pub(crate) fn frame(
+    build: &mut Build,
+    place: &str,
+    video: Option<&Value>,
+    kept: &mut Kept,
+) -> Frame {
     let mut frame = Frame::hd();
     let Some(video) = video else {
         return frame;
@@ -60,7 +65,10 @@ pub(crate) fn frame(build: &mut Build, place: &str, video: Option<&Value>, kept:
     match num.zip(den).and_then(|(num, den)| rate(num, den)) {
         Some(found) => frame.rate = found,
         None => {
-            build.note(place, "its frame rate could not be read; it runs at 30 a second now");
+            build.note(
+                place,
+                "its frame rate could not be read; it runs at 30 a second now",
+            );
             frame.rate = Rate::FPS_30;
         }
     }
@@ -125,10 +133,11 @@ pub(crate) fn timeline<'a>(
     let video = f.object("video").or(top_video);
     let frame = frame(build, &place, video, &mut kept);
     let mut sequence = Sequence::new(name, frame);
-    if let Some(background) = f.object("background") {
-        if let Some(read) = clip::background(build, &place, background, bin, &mut kept, "background") {
-            sequence.background = read;
-        }
+    if let Some(background) = f.object("background")
+        && let Some(read) =
+            clip::background(build, &place, background, bin, &mut kept, "background")
+    {
+        sequence.background = read;
     }
     sequence.linkage = f.bool_or("linkage", true);
     for (at, marker) in f.list("markers").iter().enumerate() {
@@ -141,7 +150,11 @@ pub(crate) fn timeline<'a>(
 
     // Its tracks, bottom to top: the first is the main lane, and a track
     // added later is above those before it.
-    let tracks_list = if f.has("tracks") { f.list("tracks") } else { tracks_value };
+    let tracks_list = if f.has("tracks") {
+        f.list("tracks")
+    } else {
+        tracks_value
+    };
     let mut tracks: Vec<Track> = Vec::with_capacity(tracks_list.len());
     for track in tracks_list {
         let mut t = Fields::of(track);
@@ -163,7 +176,11 @@ pub(crate) fn timeline<'a>(
     }
 
     // Its clips.
-    let clips_list = if f.has("clips") { f.list("clips") } else { clips_value };
+    let clips_list = if f.has("clips") {
+        f.list("clips")
+    } else {
+        clips_value
+    };
     let mut clips: Vec<Clip<'a>> = Vec::with_capacity(clips_list.len());
     for value in clips_list {
         clips.push(clip::clip(build, bin, value)?);
@@ -171,7 +188,10 @@ pub(crate) fn timeline<'a>(
     kept.rest("", &f);
     if !kept.is_empty() {
         let names = kept.names().join(", ");
-        build.note(&place, format!("kept {names}, which this version has no place for"));
+        build.note(
+            &place,
+            format!("kept {names}, which this version has no place for"),
+        );
     }
     sequence.residual = kept.residual(&mut build.words);
     build
@@ -273,16 +293,16 @@ pub(crate) fn timeline<'a>(
             lane.muted = track.muted;
             lane.captions = track.captions.clone();
         }
-        let first_of_track = position == 0
-            || planned.track.is_none()
-            || lanes[position - 1].track != planned.track;
-        if first_of_track
-            && let Some(track) = planned.track
-        {
+        let first_of_track =
+            position == 0 || planned.track.is_none() || lanes[position - 1].track != planned.track;
+        if first_of_track && let Some(track) = planned.track {
             let kept = std::mem::take(&mut tracks[track].kept);
             if !kept.is_empty() {
                 let names = kept.names().join(", ");
-                build.note(&format!("track {}", tracks[track].old), format!("kept {names}, which this version has no place for"));
+                build.note(
+                    &format!("track {}", tracks[track].old),
+                    format!("kept {names}, which this version has no place for"),
+                );
             }
             lane.residual = kept.residual(&mut build.words);
         }
@@ -304,7 +324,10 @@ pub(crate) fn timeline<'a>(
         if !clips[at].item.is_transition() {
             continue;
         }
-        let (start, end) = (clips[at].item.start, clips[at].item.end().unwrap_or(Tick::MAX));
+        let (start, end) = (
+            clips[at].item.start,
+            clips[at].item.end().unwrap_or(Tick::MAX),
+        );
         let beneath = clips.iter().enumerate().any(|(other, c)| {
             lane_of[other] < lane_of[at]
                 && !c.item.is_transition()
@@ -313,11 +336,16 @@ pub(crate) fn timeline<'a>(
         });
         if !beneath {
             let item = &mut clips[at].item;
-            if let Content::Transition(effect) = std::mem::replace(&mut item.content, Content::Layer) {
+            if let Content::Transition(effect) =
+                std::mem::replace(&mut item.content, Content::Layer)
+            {
                 item.effects.insert(0, Entry::Known(effect));
             }
             let place = clips[at].place.clone();
-            build.note(&place, "this transition is over no clip; it is a layer of its package now");
+            build.note(
+                &place,
+                "this transition is over no clip; it is a layer of its package now",
+            );
         }
     }
 
@@ -355,7 +383,9 @@ pub(crate) fn timeline<'a>(
             _ => {
                 let place = clips[at].place.clone();
                 build.note(&place, format!("it was detached from clip {from}, which is not a picture of its file in its timeline; it is kept apart"));
-                clips[at].kept.keep("", "detachedFrom", Value::String(from.to_owned()));
+                clips[at]
+                    .kept
+                    .keep("", "detachedFrom", Value::String(from.to_owned()));
             }
         }
     }
@@ -375,7 +405,10 @@ pub(crate) fn timeline<'a>(
         } = clip;
         if !kept.is_empty() && !matches!(item.content, Content::Unknown { .. }) {
             let names = kept.names().join(", ");
-            build.note(&place, format!("kept {names}, which this version has no place for"));
+            build.note(
+                &place,
+                format!("kept {names}, which this version has no place for"),
+            );
         }
         if !matches!(item.content, Content::Unknown { .. }) {
             item.residual = kept.residual(&mut build.words);
@@ -385,10 +418,14 @@ pub(crate) fn timeline<'a>(
             .items
             .insert(id, item)
             .map_err(|error| ImportError::Rejected(error.to_string()))?;
-        if items.contains_key(&old) {
-            build.note(&place, "its id is another clip's too; what named it names the first");
-        } else {
-            items.insert(old, id);
+        match items.entry(old) {
+            std::collections::hash_map::Entry::Occupied(_) => build.note(
+                &place,
+                "its id is another clip's too; what named it names the first",
+            ),
+            std::collections::hash_map::Entry::Vacant(free) => {
+                free.insert(id);
+            }
         }
         sources.insert(id, source);
     }
@@ -461,10 +498,15 @@ pub(crate) fn set_aside(
         .insert(lane, Lane::new(sequence, order))
         .map_err(|error| ImportError::Rejected(error.to_string()))?;
     let raw = build.raw(source.unwrap_or(&Value::Null));
-    let mut inert = Item::new(lane, item.start, item.len, Content::Unknown {
-        kind: "earlier-clip".to_owned(),
-        raw,
-    });
+    let mut inert = Item::new(
+        lane,
+        item.start,
+        item.len,
+        Content::Unknown {
+            kind: "earlier-clip".to_owned(),
+            raw,
+        },
+    );
     inert.name = item.name.clone();
     build
         .model

@@ -372,9 +372,10 @@ impl Studio {
             let is_current = current == Some(mask.id);
             for field in masks::MASK_KEY_FIELDS {
                 let number = masks::mask_number_of(field).expect("a mask field");
-                let (Some(held), Some(knob)) =
-                    (doc_view::mask_number(mask, number), masks::mask_knob(number))
-                else {
+                let (Some(held), Some(knob)) = (
+                    doc_view::mask_number(mask, number),
+                    masks::mask_knob(number),
+                ) else {
                     continue;
                 };
                 if !is_current && !held.is_keyed() {
@@ -631,7 +632,12 @@ impl Studio {
     fn key_places(clip: &Item) -> Vec<Tick> {
         let mut ats: Vec<Tick> = doc_view::KEY_PROPERTIES
             .iter()
-            .flat_map(|&property| doc_view::animated(clip, property).keys.iter().map(|key| key.at))
+            .flat_map(|&property| {
+                doc_view::animated(clip, property)
+                    .keys
+                    .iter()
+                    .map(|key| key.at)
+            })
             .collect();
         for mask in doc_view::masks(&clip.masks) {
             for number in doc_view::MASK_NUMBERS {
@@ -690,8 +696,8 @@ impl Studio {
         }
         for mask in doc_view::masks(&clip.masks) {
             for number in doc_view::MASK_NUMBERS {
-                let Some(key) =
-                    doc_view::mask_number(mask, number).and_then(|held| key_here(&held.keys, from_at))
+                let Some(key) = doc_view::mask_number(mask, number)
+                    .and_then(|held| key_here(&held.keys, from_at))
                 else {
                     continue;
                 };
@@ -1146,7 +1152,9 @@ impl Studio {
         // Some words selected in the text box: the typography controls
         // style those words, so they show what the first of them wears -
         // a run's override where it has one, the title's look elsewhere.
-        let words = self.styled_words().filter(|(words_id, _, _)| words_id == id);
+        let words = self
+            .styled_words()
+            .filter(|(words_id, _, _)| words_id == id);
         let look = words
             .as_ref()
             .and_then(|(_, start, _)| {
@@ -1171,11 +1179,13 @@ impl Studio {
         }));
         let picture = &clip.picture;
         let cutout = picture.cutout.as_ref();
-        let analysis = cutout.zip(doc_view::media_id(clip)).and_then(|(cutout, media)| {
-            self.cutout_jobs
-                .get(&Self::analysis_key(&media.to_string(), &cutout.subject))
-                .copied()
-        });
+        let analysis = cutout
+            .zip(doc_view::media_id(clip))
+            .and_then(|(cutout, media)| {
+                self.cutout_jobs
+                    .get(&Self::analysis_key(&media.to_string(), &cutout.subject))
+                    .copied()
+            });
         let mut enhance = self.enhance_readout(id, clip);
         let shape = doc_view::shape(clip).cloned().unwrap_or_default();
         let steady = self.stabilize_readout(clip);
@@ -1183,7 +1193,10 @@ impl Studio {
         let (enhance_before, enhance_after, (estimate_total, estimate_frames, estimate_per_frame)) =
             enhance.preview.take().unwrap_or_default();
         let current_mask = self.current_mask(clip);
-        let fresh_mask = doc_view::mask_of(doc_view::new_mask_id(), concat_core::mask::MaskShape::Circle);
+        let fresh_mask = doc_view::mask_of(
+            doc_view::new_mask_id(),
+            concat_core::mask::MaskShape::Circle,
+        );
         let mask_number = |number: MaskNumber| -> f32 {
             doc_view::mask_value_at(current_mask.unwrap_or(&fresh_mask), number, at) as f32
         };
@@ -1332,8 +1345,7 @@ impl Studio {
                 Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,
                 Some(_) => 2,
             },
-            cutout_feather: cutout.map_or(doc_view::CUTOUT_FEATHER, |cutout| cutout.feather)
-                as f32,
+            cutout_feather: cutout.map_or(doc_view::CUTOUT_FEATHER, |cutout| cutout.feather) as f32,
             cutout_strokes: cutout.map_or(0, |cutout| cutout.strokes.len() as i32),
             cutout_subject: cutout.map_or(0, |cutout| match cutout.subject {
                 model::Subject::Person => 1,
@@ -1346,7 +1358,8 @@ impl Studio {
             stabilize: stabilize.is_some(),
             stabilize_smoothness: stabilize
                 .as_ref()
-                .map_or(0.5, |stabilize| stabilize.smoothness) as f32,
+                .map_or(0.5, |stabilize| stabilize.smoothness)
+                as f32,
             stabilize_max_zoom: stabilize
                 .as_ref()
                 .map_or(1.2, |stabilize| stabilize.max_zoom) as f32,
@@ -1434,10 +1447,11 @@ impl Studio {
             shape_trim_start: shape.trim_start as f32,
             shape_trim_end: shape.trim_end as f32,
             shape_shadow_on: shadow.is_some(),
-            shape_shadow_color: shadow.as_ref().map_or(
-                slint::Color::from_argb_u8(128, 0, 0, 0),
-                |shadow| doc_view::to_slint(shadow.color),
-            ),
+            shape_shadow_color: shadow
+                .as_ref()
+                .map_or(slint::Color::from_argb_u8(128, 0, 0, 0), |shadow| {
+                    doc_view::to_slint(shadow.color)
+                }),
             shape_shadow_blur: shadow.as_ref().map_or(0.02, |s| s.blur) as f32,
             shape_shadow_distance: shadow.as_ref().map_or(0.012, |s| s.distance) as f32,
             shape_shadow_angle: shadow.as_ref().map_or(90.0, |s| s.angle) as f32,
@@ -1586,9 +1600,10 @@ impl Studio {
             if cutout.mode != model::CutoutMode::Custom || !self.kind(clip).is_visual() {
                 continue;
             }
-            let (Some(media_id), Some(media)) =
-                (doc_view::media_id(clip), doc_view::media_of(self.doc(), clip))
-            else {
+            let (Some(media_id), Some(media)) = (
+                doc_view::media_id(clip),
+                doc_view::media_of(self.doc(), clip),
+            ) else {
                 continue;
             };
             // The source the clip shows, as the mask analysis reckons it.
@@ -2354,7 +2369,8 @@ impl Studio {
     /// `concat_media::ColorRange::implied`.
     /// https://github.com/jub0t/Concat/issues/103
     fn media_menu(&self, id: &str) -> Vec<MenuItemData> {
-        let Some(item) = doc_view::parse::<MediaId>(id).and_then(|id| doc_view::media(self.doc(), id))
+        let Some(item) =
+            doc_view::parse::<MediaId>(id).and_then(|id| doc_view::media(self.doc(), id))
         else {
             return Vec::new();
         };
@@ -2668,7 +2684,8 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: doc_view::sequence(self.doc()).is_some_and(|sequence| sequence.linkage),
+                    checked: doc_view::sequence(self.doc())
+                        .is_some_and(|sequence| sequence.linkage),
                 },
             ],
             2 => vec![
@@ -2769,7 +2786,11 @@ impl Studio {
 
     pub fn set_lane_size(&mut self, row: i32, size: TrackSize) {
         if let Some(lane) = self.row_track(row) {
-            self.lanes.lane_view.entry(lane.to_string()).or_default().size = size;
+            self.lanes
+                .lane_view
+                .entry(lane.to_string())
+                .or_default()
+                .size = size;
         }
     }
 
@@ -2800,9 +2821,8 @@ impl Studio {
             let at = doc_view::content_at(&after, doc_view::tick(f64::from(playhead)));
             // Kept in the inspector's range, wrapping rather than stopping,
             // as the grip does.
-            let next = (shown(&after, KeyProperty::Rotation, at) + 90.0 + 180.0)
-                .rem_euclid(360.0)
-                - 180.0;
+            let next =
+                (shown(&after, KeyProperty::Rotation, at) + 90.0 + 180.0).rem_euclid(360.0) - 180.0;
             write_keyable(&mut after, KeyProperty::Rotation, next, at);
             if after.picture.rotation.value != before.picture.rotation.value {
                 commands.push(Command::SetClipTransform {

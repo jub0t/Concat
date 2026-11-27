@@ -36,7 +36,10 @@ pub struct Cue {
 pub fn parse(text: &str) -> Vec<Cue> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut cues = Vec::new();
-    let mut lines = text.lines().map(|line| line.trim_end_matches('\r')).peekable();
+    let mut lines = text
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .peekable();
     while lines.peek().is_some() {
         // One block: everything up to the next blank line.
         let mut block = Vec::new();
@@ -178,13 +181,17 @@ pub fn busiest_title_lane(doc: &Model) -> Option<LaneId> {
         .copied()
         .filter(|(lane, _)| doc_view::lane(doc, *lane).is_some_and(|lane| lane.captions.is_some()))
         .collect();
-    let pool = if captions.is_empty() { counts } else { captions };
+    let pool = if captions.is_empty() {
+        counts
+    } else {
+        captions
+    };
     // Bottom first, so the last of the busiest is the highest.
     let most = pool.iter().map(|(_, titles)| *titles).max()?;
     pool.into_iter()
         .filter(|(_, titles)| *titles == most)
         .map(|(lane, _)| lane)
-        .last()
+        .next_back()
 }
 
 #[cfg(test)]

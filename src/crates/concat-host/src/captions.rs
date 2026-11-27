@@ -89,11 +89,7 @@ pub fn caption_look(look: (f64, f64), base: Option<&Title>) -> CaptionLook {
 
 /// `cues` laid on a new caption lane in `look` over `base`, as one edit.
 /// None when no cue has words.
-pub fn place_captions(
-    cues: Vec<Cue>,
-    look: (f64, f64),
-    base: Option<&Title>,
-) -> Option<Command> {
+pub fn place_captions(cues: Vec<Cue>, look: (f64, f64), base: Option<&Title>) -> Option<Command> {
     let cues: Vec<Cue> = cues
         .into_iter()
         .filter(|cue| !cue.words.trim().is_empty())
@@ -175,9 +171,11 @@ mod tests {
                 .on_lane(lane)
                 .filter_map(|(id, _, _)| doc.model().items.get(id).cloned())
                 .map(|item| match &item.content {
-                    Content::Title(title) => {
-                        (title.content.clone(), title.color, item.picture.offset_y.value)
-                    }
+                    Content::Title(title) => (
+                        title.content.clone(),
+                        title.color,
+                        item.picture.offset_y.value,
+                    ),
                     _ => panic!("a title"),
                 })
                 .collect()

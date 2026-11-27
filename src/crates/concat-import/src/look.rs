@@ -17,7 +17,13 @@ const TINY: f64 = 1e-6;
 
 /// A colour field: `#rrggbb[aa]`, or `or` when there is none or it does
 /// not read, said.
-fn colour_or(build: &mut Build, place: &str, fields: &mut Fields<'_>, key: &str, or: Color) -> Color {
+fn colour_or(
+    build: &mut Build,
+    place: &str,
+    fields: &mut Fields<'_>,
+    key: &str,
+    or: Color,
+) -> Color {
     match fields.str(key) {
         None => or,
         Some(text) => match color(text) {
@@ -34,7 +40,13 @@ fn colour_or(build: &mut Build, place: &str, fields: &mut Fields<'_>, key: &str,
 }
 
 /// A colour that may be empty for none.
-fn colour_opt(build: &mut Build, place: &str, fields: &mut Fields<'_>, key: &str, or: Option<Color>) -> Option<Color> {
+fn colour_opt(
+    build: &mut Build,
+    place: &str,
+    fields: &mut Fields<'_>,
+    key: &str,
+    or: Option<Color>,
+) -> Option<Color> {
     match fields.str(key) {
         None => or,
         Some(text) if text.trim().is_empty() => None,
@@ -52,7 +64,13 @@ fn colour_opt(build: &mut Build, place: &str, fields: &mut Fields<'_>, key: &str
 }
 
 /// A title's style, the fields left over kept under `path`.
-pub(crate) fn title(build: &mut Build, place: &str, value: &Value, kept: &mut Kept, path: &str) -> Title {
+pub(crate) fn title(
+    build: &mut Build,
+    place: &str,
+    value: &Value,
+    kept: &mut Kept,
+    path: &str,
+) -> Title {
     let base = Title::default();
     let mut f = Fields::of(value);
     let content = f.string_or("content", &base.content);
@@ -95,8 +113,12 @@ pub(crate) fn title(build: &mut Build, place: &str, value: &Value, kept: &mut Ke
     let stroke_width = build.within(place, "outline width", stroke_width, 0.0, f64::MAX);
     let shadow = f.bool_or("shadow", base.shadow);
     let plate = colour_opt(build, place, &mut f, "background", None);
-    let plate_padding_x = f.f64_or("backgroundPaddingX", base.plate_padding_x).max(0.0);
-    let plate_padding_y = f.f64_or("backgroundPaddingY", base.plate_padding_y).max(0.0);
+    let plate_padding_x = f
+        .f64_or("backgroundPaddingX", base.plate_padding_x)
+        .max(0.0);
+    let plate_padding_y = f
+        .f64_or("backgroundPaddingY", base.plate_padding_y)
+        .max(0.0);
     let plate_radius = f.f64_or("backgroundRadius", base.plate_radius).max(0.0);
     let chars = u32::try_from(content.chars().count()).unwrap_or(u32::MAX);
     let mut runs: Vec<TextRun> = Vec::new();
@@ -182,7 +204,12 @@ fn text_run(value: &Value, kept: &mut Kept, path: &str) -> Option<TextRun> {
 }
 
 /// A caption lane's look: a title's style with no words of its own.
-pub(crate) fn caption_look(build: &mut Build, place: &str, value: &Value, kept: &mut Kept) -> CaptionLook {
+pub(crate) fn caption_look(
+    build: &mut Build,
+    place: &str,
+    value: &Value,
+    kept: &mut Kept,
+) -> CaptionLook {
     let mut f = Fields::of(value);
     let offset_y = f.f64_or("offsetY", 0.0);
     let mut title = match f.object("style") {
@@ -208,7 +235,13 @@ fn line_head(build: &mut Build, value: Option<&str>) -> Option<LineHead> {
 }
 
 /// A shape's figure and paint, the fields left over kept under `path`.
-pub(crate) fn shape(build: &mut Build, place: &str, value: &Value, kept: &mut Kept, path: &str) -> ShapeStyle {
+pub(crate) fn shape(
+    build: &mut Build,
+    place: &str,
+    value: &Value,
+    kept: &mut Kept,
+    path: &str,
+) -> ShapeStyle {
     let base = ShapeStyle::default();
     let mut f = Fields::of(value);
     let kind = match f.str("kind") {

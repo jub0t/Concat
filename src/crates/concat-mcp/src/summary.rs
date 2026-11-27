@@ -13,8 +13,8 @@
 //! title's whole style, which `project_get` still returns in full.
 
 use concat_doc::model::{
-    Animated, Content, Effect, Entry, Item, ItemId, Lane, LaneId, Media, MediaId, MediaKind,
-    Model, ShapeKind, Take, TimeMap,
+    Animated, Content, Effect, Entry, Item, ItemId, Lane, LaneId, Media, MediaId, MediaKind, Model,
+    ShapeKind, Take, TimeMap,
 };
 use serde_json::{Map, Value, json};
 
@@ -39,7 +39,11 @@ pub fn view(view: &Value) -> Value {
         Ok(opened) => {
             let doc = opened.document.tables();
             summary["timeline"] = timeline_of(doc, project);
-            summary["media"] = doc.media.iter().map(|(id, media)| media_of(id, media)).collect();
+            summary["media"] = doc
+                .media
+                .iter()
+                .map(|(id, media)| media_of(id, media))
+                .collect();
             if doc.sequences.len() > 1 {
                 summary["timelines"] = doc
                     .sequences
@@ -180,7 +184,10 @@ fn clip_of(doc: &Model, project: &Value, id: ItemId, item: &Item) -> Value {
                 TimeMap::Linear { speed, .. } => number("speed", speed.display(), 1.0),
                 TimeMap::Keyed { .. } | TimeMap::Unknown(_) => {}
             }
-            let from = cut.time.source_at(item.offset).map_or(0.0, |at| at.display_seconds());
+            let from = cut
+                .time
+                .source_at(item.offset)
+                .map_or(0.0, |at| at.display_seconds());
             out.insert("media".into(), json!(cut.media.to_string()));
             out.insert("sourceStart".into(), json!(round(from, 4)));
             if matches!(cut.time, TimeMap::Keyed { .. }) {

@@ -7,12 +7,16 @@
 use std::path::PathBuf;
 
 fn seeds() -> Vec<(String, String)> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../concat-project/tests/seeds");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/seeds");
     let mut out = Vec::new();
     for entry in std::fs::read_dir(&dir).expect("the seeds are there") {
         let path = entry.expect("an entry").path();
         if path.extension().is_some_and(|e| e == "json") {
-            let name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             out.push((name, std::fs::read_to_string(&path).expect("reads")));
         }
     }

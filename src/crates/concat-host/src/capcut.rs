@@ -54,7 +54,9 @@ struct Imported {
 
 /// Microseconds, CapCut's unit of time, as ticks.
 fn micros(value: Option<&Value>) -> Option<i64> {
-    let us = value?.as_i64().or_else(|| value?.as_f64().map(|v| v as i64))?;
+    let us = value?
+        .as_i64()
+        .or_else(|| value?.as_f64().map(|v| v as i64))?;
     concat_doc::rescale(us, concat_doc::TICKS_PER_SECOND, 1_000_000)
 }
 
@@ -72,7 +74,9 @@ fn file_path(path: &str, folder: &str) -> String {
         Some(at) => {
             let rest = &path[at..];
             let tail = rest.find("##").and_then(|first| {
-                rest[first + 2..].find("##").map(|second| &rest[first + 2 + second + 2..])
+                rest[first + 2..]
+                    .find("##")
+                    .map(|second| &rest[first + 2 + second + 2..])
             });
             match tail {
                 Some(tail) => format!("{folder}{tail}"),
@@ -208,7 +212,13 @@ fn import_draft(draft: &Draft) -> Result<Imported, String> {
                 Some((id, words))
             })
             .collect();
-        for kind in ["effects", "video_effects", "transitions", "stickers", "filters"] {
+        for kind in [
+            "effects",
+            "video_effects",
+            "transitions",
+            "stickers",
+            "filters",
+        ] {
             if !list(kind).is_empty() {
                 note(&format!("CapCut's {}", kind.replace('_', " ")));
             }
@@ -216,7 +226,12 @@ fn import_draft(draft: &Draft) -> Result<Imported, String> {
 
         let tracks = edit.get("tracks").and_then(Value::as_array);
         for (place, track) in tracks.into_iter().flatten().enumerate() {
-            let lanes: Vec<LaneId> = document.lanes.index().of(sequence).map(|(id, _)| id).collect();
+            let lanes: Vec<LaneId> = document
+                .lanes
+                .index()
+                .of(sequence)
+                .map(|(id, _)| id)
+                .collect();
             let lane = match lanes.get(place) {
                 Some(lane) => *lane,
                 None => {
@@ -229,7 +244,10 @@ fn import_draft(draft: &Draft) -> Result<Imported, String> {
             };
             let segments = track.get("segments").and_then(Value::as_array);
             for segment in segments.into_iter().flatten() {
-                let material = segment.get("material_id").and_then(Value::as_str).unwrap_or("");
+                let material = segment
+                    .get("material_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let (Some(start), Some(len)) = (
                     micros(segment.pointer("/target_timerange/start")),
                     micros(segment.pointer("/target_timerange/duration"))
@@ -572,7 +590,14 @@ mod tests {
         assert_eq!(imported.document.media.len(), 1);
         assert_eq!(imported.document.items.len(), 2);
         let sequence = imported.document.view.showing.expect("a timeline shows");
-        let main = imported.document.lanes.index().of(sequence).next().expect("a lane").0;
+        let main = imported
+            .document
+            .lanes
+            .index()
+            .of(sequence)
+            .next()
+            .expect("a lane")
+            .0;
         let (clip, start, _) = imported
             .document
             .items
@@ -591,9 +616,7 @@ mod tests {
 
     #[test]
     fn a_folder_without_a_draft_is_said_to_be_one() {
-        let error = read(Path::new("/nonexistent/folder"))
-            .err()
-            .expect("refused");
+        let error = read(Path::new("/nonexistent/folder")).expect_err("refused");
         assert!(error.contains("not a CapCut draft"), "{error}");
     }
 }

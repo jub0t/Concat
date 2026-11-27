@@ -238,10 +238,7 @@ impl PresetStyle {
             stroke_color: colour(self.stroke_color, base.stroke_color),
             shadow: self.shadow.unwrap_or(true),
             plate: self.background.as_deref().and_then(doc_view::parse_hex),
-            plate_radius: self
-                .background_radius
-                .unwrap_or(base.plate_radius)
-                .max(0.0),
+            plate_radius: self.background_radius.unwrap_or(base.plate_radius).max(0.0),
             plate_padding_x: self
                 .background_padding_x
                 .unwrap_or(base.plate_padding_x)
@@ -560,7 +557,10 @@ mod tests {
             end,
             ..TextRun::default()
         };
-        let tidy = tidy_runs(vec![run(4, 8), run(0, 6), run(3, 3), run(9, 20)], "0123456789");
+        let tidy = tidy_runs(
+            vec![run(4, 8), run(0, 6), run(3, 3), run(9, 20)],
+            "0123456789",
+        );
         let spans: Vec<(u32, u32)> = tidy.iter().map(|run| (run.start, run.end)).collect();
         assert_eq!(spans, vec![(0, 6), (6, 8), (9, 10)]);
     }

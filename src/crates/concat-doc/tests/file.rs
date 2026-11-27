@@ -237,8 +237,14 @@ fn a_speed_graph_is_written_beside_its_keys_and_read_back() {
     // What a later build wrote inside the graph, a point of it and a key
     // is kept where it was.
     let later = text
-        .replace("\"drawn\":{\"from\":0,", "\"drawn\":{\"from\":0,\"pen\":\"wide\",")
-        .replace("{\"at\":0.4,\"speed\":4,", "{\"at\":0.4,\"speed\":4,\"hue\":7,")
+        .replace(
+            "\"drawn\":{\"from\":0,",
+            "\"drawn\":{\"from\":0,\"pen\":\"wide\",",
+        )
+        .replace(
+            "{\"at\":0.4,\"speed\":4,",
+            "{\"at\":0.4,\"speed\":4,\"hue\":7,",
+        )
         .replace(
             "\"keys\":[{\"at\":0,\"source\":0}",
             "\"keys\":[{\"at\":0,\"source\":0,\"tilt\":[1]}",
@@ -269,15 +275,31 @@ fn a_damaged_speed_graph_is_left_out_and_the_clip_plays_as_it_did() {
     let keys = cut.time.points();
     let damages = [
         // A point outside the graph.
-        ("{\"at\":0.4,", "{\"at\":4,", "one of its points is outside it"),
+        (
+            "{\"at\":0.4,",
+            "{\"at\":4,",
+            "one of its points is outside it",
+        ),
         // A speed past the fastest.
-        ("\"speed\":4,", "\"speed\":400,", "one of its speeds is slower"),
+        (
+            "\"speed\":4,",
+            "\"speed\":400,",
+            "one of its speeds is slower",
+        ),
         // Points out of order.
         ("{\"at\":1,", "{\"at\":0.1,", "its points are out of order"),
         // A point that is no point.
-        ("{\"at\":0.4,", "{\"at\":\"soon\",", "`points.2.at` is not a number"),
+        (
+            "{\"at\":0.4,",
+            "{\"at\":\"soon\",",
+            "`points.2.at` is not a number",
+        ),
         // No length.
-        ("\"drawn\":{\"from\":0,\"len\":", "\"drawn\":{\"from\":0,\"len\":-", "`len` is not a length above zero"),
+        (
+            "\"drawn\":{\"from\":0,\"len\":",
+            "\"drawn\":{\"from\":0,\"len\":-",
+            "`len` is not a length above zero",
+        ),
     ];
     for (from, to, why) in damages {
         let damaged = text.replace(from, to);
@@ -296,7 +318,10 @@ fn a_damaged_speed_graph_is_left_out_and_the_clip_plays_as_it_did() {
         };
         assert_eq!(cut.time.points(), keys, "every key as it was");
         assert!(matches!(&cut.time, TimeMap::Keyed { drawn: None, .. }));
-        assert_eq!((held.start, held.len, held.offset), (item.start, item.len, item.offset));
+        assert_eq!(
+            (held.start, held.len, held.offset),
+            (item.start, item.len, item.offset)
+        );
         // The graph shows the keys, and the file is whole when saved.
         let shown = commands::speed_graph(held).unwrap();
         assert_eq!(shown.len(), keys.len());

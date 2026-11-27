@@ -1079,8 +1079,8 @@ mod tests {
     /// runs for seconds is not.
     #[test]
     fn a_picture_that_lasts_one_frame_is_a_still() {
-        use concat_core::time::Rational;
         use FileKind as MediaKind;
+        use concat_core::time::Rational;
         assert_eq!(classify(&probed("/a.png", None)), MediaKind::Image);
         assert_eq!(
             classify(&probed("/a.jpg", Some(Rational::new(1, 25)))),
@@ -1346,10 +1346,10 @@ mod tests {
     /// poster rather than a black one, and nothing black is cached.
     #[test]
     fn a_poster_is_never_a_black_frame() {
-        use concat_core::time::FrameRate;
-        use concat_media::{EncodeOptions, Encoder, FrameSink};
         use crate::test_doc::{Doc, at, long};
+        use concat_core::time::FrameRate;
         use concat_doc::commands::Command;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
 
         let scratch =
             std::env::temp_dir().join(format!("concat-poster-test-{}", std::process::id()));

@@ -381,10 +381,7 @@ impl TimeMap {
                     return match rest.last() {
                         Some((TimeCurve::Smooth { arrive, .. }, _)) => Some(arrive.display()),
                         Some((TimeCurve::Linear, to)) => {
-                            let before = rest
-                                .len()
-                                .checked_sub(2)
-                                .map_or(*first, |at| rest[at].1);
+                            let before = rest.len().checked_sub(2).map_or(*first, |at| rest[at].1);
                             let w = (to.at.get() - before.at.get()) as f64;
                             Some((to.source.get() - before.source.get()) as f64 / w)
                         }

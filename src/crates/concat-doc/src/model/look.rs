@@ -396,7 +396,9 @@ impl Title {
                         sentence_start = true;
                     }
                 }
-                TextCase::Original | TextCase::Unknown(_) => push(&mut out, &mut std::iter::once(c)),
+                TextCase::Original | TextCase::Unknown(_) => {
+                    push(&mut out, &mut std::iter::once(c))
+                }
             }
         }
         starts.push(count);

@@ -76,7 +76,11 @@ const NEW_KINDS: [&str; 7] = [
 ];
 
 /// Reads one clip of a timeline.
-pub(crate) fn clip<'a>(build: &mut Build, bin: &Bin<'_>, value: &'a Value) -> Result<Clip<'a>, ImportError> {
+pub(crate) fn clip<'a>(
+    build: &mut Build,
+    bin: &Bin<'_>,
+    value: &'a Value,
+) -> Result<Clip<'a>, ImportError> {
     let mut f = Fields::of(value);
     let old = f.string_or("id", "");
     let kind = f.string_or("kind", "video");
@@ -92,7 +96,10 @@ pub(crate) fn clip<'a>(build: &mut Build, bin: &Bin<'_>, value: &'a Value) -> Re
     let duration_s = f.f64_or("duration", 1.0);
     let mut start = tick(start_s).unwrap_or(Tick::ZERO);
     if start < Tick::ZERO {
-        build.note(&place, "it started before the timeline did; it starts at its start now");
+        build.note(
+            &place,
+            "it started before the timeline did; it starts at its start now",
+        );
         start = Tick::ZERO;
     }
     let end = tick(start_s + duration_s).unwrap_or(start);
@@ -216,7 +223,13 @@ pub(crate) fn clip<'a>(build: &mut Build, bin: &Bin<'_>, value: &'a Value) -> Re
                 item.masks.push(Entry::Known(mask));
             }
             None => {
-                build.note(&place, format!("its mask {} could not be read; it is kept as it was", at + 1));
+                build.note(
+                    &place,
+                    format!(
+                        "its mask {} could not be read; it is kept as it was",
+                        at + 1
+                    ),
+                );
                 item.masks.push(Entry::Unread(build.raw(mask)));
             }
         }
@@ -242,9 +255,7 @@ pub(crate) fn clip<'a>(build: &mut Build, bin: &Bin<'_>, value: &'a Value) -> Re
         "transition" => {
             // Its package is the one link of its chain.
             let mut chain = std::mem::take(&mut item.effects);
-            let first = chain
-                .iter()
-                .position(|entry| entry.known().is_some());
+            let first = chain.iter().position(|entry| entry.known().is_some());
             match first {
                 Some(at) => {
                     if let Entry::Known(effect) = chain.remove(at) {
@@ -293,7 +304,13 @@ pub(crate) fn clip<'a>(build: &mut Build, bin: &Bin<'_>, value: &'a Value) -> Re
 
 // --- Picture and sound ------------------------------------------------------
 
-fn picture(build: &mut Build, place: &str, f: &mut Fields<'_>, bin: &Bin<'_>, kept: &mut Kept) -> Picture {
+fn picture(
+    build: &mut Build,
+    place: &str,
+    f: &mut Fields<'_>,
+    bin: &Bin<'_>,
+    kept: &mut Kept,
+) -> Picture {
     let base = Picture::default();
     let mut p = Picture {
         offset_x: Animated::fixed(f.f64_or("offsetX", 0.0)),
@@ -325,14 +342,22 @@ fn picture(build: &mut Build, place: &str, f: &mut Fields<'_>, bin: &Bin<'_>, ke
             bottom: c.f64_or("bottom", 0.0),
         };
         kept.rest("crop", &c);
-        let sides = [crop_value.left, crop_value.top, crop_value.right, crop_value.bottom];
+        let sides = [
+            crop_value.left,
+            crop_value.top,
+            crop_value.right,
+            crop_value.bottom,
+        ];
         let fits = sides.iter().all(|side| (0.0..1.0).contains(side))
             && crop_value.left + crop_value.right < 1.0
             && crop_value.top + crop_value.bottom < 1.0;
         if fits {
             p.crop = (sides != [0.0; 4]).then_some(crop_value);
         } else {
-            build.note(place, "its crop left nothing of the picture; it is kept as it was and not applied");
+            build.note(
+                place,
+                "its crop left nothing of the picture; it is kept as it was and not applied",
+            );
             kept.keep("", "crop", crop.clone());
         }
     }
@@ -383,22 +408,22 @@ pub(crate) fn background(
         Some("color") => match b.str("color").and_then(color) {
             Some(colour) => Background::Color(colour),
             None => {
-                build.note(place, "its background colour could not be read; it is kept as it was");
+                build.note(
+                    place,
+                    "its background colour could not be read; it is kept as it was",
+                );
                 kept.keep("", path, value.clone());
                 return None;
             }
         },
         Some("image") => {
-            let still = b
-                .str("mediaId")
-                .and_then(|old| bin.get(old))
-                .filter(|id| {
-                    build
-                        .model
-                        .media
-                        .get(*id)
-                        .is_some_and(|m| m.kind == MediaKind::Image)
-                });
+            let still = b.str("mediaId").and_then(|old| bin.get(old)).filter(|id| {
+                build
+                    .model
+                    .media
+                    .get(*id)
+                    .is_some_and(|m| m.kind == MediaKind::Image)
+            });
             match still {
                 Some(id) => Background::Image(id),
                 None => {
@@ -442,7 +467,9 @@ fn cutout(build: &mut Build, place: &str, value: &Value, kept: &mut Kept) -> Cut
             Some("brush") => Some(BrushTool::Brush),
             Some("smartEraser") => Some(BrushTool::SmartEraser),
             Some("eraser") => Some(BrushTool::Eraser),
-            Some(other) => Some(BrushTool::Unknown(build.raw(&Value::String(other.to_owned())))),
+            Some(other) => Some(BrushTool::Unknown(
+                build.raw(&Value::String(other.to_owned())),
+            )),
             None => None,
         };
         let size = s.f64("size").filter(|size| *size > 0.0);
@@ -466,7 +493,10 @@ fn cutout(build: &mut Build, place: &str, value: &Value, kept: &mut Kept) -> Cut
                 kept.rest(&format!("cutout/strokes/{at}"), &s);
             }
             _ => {
-                build.note(place, "a brush stroke of its cutout could not be read; it is kept as it was");
+                build.note(
+                    place,
+                    "a brush stroke of its cutout could not be read; it is kept as it was",
+                );
                 kept.keep("cutout/strokes", &at.to_string(), stroke.clone());
             }
         }
@@ -534,7 +564,10 @@ fn length(build: &mut Build, place: &str, what: &str, seconds: f64) -> TickLen {
         None => {
             build.note(
                 place,
-                format!("its {what} of {} seconds is no length; it is a sixtieth of a second now", show(seconds)),
+                format!(
+                    "its {what} of {} seconds is no length; it is a sixtieth of a second now",
+                    show(seconds)
+                ),
             );
             MIN_LEN
         }
@@ -547,7 +580,13 @@ fn sound(build: &mut Build, place: &str, f: &mut Fields<'_>, kept: &mut Kept) ->
         match dur(seconds) {
             Some(d) if d >= TickDur::ZERO => d,
             _ => {
-                build.note(place, format!("its {key} of {} seconds is no fade; it has none now", show(seconds)));
+                build.note(
+                    place,
+                    format!(
+                        "its {key} of {} seconds is no fade; it has none now",
+                        show(seconds)
+                    ),
+                );
                 TickDur::ZERO
             }
         }
@@ -598,7 +637,9 @@ fn keys(
     ];
     for (at, key) in f.list("keys").iter().enumerate() {
         let mut k = Fields::of(key);
-        let property = k.str("property").and_then(|p| PROPERTIES.iter().find(|q| **q == p));
+        let property = k
+            .str("property")
+            .and_then(|p| PROPERTIES.iter().find(|q| **q == p));
         let read = property.and_then(|_| crate::build::one_key(build, place, &mut k, offset, len));
         match (property, read) {
             (Some(property), Some(read)) => {
@@ -635,8 +676,24 @@ fn keys(
     let keys_op = take(build, "opacity");
     let keys_vol = take(build, "volume");
     let any = f64::MIN;
-    item.picture.offset_x = animated(build, place, "horizontal position", ox, keys_ox, any, f64::MAX);
-    item.picture.offset_y = animated(build, place, "vertical position", oy, keys_oy, any, f64::MAX);
+    item.picture.offset_x = animated(
+        build,
+        place,
+        "horizontal position",
+        ox,
+        keys_ox,
+        any,
+        f64::MAX,
+    );
+    item.picture.offset_y = animated(
+        build,
+        place,
+        "vertical position",
+        oy,
+        keys_oy,
+        any,
+        f64::MAX,
+    );
     item.picture.scale = animated(build, place, "scale", sc, keys_sc, TINY, f64::MAX);
     item.picture.rotation = animated(build, place, "rotation", ro, keys_ro, any, f64::MAX);
     item.picture.stretch_x = animated(build, place, "width stretch", sx, keys_sx, TINY, f64::MAX);
@@ -680,13 +737,18 @@ fn media_cut(
     let take = match (kind, file.kind.can_sound()) {
         ("audio", Some(true)) if file.kind == MediaKind::Video => Take::Sound,
         ("audio", Some(false)) => {
-            build.note(place, "it was the sound of a still, which has none; it is the still now");
+            build.note(
+                place,
+                "it was the sound of a still, which has none; it is the still now",
+            );
             Take::Whole
         }
         _ => Take::Whole,
     };
     let stream = match f.u32("audioStream") {
-        Some(index) if !file.streams.is_empty() && !file.streams.iter().any(|s| s.index == index) => {
+        Some(index)
+            if !file.streams.is_empty() && !file.streams.iter().any(|s| s.index == index) =>
+        {
             build.note(
                 place,
                 format!("it played sound stream {index}, which its file does not list; it plays the first"),
@@ -710,11 +772,17 @@ fn media_cut(
         let offset_s = e.f64_or("offset", 0.0);
         match copy {
             Some(copy) if copy != media_id => {
-                let copy_start = dur(offset_s).filter(|d| *d >= TickDur::ZERO).unwrap_or(TickDur::ZERO);
+                let copy_start = dur(offset_s)
+                    .filter(|d| *d >= TickDur::ZERO)
+                    .unwrap_or(TickDur::ZERO);
                 if on {
                     copy_offset = offset_s.max(0.0);
                 }
-                enhanced = Some(Enhanced { copy, copy_start, on });
+                enhanced = Some(Enhanced {
+                    copy,
+                    copy_start,
+                    on,
+                });
                 kept.rest("enhanced", &e);
             }
             _ => {
@@ -743,7 +811,10 @@ fn media_cut(
     // The window shows only what the file has.
     if file.kind != MediaKind::Image {
         if src_in < Tick::ZERO {
-            build.note(place, "it began before its file does; it begins at the file's start now");
+            build.note(
+                place,
+                "it began before its file does; it begins at the file's start now",
+            );
             src_in = Tick::ZERO;
         }
         if let Some(length) = file.length {
@@ -752,15 +823,26 @@ fn media_cut(
                 // Nothing of the file is left after the in-point: the
                 // window is moved back to end where the file does.
                 let span = speed.of(len.dur()).unwrap_or(TickDur::ZERO);
-                let back = file_end.checked_sub(span).unwrap_or(Tick::ZERO).max(Tick::ZERO);
-                build.note(place, "it began after its file ends; it shows the end of the file now");
+                let back = file_end
+                    .checked_sub(span)
+                    .unwrap_or(Tick::ZERO)
+                    .max(Tick::ZERO);
+                build.note(
+                    place,
+                    "it began after its file ends; it shows the end of the file now",
+                );
                 src_in = back;
             }
-            if speed.of(len.dur()).map(|d| src_in + d).is_some_and(|end| end > file_end) {
+            if speed
+                .of(len.dur())
+                .map(|d| src_in + d)
+                .is_some_and(|end| end > file_end)
+            {
                 let room = (file_end - src_in).get();
-                let fits = concat_doc::rescale(room, i64::from(speed.den()), i64::from(speed.num()))
-                    .and_then(TickLen::new)
-                    .unwrap_or(TickLen::ONE);
+                let fits =
+                    concat_doc::rescale(room, i64::from(speed.den()), i64::from(speed.num()))
+                        .and_then(TickLen::new)
+                        .unwrap_or(TickLen::ONE);
                 if len.get() - fits.get() > HAIR {
                     build.note(
                         place,
@@ -789,7 +871,10 @@ fn media_cut(
                 .length
                 .is_none_or(|l| end.is_some_and(|end| end <= from + l));
         if !inside {
-            build.note(place, "its enhanced copy does not cover all it shows; it shows the original now");
+            build.note(
+                place,
+                "its enhanced copy does not cover all it shows; it shows the original now",
+            );
             enhanced_now.on = false;
         }
     }
@@ -808,7 +893,10 @@ fn media_cut(
             })
             .collect();
         if points.len() < curve.len() {
-            build.note(place, "some points of its speed curve could not be read; they are kept as they were");
+            build.note(
+                place,
+                "some points of its speed curve could not be read; they are kept as they were",
+            );
             kept.keep("", "speedCurve", Value::Array(curve.to_vec()));
         }
         let cut = MediaCut {
@@ -854,7 +942,12 @@ fn media_cut(
 
 /// The time map and length a speed curve gives a cut, worked out as the
 /// document's own command works one out, on a document of the cut alone.
-fn curved(file: &Media, cut: MediaCut, len: TickLen, points: Vec<SpeedPoint>) -> Option<(TimeMap, TickLen)> {
+fn curved(
+    file: &Media,
+    cut: MediaCut,
+    len: TickLen,
+    points: Vec<SpeedPoint>,
+) -> Option<(TimeMap, TickLen)> {
     let empty = Document::<Model>::new();
     let mut draft = empty.begin("Speed curve", Origin(0));
     let media: MediaId = draft.mint().ok()?;
@@ -906,7 +999,10 @@ fn chain(
         chain.push(match effect(build, place, value, offset, len, masks)? {
             Some(effect) => Entry::Known(effect),
             None => {
-                build.note(place, "one of its effects names no package; it is kept as it was and does not play");
+                build.note(
+                    place,
+                    "one of its effects names no package; it is kept as it was and does not play",
+                );
                 Entry::Unread(build.raw(value))
             }
         });
@@ -936,7 +1032,9 @@ fn effect(
         for (name, number) in params {
             match number.as_f64() {
                 Some(number) if !name.is_empty() => {
-                    effect.params.insert(name.clone(), Param::fixed(Some(number)));
+                    effect
+                        .params
+                        .insert(name.clone(), Param::fixed(Some(number)));
                 }
                 _ => kept.keep("params", name, number.clone()),
             }
@@ -948,7 +1046,16 @@ fn effect(
                 kept.keep("keys", name, list.clone());
                 continue;
             };
-            let read = key_list(build, &place, name, list, offset, len, &mut kept, &format!("keys/{name}"));
+            let read = key_list(
+                build,
+                &place,
+                name,
+                list,
+                offset,
+                len,
+                &mut kept,
+                &format!("keys/{name}"),
+            );
             if read.is_empty() {
                 continue;
             }
@@ -968,7 +1075,10 @@ fn effect(
     kept.rest("", &f);
     if !kept.is_empty() {
         let names = kept.names().join(", ");
-        build.note(&place, format!("kept {names}, which this version has no place for"));
+        build.note(
+            &place,
+            format!("kept {names}, which this version has no place for"),
+        );
     }
     effect.residual = kept.residual(&mut build.words);
     Ok(Some(effect))
@@ -1005,14 +1115,29 @@ fn mask(
         for (name, list) in list {
             match list.as_array() {
                 Some(list) => {
-                    let read = key_list(build, &place, name, list, offset, len, &mut kept, &format!("keys/{name}"));
+                    let read = key_list(
+                        build,
+                        &place,
+                        name,
+                        list,
+                        offset,
+                        len,
+                        &mut kept,
+                        &format!("keys/{name}"),
+                    );
                     keys.insert(name.clone(), read);
                 }
                 None => kept.keep("keys", name, list.clone()),
             }
         }
     }
-    let mut number = |build: &mut Build, f: &mut Fields<'_>, name: &str, what: &str, or: f64, low: f64, high: f64| {
+    let mut number = |build: &mut Build,
+                      f: &mut Fields<'_>,
+                      name: &str,
+                      what: &str,
+                      or: f64,
+                      low: f64,
+                      high: f64| {
         let value = f.f64_or(name, or);
         let keys = keys.remove(name).unwrap_or_default();
         animated(build, &place, what, value, keys, low, high)
@@ -1021,12 +1146,25 @@ fn mask(
     mask.x = number(build, &mut f, "x", "mask position", 0.0, any, f64::MAX);
     mask.y = number(build, &mut f, "y", "mask position", 0.0, any, f64::MAX);
     mask.scale = number(build, &mut f, "scale", "mask scale", 1.0, TINY, f64::MAX);
-    mask.rotation = number(build, &mut f, "rotation", "mask rotation", 0.0, any, f64::MAX);
+    mask.rotation = number(
+        build,
+        &mut f,
+        "rotation",
+        "mask rotation",
+        0.0,
+        any,
+        f64::MAX,
+    );
     mask.feather = number(build, &mut f, "feather", "mask feather", 0.0, 0.0, 1.0);
     mask.expand = number(build, &mut f, "expand", "mask expand", 0.0, any, f64::MAX);
     mask.opacity = number(build, &mut f, "opacity", "mask opacity", 1.0, 0.0, 1.0);
     match f.object("source") {
-        Some(source) if source.get("kind").and_then(Value::as_str).is_none_or(|k| k == "shape") => {
+        Some(source)
+            if source
+                .get("kind")
+                .and_then(Value::as_str)
+                .is_none_or(|k| k == "shape") =>
+        {
             let mut s = Fields::of(source);
             s.skip(&["kind"]);
             let shape = match s.str("shape") {
@@ -1053,7 +1191,10 @@ fn mask(
         None => {}
     }
     for (name, _) in keys {
-        build.note(&place, format!("its keys of \"{name}\", a number masks do not have, are kept as they were"));
+        build.note(
+            &place,
+            format!("its keys of \"{name}\", a number masks do not have, are kept as they were"),
+        );
     }
     kept.rest("", &f);
     mask.residual = kept.residual(&mut build.words);
@@ -1061,7 +1202,12 @@ fn mask(
 }
 
 /// The transition on the cut into a clip.
-fn cut_in(build: &mut Build, place: &str, value: &Value, kept: &mut Kept) -> Result<Option<CutIn>, ImportError> {
+fn cut_in(
+    build: &mut Build,
+    place: &str,
+    value: &Value,
+    kept: &mut Kept,
+) -> Result<Option<CutIn>, ImportError> {
     let mut f = Fields::of(value);
     let package = f.str("id").filter(|p| !p.is_empty()).map(str::to_owned);
     let seconds = f.f64_or("duration", 1.0);
@@ -1076,7 +1222,9 @@ fn cut_in(build: &mut Build, place: &str, value: &Value, kept: &mut Kept) -> Res
         for (name, number) in params {
             match number.as_f64() {
                 Some(number) if !name.is_empty() => {
-                    effect.params.insert(name.clone(), Param::fixed(Some(number)));
+                    effect
+                        .params
+                        .insert(name.clone(), Param::fixed(Some(number)));
                 }
                 _ => kept.keep("transitionIn/params", name, number.clone()),
             }
@@ -1095,7 +1243,13 @@ mod tests {
     #[test]
     fn a_share_of_a_clip_lands_on_the_tick_nearest() {
         let len = TickLen::new(1_411_200_000).unwrap_or(TickLen::ONE);
-        assert_eq!(crate::build::at_share(Tick::ZERO, len, 0.5), Some(Tick::new(705_600_000)));
-        assert_eq!(crate::build::at_share(Tick::new(10), len, 1.0), Some(Tick::new(1_411_200_010)));
+        assert_eq!(
+            crate::build::at_share(Tick::ZERO, len, 0.5),
+            Some(Tick::new(705_600_000))
+        );
+        assert_eq!(
+            crate::build::at_share(Tick::new(10), len, 1.0),
+            Some(Tick::new(1_411_200_010))
+        );
     }
 }

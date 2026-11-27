@@ -31,13 +31,12 @@ use crate::id::TypedId;
 use crate::model::{
     Animated, Background, BeatMarks, Blend, BrushTool, CaptionLook, Color, ColorRange, ColorSpace,
     Content, Cover, Crop, CutIn, Cutout, CutoutMode, Derived, Ease, Effect, EffectId, Enhanced,
-    Entry, Font, Frame, Gradient, HeldId, Item, ItemId, Key, Lane, LaneId, LineHead, Link,
-    LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MaskMode, MaskShape, MaskSource, Media,
+    Entry, Font, Frame, Gradient, GraphFault, HeldId, Item, ItemId, Key, Lane, LaneId, LineHead,
+    Link, LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MaskMode, MaskShape, MaskSource, Media,
     MediaCut, MediaId, MediaKind, MediaOrigin, Motion, Move, Nest, OrderKey, Param, Picture, Raw,
-    GraphFault, Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Size, Sound,
-    SoundStream, Speed, SpeedGraph, SpeedPoint, Stabilize, Stroke, StrokeAlign, StrokeDash,
-    Subject, Take, TextAlign, TextCase, TextRun, TimeCurve, TimeMap, TimePoint, Title, VoiceKind,
-    VoiceMix,
+    Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Size, Sound, SoundStream,
+    Speed, SpeedGraph, SpeedPoint, Stabilize, Stroke, StrokeAlign, StrokeDash, Subject, Take,
+    TextAlign, TextCase, TextRun, TimeCurve, TimeMap, TimePoint, Title, VoiceKind, VoiceMix,
 };
 use crate::time::{Rate, Tick, TickDur, TickLen};
 

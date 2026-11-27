@@ -29,6 +29,14 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use concat_doc::commands::{
+    ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag,
+};
+use concat_doc::model::{
+    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, SpeedPoint, TextAlign,
+    Title,
+};
+use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
 use concat_effects::manifest::ParamType;
@@ -38,14 +46,6 @@ use concat_host::{
     templates,
 };
 use concat_media::Pyramid;
-use concat_doc::commands::{
-    ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag,
-};
-use concat_doc::model::{
-    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, SpeedPoint, TextAlign,
-    Title,
-};
-use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
 
 use crate::doc_view::{self, Kind};
 
@@ -101,8 +101,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
-    running_time, wave_columns, wave_path, when_phrase,
+    WAVE_BAR, WAVE_PITCH, frames_timecode, hex_of, running_time, wave_columns, wave_path,
+    when_phrase,
 };
 use crate::grading;
 use crate::host::{
@@ -494,10 +494,6 @@ pub enum Edge {
 /// Where one clip sat when a gesture began, so the whole set moves rigidly.
 pub struct MoveOrigin {
     pub clip: String,
-    /// Where the clip began when the press landed, exact: the drag adds its
-    /// shift to this, not to the echo's start, which already holds the last
-    /// shift.
-    pub start: f64,
     pub row: i32,
 }
 
@@ -520,7 +516,6 @@ pub enum Gesture {
         edge: Edge,
         start: f32,
         duration: f32,
-        source_start: f32,
         /// The pointer has left the dead zone around the press.
         started: bool,
     },
@@ -2407,9 +2402,7 @@ fn adjust_rows(chain: &[&Effect], at: Option<Tick>) -> Vec<AppliedParamData> {
                 _ => (false, false, false),
             };
             let value = match (held, at) {
-                (Some(entry), Some(at)) => {
-                    doc_view::param_at(entry, &param.key, at, param.default)
-                }
+                (Some(entry), Some(at)) => doc_view::param_at(entry, &param.key, at, param.default),
                 (Some(entry), None) => doc_view::param_or(entry, &param.key, param.default),
                 (None, _) => param.default,
             };
@@ -3424,12 +3417,30 @@ mod tests {
     #[test]
     fn a_detach_says_why_it_cannot_happen() {
         use super::{DetachPlan, detach_plan};
-        assert_eq!(detach_plan(Kind::Video, false, true, false), DetachPlan::Detach);
-        assert_eq!(detach_plan(Kind::Video, false, false, false), DetachPlan::NoSound);
-        assert_eq!(detach_plan(Kind::Video, false, true, true), DetachPlan::Already);
-        assert_eq!(detach_plan(Kind::Video, true, true, false), DetachPlan::Again);
-        assert_eq!(detach_plan(Kind::Video, true, true, true), DetachPlan::Already);
-        assert_eq!(detach_plan(Kind::Audio, false, true, false), DetachPlan::NoSound);
+        assert_eq!(
+            detach_plan(Kind::Video, false, true, false),
+            DetachPlan::Detach
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, false, false, false),
+            DetachPlan::NoSound
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, false, true, true),
+            DetachPlan::Already
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, true, true, false),
+            DetachPlan::Again
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, true, true, true),
+            DetachPlan::Already
+        );
+        assert_eq!(
+            detach_plan(Kind::Audio, false, true, false),
+            DetachPlan::NoSound
+        );
     }
 
     /// A click on a clip is a move to where it already is, and is no edit:
@@ -3740,7 +3751,10 @@ mod tests {
 
         doc_view::set_key(&mut after.picture.scale.keys, tick(2.5), 1.0, Ease::LINEAR);
         write_keyable(&mut after, KeyProperty::Scale, 3.0, tick(7.5));
-        assert_eq!(after.picture.scale.value, 2.0, "keyed: the value is left alone");
+        assert_eq!(
+            after.picture.scale.value, 2.0,
+            "keyed: the value is left alone"
+        );
         assert_eq!(shown(&after, KeyProperty::Scale, tick(7.5)), 3.0);
         let commands = key_commands(id, &before, &after);
         assert_eq!(commands.len(), 2, "one per key: {commands:?}");
@@ -3782,7 +3796,12 @@ mod tests {
         write_keyable(&mut after, KeyProperty::StretchX, 1.5, tick(5.0));
         assert_eq!(after.picture.stretch_x.value, 1.5, "no keys: the value");
 
-        doc_view::set_key(&mut after.picture.stretch_x.keys, tick(0.0), 1.0, Ease::LINEAR);
+        doc_view::set_key(
+            &mut after.picture.stretch_x.keys,
+            tick(0.0),
+            1.0,
+            Ease::LINEAR,
+        );
         write_keyable(&mut after, KeyProperty::StretchX, 2.0, tick(10.0));
         assert_eq!(
             after.picture.stretch_x.value, 1.5,

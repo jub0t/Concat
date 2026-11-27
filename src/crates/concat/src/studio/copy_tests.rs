@@ -293,7 +293,10 @@ fn a_copy_laid_elsewhere_keeps_a_curved_piece_s_footage() {
     let (from, span) = doc_view::covered(&copy).expect("footage");
     let (source_from, source_span) = doc_view::covered(&tail).expect("footage");
     assert!(near(doc_view::secs(from), doc_view::secs(source_from)));
-    assert!(near(doc_view::dur_secs(span), doc_view::dur_secs(source_span)));
+    assert!(near(
+        doc_view::dur_secs(span),
+        doc_view::dur_secs(source_span)
+    ));
     assert!((doc_view::len_s(&copy) - doc_view::len_s(&tail)).abs() < 1.0 / 30.0);
     assert!(doc_view::is_curved(&copy));
 }
@@ -431,7 +434,11 @@ fn a_copy_onto_a_taken_spot_takes_the_nearest_gap() {
     let copy = copier.clip(copy);
     // 3..5 is too short for three seconds; after the second clip is the
     // nearest room.
-    assert!(near(doc_view::start_s(&copy), 8.0), "starts {}", doc_view::start_s(&copy));
+    assert!(
+        near(doc_view::start_s(&copy), 8.0),
+        "starts {}",
+        doc_view::start_s(&copy)
+    );
     assert_same_footage(&copy, &first_clip);
     assert_eq!(copier.clip(first), first_clip);
     assert_eq!(copier.clip(second), second_clip);
@@ -486,7 +493,11 @@ fn a_copy_never_starts_before_zero() {
     let copy = copier.copy(&tail, other, -3.0);
 
     let copy = copier.clip(copy);
-    assert!(near(doc_view::start_s(&copy), 0.0), "starts {}", doc_view::start_s(&copy));
+    assert!(
+        near(doc_view::start_s(&copy), 0.0),
+        "starts {}",
+        doc_view::start_s(&copy)
+    );
     assert_same_footage(&copy, &tail);
 }
 
@@ -578,7 +589,10 @@ fn the_file_is_first_laid_where_the_lane_ends() {
             }) => {
                 assert_eq!(Some(media), doc_view::media_id(&tail));
                 assert_eq!(laid_on, lane);
-                assert!(near(doc_view::secs(start), end), "laid at {start} for {end}");
+                assert!(
+                    near(doc_view::secs(start), end),
+                    "laid at {start} for {end}"
+                );
                 assert!(!ripple);
             }
             other => panic!("laid by {other:?}"),
@@ -657,5 +671,8 @@ fn a_whole_copy_is_untied() {
     let copy = copier.copy_whole(sound, lane, 20.0);
     let copy = copier.clip(copy);
     assert_eq!(copy.link, None);
-    assert!(matches!(doc_view::time_map(&copy), Some(TimeMap::Linear { .. })));
+    assert!(matches!(
+        doc_view::time_map(&copy),
+        Some(TimeMap::Linear { .. })
+    ));
 }

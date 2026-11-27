@@ -2467,7 +2467,8 @@ fn a_broken_speed_graph_is_refused() {
         points,
     };
     let with = |fx: &Fixture, graph: SpeedGraph| {
-        let TimeMap::Keyed { first, rest, .. } = keyed(&[(0.0, 0.0), (1.0, 1.0)], TimeCurve::Linear)
+        let TimeMap::Keyed { first, rest, .. } =
+            keyed(&[(0.0, 0.0), (1.0, 1.0)], TimeCurve::Linear)
         else {
             unreachable!("keyed")
         };

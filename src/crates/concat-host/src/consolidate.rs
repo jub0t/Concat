@@ -237,7 +237,9 @@ mod tests {
     #[test]
     fn one_clip_is_no_selection_to_merge() {
         let (doc, ids) = selection();
-        let error = Consolidation::new(doc.model(), &ids[..1]).err().expect("refused");
+        let error = Consolidation::new(doc.model(), &ids[..1])
+            .err()
+            .expect("refused");
         assert!(error.contains("two or more"), "{error}");
     }
 }

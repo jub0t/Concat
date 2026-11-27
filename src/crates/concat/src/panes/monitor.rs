@@ -19,8 +19,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use concat_host::preview::FrameSpec;
 use concat_doc::model::{Frame, Media, Model};
+use concat_host::preview::FrameSpec;
 
 use crate::doc_view;
 
@@ -242,7 +242,8 @@ impl MonitorPane {
             }
             MonitorMsg::QualityChanged(index) => {
                 if let Some(id) = doc_view::showing(studio.doc()) {
-                    self.quality.insert(id.to_string(), (index.max(0) as usize).min(2));
+                    self.quality
+                        .insert(id.to_string(), (index.max(0) as usize).min(2));
                 }
                 self.request(studio, Lane::Main);
             }
@@ -298,8 +299,9 @@ impl MonitorPane {
                     // The chain above is for the log. A file that has gone
                     // is said in a sentence, by its name: the chain names
                     // its whole path twice and reads as a stack trace.
-                    let media: Vec<&Media> =
-                        doc_view::bin(studio.committed()).map(|(_, media)| media).collect();
+                    let media: Vec<&Media> = doc_view::bin(studio.committed())
+                        .map(|(_, media)| media)
+                        .collect();
                     let said = match missing_source(&error, &media) {
                         Some(name) => tf("monitor.previewMissing", &[&name]),
                         None => tf("monitor.previewFailed", &[&error]),
@@ -544,6 +546,10 @@ mod tests {
         assert_eq!(pane.quality_of(bench.doc()), 2);
         bench.apply(&Command::AddTimeline);
         assert_ne!(doc_view::showing(bench.doc()), Some(first));
-        assert_eq!(pane.quality_of(bench.doc()), 1, "another timeline has its own");
+        assert_eq!(
+            pane.quality_of(bench.doc()),
+            1,
+            "another timeline has its own"
+        );
     }
 }

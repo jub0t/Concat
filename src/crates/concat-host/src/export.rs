@@ -87,7 +87,9 @@ pub fn request_for(
     let showing = project.view.showing;
     let frame = showing
         .and_then(|sequence| project.sequences.get(sequence))
-        .map_or_else(concat_doc::model::Frame::hd, |sequence| sequence.frame.clone());
+        .map_or_else(concat_doc::model::Frame::hd, |sequence| {
+            sequence.frame.clone()
+        });
     let mut clips = match showing {
         Some(sequence) => concat_export::flatten::clips(project, sequence, Some(project_dir)),
         None => Vec::new(),

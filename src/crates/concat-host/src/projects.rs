@@ -267,7 +267,7 @@ fn write_state(key: &Path) -> Arc<Writes> {
 /// Writes the whole project document to the project's manifest, now.
 ///
 /// The document is passed through as opaque JSON rather than being mirrored
-/// into Rust types: the engine (`concat-project`) owns the canonical model and
+/// into Rust types: the engine owns the canonical model and
 /// produced this document, and the host has no decisions to make about its
 /// contents beyond writing it safely.
 ///

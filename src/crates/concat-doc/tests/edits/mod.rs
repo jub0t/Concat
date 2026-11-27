@@ -18,9 +18,9 @@ use concat_doc::model::{
     Animated, Background, Blend, BrushTool, CaptionLook, Color, Content, Cover, Crop, CutIn,
     Cutout, CutoutMode, Ease, Effect, EffectId, Entry, Font, Gradient, Item, ItemId, Key, Lane,
     LaneId, Link, LinkKind, Loop, Marker, Mask, MaskId, MediaCut, MediaId, Model, Move, Nest,
-    OrderKey, Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Speed, Stabilize,
-    SpeedGraph, SpeedPoint, Stroke, Subject, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title,
-    VoiceKind, VoiceMix,
+    OrderKey, Residual, Sequence, SequenceId, ShapeKind, ShapeShadow, ShapeStyle, Speed,
+    SpeedGraph, SpeedPoint, Stabilize, Stroke, Subject, Take, TextRun, TimeCurve, TimeMap,
+    TimePoint, Title, VoiceKind, VoiceMix,
 };
 use concat_doc::{Document, Draft, TICKS_PER_SECOND, Tick, TickDur, TickLen};
 use proptest::prelude::*;

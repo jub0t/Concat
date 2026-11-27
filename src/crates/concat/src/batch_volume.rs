@@ -24,8 +24,7 @@ pub fn targets(doc: &Model, selection: &[String], locked: impl Fn(&str) -> bool)
         selection
             .iter()
             .filter(|id| {
-                doc_view::item_by(doc, id)
-                    .is_some_and(|item| !locked(&item.lane.to_string()))
+                doc_view::item_by(doc, id).is_some_and(|item| !locked(&item.lane.to_string()))
             })
             .cloned()
             .collect()
@@ -53,7 +52,11 @@ pub fn set_level(clip: &mut Item, original: &Item, level: f64, at: Tick) {
         clip.sound.volume.value = level;
         return;
     }
-    let loudest = ride.keys.iter().map(|key| key.value).fold(0.0_f64, f64::max);
+    let loudest = ride
+        .keys
+        .iter()
+        .map(|key| key.value)
+        .fold(0.0_f64, f64::max);
     let here = doc_view::value_at(ride, at);
     let from = if here > 1e-6 { here } else { loudest };
     let values = ride.keys.iter().map(|key| {
@@ -110,7 +113,11 @@ mod tests {
         let mut clip = original.clone();
         set_level(&mut clip, &original, 0.5, tick(0.0));
         assert_eq!(volumes(&clip), vec![0.5, 0.5, 0.0]);
-        assert_eq!(clip.sound.volume.keys.len(), 3, "no key is added at the playhead");
+        assert_eq!(
+            clip.sound.volume.keys.len(),
+            3,
+            "no key is added at the playhead"
+        );
         // A drag's next step is read against the document, not the last
         // step: the same answer, however many steps it took.
         set_level(&mut clip, &original, 0.5, tick(0.0));

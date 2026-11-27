@@ -21,8 +21,8 @@ use concat_core::animate::{Ease as AnimEase, Key as AnimKey, MaskTracks, RidingM
 use concat_core::mask::{MaskMode as EngineMode, MaskShape as EngineShape, ShapeMask, StackedMask};
 use concat_core::motion::{Cycle, Looping, Motion as EngineMotion, Move as EngineMove, Moving};
 use concat_doc::model::{
-    Animated, Background, Blend, Content, Ease, Effect, Entry, Item, ItemId, LaneId, Mask, MaskMode,
-    MaskShape, MaskSource, Media, MediaKind, Model, Motion, SequenceId, Take, TimeMap,
+    Animated, Background, Blend, Content, Ease, Effect, Entry, Item, ItemId, LaneId, Mask,
+    MaskMode, MaskShape, MaskSource, Media, MediaKind, Model, Motion, SequenceId, Take, TimeMap,
 };
 use concat_doc::time::{Tick, TickDur, TickLen};
 use concat_effects::{AppliedFilter, ParamKey};
@@ -62,13 +62,13 @@ pub fn clips_of(
     };
     // The lowest lane with a picture on it: where the backgrounds draw.
     let ground = lanes.iter().position(|lane| {
-        model
-            .items
-            .index()
-            .on_lane(*lane)
-            .any(|(id, _, _)| {
-                wanted(id) && model.items.get(id).is_some_and(|item| is_picture(model, item))
-            })
+        model.items.index().on_lane(*lane).any(|(id, _, _)| {
+            wanted(id)
+                && model
+                    .items
+                    .get(id)
+                    .is_some_and(|item| is_picture(model, item))
+        })
     });
     let mut out = Vec::new();
     for (index, lane_id) in lanes.iter().enumerate() {
@@ -139,9 +139,7 @@ fn clip_of(
     let blank = |kind| ExportClip::blank(kind, start, duration, index);
     match &item.content {
         // Drawn to pictures by the host; not drawn yet.
-        Content::Title(_) | Content::Shape(_) | Content::Nest(_) | Content::Unknown { .. } => {
-            None
-        }
+        Content::Title(_) | Content::Shape(_) | Content::Nest(_) | Content::Unknown { .. } => None,
         // A treatment of the pictures beneath: its chain over the stack
         // under its lane for its span, its opacity the strength, its fades
         // the ramps.
@@ -480,7 +478,9 @@ fn values(effect: &Effect) -> std::collections::BTreeMap<String, f64> {
         .params
         .iter()
         .filter_map(|(name, param)| {
-            let value = param.value.or_else(|| param.keys.first().map(|key| key.value))?;
+            let value = param
+                .value
+                .or_else(|| param.keys.first().map(|key| key.value))?;
             Some((name.clone(), value))
         })
         .collect()
@@ -746,11 +746,24 @@ mod tests {
         );
         let clip = &clips(&document, sequence, None)[0];
         assert!(!clip.speed_curve.is_empty());
-        let (first, last) = (clip.speed_curve[0], clip.speed_curve[clip.speed_curve.len() - 1]);
-        assert!(first.0.abs() < 1e-9 && (first.1 - 1.0).abs() < 0.05, "{first:?}");
-        assert!((last.0 - 1.0).abs() < 1e-9 && (last.1 - 2.0).abs() < 0.05, "{last:?}");
+        let (first, last) = (
+            clip.speed_curve[0],
+            clip.speed_curve[clip.speed_curve.len() - 1],
+        );
+        assert!(
+            first.0.abs() < 1e-9 && (first.1 - 1.0).abs() < 0.05,
+            "{first:?}"
+        );
+        assert!(
+            (last.0 - 1.0).abs() < 1e-9 && (last.1 - 2.0).abs() < 0.05,
+            "{last:?}"
+        );
         // Ten seconds of source at a mean of one and a half: 6.67 s.
-        assert!((clip.duration - 10.0 / 1.5).abs() < 0.01, "{}", clip.duration);
+        assert!(
+            (clip.duration - 10.0 / 1.5).abs() < 0.01,
+            "{}",
+            clip.duration
+        );
         assert!((clip.speed - 1.5).abs() < 0.01);
     }
 }

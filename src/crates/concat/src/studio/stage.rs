@@ -169,7 +169,7 @@ impl Studio {
             .into_iter()
             .map(|(id, clip)| {
                 let footprint = self.footprint(clip);
-                let selected = self.selection.iter().any(|held| *held == id);
+                let selected = self.selection.contains(&id);
                 let mut item = StageItemData {
                     id: id.as_str().into(),
                     kind: kind_of(self.doc(), clip),
@@ -411,7 +411,7 @@ impl Studio {
             // keeps its outline even and its corners round; a picture's
             // pull its stretch.
             let figure = doc_view::shape(&clip)
-                .filter(|shape| !(doc_view::is_line(&shape.kind) && !across))
+                .filter(|shape| !doc_view::is_line(&shape.kind) || across)
                 .map(doc_view::figure_box);
             Gesture::StageStretch {
                 clip: id.to_owned(),

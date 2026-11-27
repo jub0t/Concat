@@ -78,11 +78,8 @@ impl Studio {
             if Cutouts::outstanding(&request) == 0 {
                 continue;
             }
-            let dir = concat_vision::mask_dir(
-                &request.project,
-                &request.media_path,
-                &request.subject,
-            );
+            let dir =
+                concat_vision::mask_dir(&request.project, &request.media_path, &request.subject);
             if self.failed_analyses.contains(&dir) {
                 continue;
             }
@@ -546,9 +543,9 @@ impl Studio {
         }
     }
 
-    /// The file Enhance reads for `clip`, with its id: always its original
-    /// - the cut names the original, and an enhanced copy beside it - so a
-    /// second run restores the source, not the first run's answer.
+    /// The file Enhance reads for `clip`, with its id: always its original,
+    /// since the cut names the original and an enhanced copy beside it, so
+    /// a second run restores the source, not the first run's answer.
     pub(super) fn enhance_source(&self, clip: &Item) -> Option<(String, Media)> {
         let id = doc_view::media_id(clip)?;
         let media = doc_view::media(self.doc(), id)?.clone();

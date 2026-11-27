@@ -109,12 +109,7 @@ impl StabilizeJob {
             clip.source_start,
             clip.source_start + clip.duration.max(0.0) * speed,
         );
-        let correction = stabilize::path::correct(
-            &motion,
-            range,
-            speed,
-            &settings,
-        );
+        let correction = stabilize::path::correct(&motion, range, speed, &settings);
         (!correction.is_empty()).then_some(StabilizeJob { correction })
     }
 

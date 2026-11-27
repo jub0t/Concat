@@ -26,10 +26,7 @@ impl Studio {
     /// a project.
     pub fn preview_clips(
         &mut self,
-    ) -> Option<(
-        std::sync::Arc<Vec<concat_export::ExportClip>>,
-        model::Frame,
-    )> {
+    ) -> Option<(std::sync::Arc<Vec<concat_export::ExportClip>>, model::Frame)> {
         let session = self.session.as_ref()?;
         // A library file on the monitor: its clip alone, flattened once.
         if let Some(source) = self.source.as_ref() {

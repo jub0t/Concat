@@ -20,9 +20,9 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use concat_export::ExportClip;
 use concat_doc::model::Frame as DocumentSettings;
 use concat_export::ColorSpace;
+use concat_export::ExportClip;
 
 /// How far ahead of the playhead playback opens the file a cut leads to;
 /// see [`Monitor::prefetch`].
@@ -295,7 +295,10 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Arc<concat_export::PreviewPlan> {
-        let rate = (i64::from(settings.rate.num()), i64::from(settings.rate.den()));
+        let rate = (
+            i64::from(settings.rate.num()),
+            i64::from(settings.rate.den()),
+        );
         let mut slot = self
             .plan
             .lock()

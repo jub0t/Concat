@@ -1192,7 +1192,6 @@ dependencies = [
  "concat-log",
  "concat-mcp",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-server",
  "concat-speech",
@@ -1413,17 +1412,6 @@ dependencies = [
  "thiserror 2.0.20",
  "uniffi",
  "wgpu",
-]
-
-[[package]]
-name = "concat-project"
-version = "0.2.12"
-dependencies = [
- "concat-core",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
 ]
 
 [[package]]

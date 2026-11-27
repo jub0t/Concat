@@ -118,7 +118,7 @@ fn shifted_effect(effect: &model::Effect, shift: TickDur) -> model::Effect {
 /// A mask as a copy holds it, its keys moved by `shift`.
 fn shifted_mask(mask: &model::Mask, shift: TickDur) -> model::Mask {
     let mut mask = mask.clone();
-    let mut each = |number: &mut model::Animated<f64>| {
+    let each = |number: &mut model::Animated<f64>| {
         for key in &mut number.keys {
             key.at += shift;
         }
@@ -372,9 +372,7 @@ pub(super) fn match_commands(source: &Item, copy: ItemId, shift: TickDur) -> Vec
         ),
         motion: Some(picture.motion.clone()),
         muted: Some(source.sound.muted),
-        name: title
-            .is_none()
-            .then(|| format!("{} copy", source.name)),
+        name: title.is_none().then(|| format!("{} copy", source.name)),
         opacity: Some(picture.opacity.value),
         keep_pitch: Some(source.sound.keep_pitch),
         shape: doc_view::shape(source).cloned(),
@@ -382,10 +380,7 @@ pub(super) fn match_commands(source: &Item, copy: ItemId, shift: TickDur) -> Vec
         cut_in: Some(None),
         volume: Some(source.sound.volume.value),
     };
-    edits.push(Command::UpdateClip {
-        item: copy,
-        patch,
-    });
+    edits.push(Command::UpdateClip { item: copy, patch });
     if picture.cutout.is_some() {
         edits.push(Command::SetClipCutout {
             item: copy,
@@ -478,12 +473,14 @@ impl Studio {
         let at = doc_view::tick(f64::from(self.playhead));
         let ids: Vec<String> = ids
             .iter()
-            .filter(|id| self.clip(id).is_some_and(|clip| !self.lane_locked(clip.lane)))
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
+            })
             .cloned()
             .collect();
         let typed: Vec<ItemId> = ids.iter().filter_map(|id| doc_view::parse(id)).collect();
-        let Some(command) =
-            delete_to_playhead(self.doc(), &typed, at, side, self.closes_gap(&ids))
+        let Some(command) = delete_to_playhead(self.doc(), &typed, at, side, self.closes_gap(&ids))
         else {
             self.notify(&t("studio.parkPlayheadInsideClip"), true);
             return;
@@ -528,8 +525,8 @@ impl Studio {
         };
         let (width, height) = self.output_size();
         let frame = doc_view::sequence(self.doc()).map(|sequence| sequence.frame.clone());
-        let (color_space, canvas) = frame
-            .map_or((concat_export::ColorSpace::Sdr, [0, 0, 0, 255]), |f| {
+        let (color_space, canvas) =
+            frame.map_or((concat_export::ColorSpace::Sdr, [0, 0, 0, 255]), |f| {
                 (
                     concat_export::ColorSpace::of(&f.color),
                     [f.canvas.r, f.canvas.g, f.canvas.b, f.canvas.a],
@@ -758,7 +755,10 @@ impl Studio {
         let doomed: Vec<ItemId> = self
             .selection
             .iter()
-            .filter(|id| self.clip(id).is_some_and(|clip| !self.lane_locked(clip.lane)))
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
+            })
             .filter_map(|id| doc_view::parse(id))
             .collect();
         if !doomed.is_empty() {
@@ -837,16 +837,24 @@ impl Studio {
         let mut sources: Vec<String> = self
             .selection
             .iter()
-            .filter(|id| self.clip(id).is_some_and(|clip| !self.lane_locked(clip.lane)))
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
+            })
             .cloned()
             .collect();
         if sources.is_empty()
             && let Some(id) = self.menu_target.clone()
-            && self.clip(&id).is_some_and(|clip| !self.lane_locked(clip.lane))
+            && self
+                .clip(&id)
+                .is_some_and(|clip| !self.lane_locked(clip.lane))
         {
             sources.push(id);
         }
-        let items: Vec<ItemId> = sources.iter().filter_map(|id| doc_view::parse(id)).collect();
+        let items: Vec<ItemId> = sources
+            .iter()
+            .filter_map(|id| doc_view::parse(id))
+            .collect();
         if items.is_empty() {
             return;
         }
@@ -1119,8 +1127,8 @@ impl Studio {
     /// still on its picture, to take off, and whether it is a picture whose
     /// sound is off it - or that sound itself - to put back.
     pub(super) fn sound_placement(&self, clip: &Item) -> (bool, bool) {
-        let detached = doc_view::id_of(self.doc(), clip)
-            .is_some_and(|id| !self.detached_from(id).is_empty());
+        let detached =
+            doc_view::id_of(self.doc(), clip).is_some_and(|id| !self.detached_from(id).is_empty());
         let kind = self.kind(clip);
         let video = kind == Kind::Video;
         let tied = clip
@@ -1159,7 +1167,8 @@ mod tests {
         let first = bench.add_clip(media, lane, 0.0);
         let second = bench.add_clip(media, lane, 4.0);
         let at = doc_view::tick(2.0);
-        let command = delete_to_playhead(bench.doc(), &[first, second], at, PlayheadSide::Left, false);
+        let command =
+            delete_to_playhead(bench.doc(), &[first, second], at, PlayheadSide::Left, false);
         // Only the first runs through the playhead.
         match command {
             Some(Command::TrimClip {
@@ -1171,10 +1180,17 @@ mod tests {
             }
             other => panic!("cut as {other:?}"),
         }
-        bench.apply(&command_or_panic(
-            delete_to_playhead(bench.doc(), &[first], at, PlayheadSide::Right, true),
-        ));
-        assert_eq!(bench.doc().items.get(first).unwrap().len, doc_view::len(2.0));
+        bench.apply(&command_or_panic(delete_to_playhead(
+            bench.doc(),
+            &[first],
+            at,
+            PlayheadSide::Right,
+            true,
+        )));
+        assert_eq!(
+            bench.doc().items.get(first).unwrap().len,
+            doc_view::len(2.0)
+        );
         // Off the ends, nothing is cut: the second clip closed up behind
         // the first, and the playhead is at its head.
         let head = bench.doc().items.get(second).unwrap().start;

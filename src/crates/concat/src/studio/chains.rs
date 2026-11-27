@@ -43,26 +43,27 @@ pub(super) fn curve_of(item: &Item) -> Option<Vec<SpeedPoint>> {
     let Some(TimeMap::Keyed { first, rest, .. }) = doc_view::time_map(item) else {
         return None;
     };
-    let speed_of = |curve: &TimeCurve, a: &model::TimePoint, b: &model::TimePoint, leaving: bool| {
-        let speed = match curve {
-            TimeCurve::Smooth { leave, arrive } => {
-                if leaving {
-                    leave.display()
-                } else {
-                    arrive.display()
+    let speed_of =
+        |curve: &TimeCurve, a: &model::TimePoint, b: &model::TimePoint, leaving: bool| {
+            let speed = match curve {
+                TimeCurve::Smooth { leave, arrive } => {
+                    if leaving {
+                        leave.display()
+                    } else {
+                        arrive.display()
+                    }
                 }
-            }
-            TimeCurve::Linear | TimeCurve::Unknown(_) => {
-                let run = (b.at - a.at).get() as f64;
-                if run > 0.0 {
-                    (b.source - a.source).get() as f64 / run
-                } else {
-                    1.0
+                TimeCurve::Linear | TimeCurve::Unknown(_) => {
+                    let run = (b.at - a.at).get() as f64;
+                    if run > 0.0 {
+                        (b.source - a.source).get() as f64 / run
+                    } else {
+                        1.0
+                    }
                 }
-            }
+            };
+            speed.abs().clamp(MIN_SPEED, MAX_SPEED)
         };
-        speed.abs().clamp(MIN_SPEED, MAX_SPEED)
-    };
     let share = |point: &model::TimePoint| doc_view::share_of(item, point.at).clamp(0.0, 1.0);
     let mut points = Vec::with_capacity(rest.len() + 1);
     let mut from = first;
@@ -138,9 +139,8 @@ impl Studio {
         edit: impl Fn(&mut Vec<Effect>, &[usize]) -> bool,
     ) {
         let ids = self.edit_targets();
-        let chain_of = |clip: &Item| {
-            doc_view::chain_owned(if audio { &clip.filters } else { &clip.effects })
-        };
+        let chain_of =
+            |clip: &Item| doc_view::chain_owned(if audio { &clip.filters } else { &clip.effects });
         let Some(shown) = ids.first().and_then(|id| self.clip(id)).map(chain_of) else {
             return;
         };
@@ -250,9 +250,11 @@ impl Studio {
         let Some(row) = usize::try_from(index).ok() else {
             return;
         };
-        let Some(shown) = ids.first().and_then(|id| self.clip(id)).map(|clip| {
-            doc_view::chain_owned(if audio { &clip.filters } else { &clip.effects })
-        }) else {
+        let Some(shown) = ids
+            .first()
+            .and_then(|id| self.clip(id))
+            .map(|clip| doc_view::chain_owned(if audio { &clip.filters } else { &clip.effects }))
+        else {
             return;
         };
         let shown: Vec<&Effect> = shown.iter().collect();
@@ -343,7 +345,11 @@ impl Studio {
                 }
             }
             Some(map) => {
-                if self.curve_points.get(&item).is_some_and(|held| held.0 != map) {
+                if self
+                    .curve_points
+                    .get(&item)
+                    .is_some_and(|held| held.0 != map)
+                {
                     self.curve_points.remove(&item);
                 }
             }
@@ -795,7 +801,8 @@ impl Studio {
     /// wherever the selection has gone since, as one edit. A key told a
     /// grey - nothing to key - says so, and where a black backdrop goes.
     fn lay_picked_colour(&mut self, pick: &ColourPick, [r, g, b]: [u8; 3]) {
-        let (Some(clip), Some(item)) = (self.clip(&pick.clip), doc_view::parse::<ItemId>(&pick.clip))
+        let (Some(clip), Some(item)) =
+            (self.clip(&pick.clip), doc_view::parse::<ItemId>(&pick.clip))
         else {
             return;
         };

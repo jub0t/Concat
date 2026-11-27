@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::Halt;
-use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, place_captions};
 use concat_doc::commands::{Command, Cue};
 use concat_doc::model::{LaneId, Title};
+use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, place_captions};
 
 use crate::doc_view::{self, Kind};
 use crate::srt;
@@ -593,10 +593,10 @@ impl CaptionsPane {
             _ => None,
         };
         let speed = doc_view::speed(&clip);
-        let window = doc_view::covered(&clip)
-            .map_or_else(|| doc_view::len_s(&clip) * speed.abs(), |(_, span)| {
-                doc_view::dur_secs(span).abs()
-            });
+        let window = doc_view::covered(&clip).map_or_else(
+            || doc_view::len_s(&clip) * speed.abs(),
+            |(_, span)| doc_view::dur_secs(span).abs(),
+        );
         let Some((model, megabytes)) = installed(&studio.settings.transcribers)
             .get(self.model)
             .map(|model| (model.id.clone(), model.megabytes))

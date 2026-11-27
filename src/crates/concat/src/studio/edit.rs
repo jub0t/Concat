@@ -195,11 +195,6 @@ impl Studio {
         doc_view::lane_at_row(self.doc(), usize::try_from(row).ok()?)
     }
 
-    /// The row of the lane an id names; the top row for one not showing.
-    pub fn row_of(&self, track_id: &str) -> i32 {
-        doc_view::parse(track_id).map_or(0, |lane| self.row_of_lane(lane))
-    }
-
     /// The row of a lane; the top row for one not showing.
     pub fn row_of_lane(&self, lane: LaneId) -> i32 {
         doc_view::row_of(self.doc(), lane).map_or(0, |row| row as i32)

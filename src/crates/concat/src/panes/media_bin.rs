@@ -586,7 +586,7 @@ fn cards(doc: &Model) -> impl Iterator<Item = Card<'_>> {
     doc.media.iter().map(|(media, item)| Card {
         id: media.to_string(),
         media,
-        item: &**item,
+        item,
     })
 }
 
@@ -637,7 +637,13 @@ mod tests {
                 .unwrap_or_else(|| short.to_owned())
         }
 
-        fn add(&mut self, short: &'static str, name: &str, kind: Kind, origin: Option<MediaOrigin>) {
+        fn add(
+            &mut self,
+            short: &'static str,
+            name: &str,
+            kind: Kind,
+            origin: Option<MediaOrigin>,
+        ) {
             let media = Media {
                 path: format!("/media/{name}"),
                 name: name.to_owned(),

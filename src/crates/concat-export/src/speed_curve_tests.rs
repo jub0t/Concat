@@ -157,8 +157,14 @@ fn a_ramp_reaches_the_renderer_from_its_first_speed_to_its_last() {
             .expect("the clip");
         let first = clip.speed_curve.first().copied().expect("a curve");
         let last = clip.speed_curve.last().copied().expect("a curve");
-        assert!(first.0.abs() < 1e-9 && (first.1 - 0.5).abs() < 0.02, "{first:?}");
-        assert!((last.0 - 1.0).abs() < 1e-9 && (last.1 - 2.0).abs() < 0.05, "{last:?}");
+        assert!(
+            first.0.abs() < 1e-9 && (first.1 - 0.5).abs() < 0.02,
+            "{first:?}"
+        );
+        assert!(
+            (last.0 - 1.0).abs() < 1e-9 && (last.1 - 2.0).abs() < 0.05,
+            "{last:?}"
+        );
         // Ten seconds of source over the clip's length is its mean.
         assert!((clip.speed - 10.0 / clip.duration).abs() < 1e-3);
         assert!(clip.engine_curve().is_some());

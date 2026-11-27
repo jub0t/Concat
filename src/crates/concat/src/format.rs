@@ -336,19 +336,6 @@ pub fn when_phrase(opened_at_millis: u64) -> String {
     }
 }
 
-/// A Slint colour from a "#rrggbb" or "#rrggbbaa" string, or transparent
-/// for anything else - which is how "no plate" is stored.
-pub fn colour_of(hex: &str) -> slint::Color {
-    let digits = hex.trim().trim_start_matches('#');
-    let byte =
-        |at: usize| u8::from_str_radix(digits.get(at..at + 2).unwrap_or("00"), 16).unwrap_or(0);
-    match digits.len() {
-        6 => slint::Color::from_rgb_u8(byte(0), byte(2), byte(4)),
-        8 => slint::Color::from_argb_u8(byte(6), byte(0), byte(2), byte(4)),
-        _ => slint::Color::from_argb_u8(0, 0, 0, 0),
-    }
-}
-
 /// What a person types into a colour field: `#rgb`, `#rgba`, `#rrggbb` or
 /// `#rrggbbaa`, the hash optional, case ignored. `None` for anything else,
 /// so the field can keep what it had rather than go black.
@@ -394,28 +381,9 @@ pub fn hex_rgba(colour: slint::Color) -> String {
     }
 }
 
-/// The inverse of [`colour_of`]: "#rrggbb", "#rrggbbaa" when translucent,
-/// and an empty string for fully transparent.
-pub fn hex_with_alpha(colour: slint::Color) -> String {
-    match colour.alpha() {
-        0 => String::new(),
-        255 => hex_of(colour),
-        alpha => format!("{}{alpha:02x}", hex_of(colour)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn colours_round_trip() {
-        let lime = colour_of("#cbf53f");
-        assert_eq!(hex_of(lime), "#cbf53f");
-        assert_eq!(hex_with_alpha(lime), "#cbf53f");
-        assert_eq!(hex_with_alpha(colour_of("")), "");
-        assert_eq!(hex_with_alpha(colour_of("#000000cc")), "#000000cc");
-    }
 
     #[test]
     fn a_typed_colour_is_read_in_every_length_and_refused_otherwise() {

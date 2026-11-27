@@ -30,10 +30,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use concat_host::media;
-use concat_host::record::{self, Microphone};
 use concat_doc::commands::Command;
 use concat_doc::model::{ItemId, LaneId, MediaId};
+use concat_host::media;
+use concat_host::record::{self, Microphone};
 
 use crate::doc_view;
 use slint::ComponentHandle;
@@ -785,7 +785,13 @@ impl VoiceoverPane {
             .filter(|lane| {
                 let doc = studio.committed();
                 doc_view::lanes(doc).contains(lane)
-                    && doc_view::is_free(doc, *lane, landing, doc_view::len(landed.take.seconds), &[])
+                    && doc_view::is_free(
+                        doc,
+                        *lane,
+                        landing,
+                        doc_view::len(landed.take.seconds),
+                        &[],
+                    )
             });
         let clip = match lane {
             Some(lane) => studio.apply(Command::AddClip {
@@ -800,7 +806,8 @@ impl VoiceoverPane {
             }),
         };
         if let Some(clip) = clip.and_then(|id| id.typed::<ItemId>()) {
-            self.lane = doc_view::item(studio.committed(), clip).map(|placed| placed.lane.to_string());
+            self.lane =
+                doc_view::item(studio.committed(), clip).map(|placed| placed.lane.to_string());
             self.last = Some(Last {
                 media_id,
                 start: landed.take.start,

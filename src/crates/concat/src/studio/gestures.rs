@@ -84,7 +84,6 @@ impl Studio {
                 edge: if edge == 0 { Edge::Start } else { Edge::End },
                 start: doc_view::start_s(&clip) as f32,
                 duration: doc_view::len_s(&clip) as f32,
-                source_start: doc_view::in_point_s(&clip) as f32,
                 started: false,
             };
             return;
@@ -105,7 +104,6 @@ impl Studio {
                 let clip = self.clip(clip_id)?;
                 Some(MoveOrigin {
                     clip: clip_id.clone(),
-                    start: doc_view::start_s(clip),
                     row: self.row_of_lane(clip.lane),
                 })
             })
@@ -121,8 +119,8 @@ impl Studio {
     /// The echo as the document would be after `command`, by the
     /// document's own rules; the document as it is when they refuse it.
     fn preview_edit(&mut self, command: &Command) {
-        let shown =
-            doc_view::preview(&self.document, command).unwrap_or_else(|| Doc::clone(&self.document));
+        let shown = doc_view::preview(&self.document, command)
+            .unwrap_or_else(|| Doc::clone(&self.document));
         self.echo = Some(shown);
     }
 
@@ -191,11 +189,8 @@ impl Studio {
                     })
                     .collect();
                 let ids: Vec<ItemId> = before.iter().map(|(id, _)| *id).collect();
-                let command = doc_view::sweep_strays(
-                    &self.document,
-                    Command::MoveClips { moves },
-                    &ids,
-                );
+                let command =
+                    doc_view::sweep_strays(&self.document, Command::MoveClips { moves }, &ids);
                 // The echo shows where the clips will land by the
                 // document's own rule, or back where they started when it
                 // would refuse the move.
@@ -410,7 +405,13 @@ mod tests {
     #[test]
     fn a_group_keeps_its_shape_against_the_start() {
         let starts = [tick(1.0), tick(3.0)];
-        assert_eq!(shifted_starts(&starts, dur(2.0)), vec![tick(3.0), tick(5.0)]);
-        assert_eq!(shifted_starts(&starts, dur(-4.0)), vec![tick(0.0), tick(2.0)]);
+        assert_eq!(
+            shifted_starts(&starts, dur(2.0)),
+            vec![tick(3.0), tick(5.0)]
+        );
+        assert_eq!(
+            shifted_starts(&starts, dur(-4.0)),
+            vec![tick(0.0), tick(2.0)]
+        );
     }
 }

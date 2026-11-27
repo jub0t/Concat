@@ -354,7 +354,10 @@ impl Studio {
         }
         self.selection
             .iter()
-            .filter(|id| self.clip(id).is_some_and(|clip| !self.lane_locked(clip.lane)))
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
+            })
             .cloned()
             .collect()
     }
@@ -458,7 +461,11 @@ impl Studio {
     /// A catalogue filter or effect, applied to the selected clip's chain.
     pub fn apply_catalogue(&mut self, id: &str, video: bool) {
         let ids = self.edit_targets();
-        let Some(first) = ids.first().and_then(|id| self.clip(id)).map(|c| self.kind(c)) else {
+        let Some(first) = ids
+            .first()
+            .and_then(|id| self.clip(id))
+            .map(|c| self.kind(c))
+        else {
             self.notify(&t("studio.selectClipTimelineFirst"), true);
             return;
         };

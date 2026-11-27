@@ -75,8 +75,11 @@ impl MaskAt {
     /// A new mask of `shape`, as it starts.
     #[cfg(test)]
     pub fn of_shape(shape: MaskShape) -> MaskAt {
-        MaskAt::of(&doc_view::mask_of(doc_view::new_mask_id(), shape), Tick::ZERO)
-            .expect("a shape is a shape")
+        MaskAt::of(
+            &doc_view::mask_of(doc_view::new_mask_id(), shape),
+            Tick::ZERO,
+        )
+        .expect("a shape is a shape")
     }
 
     /// The numbers a drag can change, sizes back at a scale of one.

@@ -100,8 +100,8 @@ impl Studio {
     /// project already carries, or one that is not the app's to register.
     pub(super) fn ensure_font(&mut self, family: &str) {
         let family = family.trim().trim_matches('"');
-        let carried = self.session.is_some()
-            && self.doc().fonts.iter().any(|font| font.family == family);
+        let carried =
+            self.session.is_some() && self.doc().fonts.iter().any(|font| font.family == family);
         if carried {
             return;
         }
@@ -278,7 +278,8 @@ impl Studio {
         self.begin_echo();
         self.echo_edit(id, |clip| {
             if let Some(text) = doc_view::title_mut(clip) {
-                text.runs = doc_view::restyle_runs(&text.runs, start as u32, end as u32, Some(patch));
+                text.runs =
+                    doc_view::restyle_runs(&text.runs, start as u32, end as u32, Some(patch));
             }
         });
     }

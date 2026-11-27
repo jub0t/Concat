@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 use concat_core::Halt;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
-use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_doc::model::{Stroke, Subject};
+use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_vision::{
     Brush, Embedding, MASK_RATE, Mask, MaskStore, ModelId, mask_dir, models, region_dir,
 };

@@ -29,9 +29,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use concat_core::Halt;
 use concat_core::time::{FrameRate, Rational};
-use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_doc::model::{Model, Subject};
 use concat_export::ClipKind;
+use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_vision::segment::Kind;
 use concat_vision::{MASK_RATE, MaskStore, ModelId, Segmenter, mask_dir, models};
 
@@ -188,7 +188,10 @@ impl Cutouts {
                     AnalyseRequest {
                         project: project_dir.to_path_buf(),
                         media_path: clip.path.clone(),
-                        media_size: (clip.media_width.unwrap_or(0), clip.media_height.unwrap_or(0)),
+                        media_size: (
+                            clip.media_width.unwrap_or(0),
+                            clip.media_height.unwrap_or(0),
+                        ),
                         still: clip.kind == ClipKind::Image,
                         subject: cutout.subject.clone(),
                         ranges: vec![range],

@@ -13,7 +13,7 @@
 //! around the three is the JSON-RPC 2.0 envelope in [`rpc`].
 //!
 //! The crate decides nothing about the edit either. Edits are
-//! `concat_project` [`Command`]s carried as they are; projects, media,
+//! `concat_doc` commands, as [`Command`] carries them; projects, media,
 //! templates, titles, cutouts and exports are `concat_host`'s. What this
 //! crate owns is the choreography the window performs by hand - probe then
 //! add, find masks and paint titles before rendering, save through the
@@ -43,6 +43,9 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use concat_core::Halt;
+use concat_doc::commands::Command as DocCommand;
+use concat_doc::model::{self as dm, ItemId, Model};
+use concat_doc::{AnyId, Document};
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind;
 use concat_export::{ExportClip, ExportRequest};
@@ -53,16 +56,13 @@ use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
-use concat_doc::commands::Command as DocCommand;
-use concat_doc::model::{self as dm, ItemId, Model};
-use concat_doc::{AnyId, Document};
 pub use wire::{Command, VideoSettings};
 
 pub use message::{
     API_VERSION, ApiError, CaptionSegment, ClipBounds, Dirs, Done, EditorView, ErrorCode, Event,
-    ExportSpec, SettingsView,
-    Fill, JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, PeaksInfo, Picture,
-    Reply, Request, Response, ShapeCard, Started, VersionInfo, VoiceItem, Written,
+    ExportSpec, Fill, JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo,
+    PeaksInfo, Picture, Reply, Request, Response, SettingsView, ShapeCard, Started, VersionInfo,
+    VoiceItem, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -78,7 +78,7 @@ const CAPABILITIES: &[&str] = &["events", "captions", "models", "speech"];
 /// The JSON Schema of [`Request`]: one alternative per method, each the
 /// object its params are with `method` naming it, and every type a request
 /// carries - an edit [`Command`] and all it holds - under `$defs`. The
-/// descriptions are this crate's and `concat_project`'s doc comments, so
+/// descriptions are this crate's and `concat_doc`'s doc comments, so
 /// what a caller is told about a field is what its maintainer wrote next
 /// to it. Generated, never written by hand: a method or a command field
 /// added to the types is in the schema on the next build.
@@ -473,9 +473,9 @@ impl Api {
             }
             Request::ProjectList => Ok(Reply::Projects(self.recents())),
             Request::ProjectGet { path } => view(view_of(self.session(&path)?, None)),
-            Request::ProjectDocument { path } => {
-                Ok(Reply::Document(document_json(&self.session(&path)?.document())))
-            }
+            Request::ProjectDocument { path } => Ok(Reply::Document(document_json(
+                &self.session(&path)?.document(),
+            ))),
             Request::ProjectSave { path, name } => {
                 self.save(&path, name.as_deref())?;
                 Ok(Reply::Done(Done {}))
@@ -483,9 +483,9 @@ impl Api {
             Request::ProjectSetVideo { path, video } => {
                 let frame = video.doc().map_err(ApiError::invalid)?;
                 let session = self.session(&path)?;
-                let sequence = session
-                    .showing()
-                    .ok_or_else(|| ApiError::new(ErrorCode::Refused, "There is no timeline open"))?;
+                let sequence = session.showing().ok_or_else(|| {
+                    ApiError::new(ErrorCode::Refused, "There is no timeline open")
+                })?;
                 view(self.apply_doc(&path, DocCommand::SetTimelineVideo { sequence, frame })?)
             }
             Request::EditApply { path, command } => view(self.apply(&path, *command)?),
@@ -915,11 +915,10 @@ impl Api {
 
         let project_path = session.path().to_owned();
         let project_dir = PathBuf::from(&project_path);
-        let masks: Vec<(String, AnalyseRequest)> =
-            Cutouts::requests(&document, &project_dir)
-                .into_iter()
-                .filter(|(_, request)| Cutouts::outstanding(request) != 0)
-                .collect();
+        let masks: Vec<(String, AnalyseRequest)> = Cutouts::requests(&document, &project_dir)
+            .into_iter()
+            .filter(|(_, request)| Cutouts::outstanding(request) != 0)
+            .collect();
         let steadies: Vec<(String, StabilizeRequest)> =
             Stabilizers::requests(&document, &project_dir)
                 .into_iter()
@@ -1086,8 +1085,12 @@ impl Api {
                 picture_cover(&file, width, height)?
             }
             Some(dm::Cover::Frame { into }) => {
-                self.pixels(path, into.display_seconds().min(length), Some((width, height)))?
-                    .2
+                self.pixels(
+                    path,
+                    into.display_seconds().min(length),
+                    Some((width, height)),
+                )?
+                .2
             }
             _ => {
                 self.pixels(path, early_frame(length), Some((width, height)))?
@@ -2111,18 +2114,27 @@ fn facts(document: &Model, clip_id: &str) -> Result<Facts, ApiError> {
     let item = document.items.get(id).ok_or_else(no_clip)?;
     let start = item.start.display_seconds();
     let duration = concat_doc::TickDur::from(item.len).display_seconds();
-    let (mut kind, mut media, mut stream, mut source_start, mut speed) = (None, None, None, 0.0, 1.0);
+    let (mut kind, mut media, mut stream, mut source_start, mut speed) =
+        (None, None, None, 0.0, 1.0);
     if let dm::Content::Media(cut) = &item.content {
-        let file = document.media.get(cut.media).map(|file| file.as_ref().clone());
-        kind = file.as_ref().and_then(|file| match (&file.kind, &cut.take) {
-            (dm::MediaKind::Audio, _) | (_, dm::Take::Sound) => Some(ClipKind::Audio),
-            (dm::MediaKind::Image, _) => Some(ClipKind::Image),
-            (dm::MediaKind::Video, _) => Some(ClipKind::Video),
-            _ => None,
-        });
+        let file = document
+            .media
+            .get(cut.media)
+            .map(|file| file.as_ref().clone());
+        kind = file
+            .as_ref()
+            .and_then(|file| match (&file.kind, &cut.take) {
+                (dm::MediaKind::Audio, _) | (_, dm::Take::Sound) => Some(ClipKind::Audio),
+                (dm::MediaKind::Image, _) => Some(ClipKind::Image),
+                (dm::MediaKind::Video, _) => Some(ClipKind::Video),
+                _ => None,
+            });
         media = file;
         stream = cut.stream;
-        let from = cut.time.source_of(item.offset).map_or(0.0, |t| t.display_seconds());
+        let from = cut
+            .time
+            .source_of(item.offset)
+            .map_or(0.0, |t| t.display_seconds());
         let to = cut
             .time
             .source_of(item.offset + item.len)
@@ -2599,7 +2611,11 @@ mod tests {
             ok(api.dispatch(request));
         }
         let (_, clip) = clips(&api, &path).remove(0);
-        let mask = clip.masks.iter().find_map(dm::Entry::known).expect("a mask");
+        let mask = clip
+            .masks
+            .iter()
+            .find_map(dm::Entry::known)
+            .expect("a mask");
         let dm::MaskSource::Shape { shape, width, .. } = &mask.source else {
             panic!("a shape");
         };

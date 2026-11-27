@@ -24,9 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use concat_core::Halt;
-use concat_host::sounds::{self, Catalogue, Library, Sound};
 use concat_doc::commands::Command;
 use concat_doc::model::MediaId;
+use concat_host::sounds::{self, Catalogue, Library, Sound};
 use slint::SharedString;
 
 use crate::i18n::{t, tf};

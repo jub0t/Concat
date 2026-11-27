@@ -229,7 +229,10 @@ fn read_info(root: &Path) -> Result<TemplateInfo, String> {
         .map_err(|error| format!("could not read {}: {error}", manifest.display()))?;
     let manifest: Manifest = serde_json::from_slice(&bytes)
         .map_err(|error| format!("{} is not a template: {error}", manifest.display()))?;
-    if manifest.width == 0 || manifest.height == 0 || manifest.rate_num <= 0 || manifest.rate_den <= 0
+    if manifest.width == 0
+        || manifest.height == 0
+        || manifest.rate_num <= 0
+        || manifest.rate_den <= 0
     {
         return Err("the template names no usable output format".to_owned());
     }
@@ -308,7 +311,11 @@ pub fn instantiate(
     let unfilled = info
         .slots
         .iter()
-        .filter(|slot| !fills.iter().any(|fill| fill.media_id.to_string() == slot.media_id))
+        .filter(|slot| {
+            !fills
+                .iter()
+                .any(|fill| fill.media_id.to_string() == slot.media_id)
+        })
         .count();
     if unfilled > 0 {
         return Err(format!("{unfilled} slot(s) still need a clip"));
@@ -330,7 +337,12 @@ pub fn instantiate(
     copy_assets(&bundle.join(ASSETS), &root.join(ASSETS))?;
     let local = |path: &str| -> Option<String> {
         let relative = path.strip_prefix(&format!("{ASSETS}/"))?;
-        Some(root.join(ASSETS).join(relative).to_string_lossy().into_owned())
+        Some(
+            root.join(ASSETS)
+                .join(relative)
+                .to_string_lossy()
+                .into_owned(),
+        )
     };
     let mut draft = document.begin("Unpack template", Origin(0));
     let ids: Vec<MediaId> = draft.media.ids().collect();
@@ -495,13 +507,26 @@ mod tests {
             path: music.to_string_lossy().into_owned(),
         });
 
-        let info = save(&config, &doc.0, &hd(), &project.to_string_lossy(), "Beat Intro")
-            .expect("saves");
+        let info = save(
+            &config,
+            &doc.0,
+            &hd(),
+            &project.to_string_lossy(),
+            "Beat Intro",
+        )
+        .expect("saves");
         assert_eq!(info.name, "Beat Intro");
         assert_eq!(info.slots.len(), 1, "only the placeholder is a slot");
         assert_eq!(info.slots[0].media_id, a.to_string());
         assert!(
-            save(&config, &doc.0, &hd(), &project.to_string_lossy(), "Beat Intro").is_err(),
+            save(
+                &config,
+                &doc.0,
+                &hd(),
+                &project.to_string_lossy(),
+                "Beat Intro"
+            )
+            .is_err(),
             "the same name again is refused, not overwritten"
         );
         let bundle = PathBuf::from(&info.path);
@@ -526,7 +551,10 @@ mod tests {
             .expect("reads back")
             .expect("a document");
         let sound = &opened.media.get(b).expect("b").path;
-        assert!(Path::new(sound).is_absolute() && Path::new(sound).is_file(), "{sound}");
+        assert!(
+            Path::new(sound).is_absolute() && Path::new(sound).is_file(),
+            "{sound}"
+        );
         let filled = opened.media.get(a).expect("a");
         assert!(!filled.placeholder && filled.path == "/mine/clip.mp4");
         assert_eq!(filled.kind, MediaKind::Video);

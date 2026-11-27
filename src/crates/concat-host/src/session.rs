@@ -232,7 +232,10 @@ impl Session {
             .view
             .showing
             .and_then(|showing| document.sequences.get(showing))
-            .map_or_else(|| self.settings.frame.clone(), |sequence| sequence.frame.clone())
+            .map_or_else(
+                || self.settings.frame.clone(),
+                |sequence| sequence.frame.clone(),
+            )
     }
 
     /// The document as it stands: a snapshot, one pointer to copy, that
@@ -433,8 +436,8 @@ pub fn settings_of(info: &projects::ProjectInfo) -> Result<ProjectSettings, Stri
 /// with its lanes, showing.
 fn fresh(frame: &Frame) -> Result<Document<Model>, String> {
     let empty = Document::<Model>::new();
-    let made = commands::run(&empty, &Command::AddTimeline, ORIGIN)
-        .map_err(|error| error.to_string())?;
+    let made =
+        commands::run(&empty, &Command::AddTimeline, ORIGIN).map_err(|error| error.to_string())?;
     let mut document = made.commit.map_or(empty, |commit| commit.into_document());
     if let Some(sequence) = document.view.showing {
         let framed = commands::run(
@@ -530,7 +533,9 @@ pub(crate) fn upgrade_links(document: Document<Model>) -> (Document<Model>, Vec<
     match draft.commit() {
         Ok(commit) => (commit.into_document(), upgraded),
         Err(error) => {
-            log::warn!("project: the retired effects could not be read as their stand-ins: {error}");
+            log::warn!(
+                "project: the retired effects could not be read as their stand-ins: {error}"
+            );
             (document, Vec::new())
         }
     }
@@ -603,7 +608,10 @@ mod tests {
         assert_eq!(reopened.name(), "Renamed", "the manifest took the new name");
         assert!(reopened.notes().is_empty());
         assert!(reopened.document().same_content(&session.document()));
-        assert!(!reopened.can_undo(), "history is the session's, not the file's");
+        assert!(
+            !reopened.can_undo(),
+            "history is the session's, not the file's"
+        );
     }
 
     #[test]

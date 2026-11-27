@@ -17,12 +17,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use concat_doc::model::MediaKind;
 use concat_host::export::Exporter;
 use concat_host::jobs::sched;
 pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_host::playback::{Playback, PlaybackEvents};
 use concat_host::preview::Monitor;
-use concat_doc::model::MediaKind;
 use concat_host::{AppDirs, media};
 use concat_speech::{Speech, Transcriber};
 
@@ -757,13 +757,7 @@ pub struct CachedMediaArt {
 /// The cache key includes the media id plus the source file's size and mtime,
 /// so replacing a file with the same project media id naturally misses and
 /// regenerates fresh artwork.
-pub fn cached_media_art(
-    project: &str,
-    id: &str,
-    path: &str,
-    kind: MediaKind,
-) -> CachedMediaArt {
-
+pub fn cached_media_art(project: &str, id: &str, path: &str, kind: MediaKind) -> CachedMediaArt {
     if kind == MediaKind::Audio {
         return CachedMediaArt {
             thumbnail: None,

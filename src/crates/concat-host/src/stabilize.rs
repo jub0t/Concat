@@ -26,9 +26,9 @@ use std::sync::Arc;
 
 use concat_core::Halt;
 use concat_core::time::Rational;
-use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_doc::model::Model;
 use concat_export::ClipKind;
+use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_vision::stabilize::track::{Gray, Measured, Tracker};
 use concat_vision::stabilize::{ANALYSIS_SIDE, FrameMotion, Motion, Similarity, Step, motion_dir};
 

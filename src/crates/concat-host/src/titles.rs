@@ -471,9 +471,7 @@ impl Titles {
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: match painting {
-                        Painting::Title(text) => {
-                            (base.opacity * text.opacity).clamp(0.0, 1.0)
-                        }
+                        Painting::Title(text) => (base.opacity * text.opacity).clamp(0.0, 1.0),
                         Painting::Shape(_) => base.opacity.clamp(0.0, 1.0),
                     },
                     // The canvas, which is the frame's size unless the
@@ -1121,7 +1119,6 @@ fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
         trim_end: style.trim_end,
     }
 }
-
 
 #[cfg(test)]
 mod tests {

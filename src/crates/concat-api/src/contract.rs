@@ -151,12 +151,7 @@ mod tests {
         assert_eq!(replies.len(), variants.len(), "every method is named");
         assert!(replies.contains_key("edit.apply") && replies.contains_key("preview.frame"));
         let defs = contract["$defs"].as_object().expect("defs");
-        for name in [
-            "Command",
-            "EditorView",
-            "ShapeStyle",
-            "Event",
-        ] {
+        for name in ["Command", "EditorView", "ShapeStyle", "Event"] {
             assert!(defs.contains_key(name), "{name} is defined");
         }
         let text = contract.to_string();

@@ -104,7 +104,10 @@ pub(crate) fn ease(build: &mut Build, place: &str, value: Option<&Value>) -> Eas
             "out" | "easeOut" => bezier(0.0, 0.0, 0.58, 1.0),
             "inOut" | "easeInOut" => bezier(0.42, 0.0, 0.58, 1.0),
             _ => {
-                build.note(place, format!("a key's easing \"{name}\" is not known; it is kept as it was"));
+                build.note(
+                    place,
+                    format!("a key's easing \"{name}\" is not known; it is kept as it was"),
+                );
                 Ease::Unknown(build.raw(&Value::String(name.clone())))
             }
         },
@@ -129,7 +132,10 @@ pub(crate) fn ease(build: &mut Build, place: &str, value: Option<&Value>) -> Eas
 }
 
 fn unknown_ease(build: &mut Build, place: &str, value: Option<&Value>) -> Ease {
-    build.note(place, "a key's easing could not be read; it is kept as it was");
+    build.note(
+        place,
+        "a key's easing could not be read; it is kept as it was",
+    );
     Ease::Unknown(build.raw(value.unwrap_or(&Value::Null)))
 }
 

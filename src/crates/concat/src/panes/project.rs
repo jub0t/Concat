@@ -84,7 +84,12 @@ impl ProjectPane {
                     custom_size: (width, height),
                     custom_rate: (num, den),
                     color_space: frame.color.clone(),
-                    canvas: [frame.canvas.r, frame.canvas.g, frame.canvas.b, frame.canvas.a],
+                    canvas: [
+                        frame.canvas.r,
+                        frame.canvas.g,
+                        frame.canvas.b,
+                        frame.canvas.a,
+                    ],
                 };
             }
             ProjectMsg::Close => self.open = false,

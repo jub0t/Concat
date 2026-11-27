@@ -72,11 +72,10 @@ impl Studio {
                 }
                 _ => value,
             };
-            let steadied_anew = (field == ClipField::Stabilize
-                && value != 0.0
-                && clip.picture.stabilize.is_none())
-            .then(|| doc_view::media_id(clip))
-            .flatten();
+            let steadied_anew =
+                (field == ClipField::Stabilize && value != 0.0 && clip.picture.stabilize.is_none())
+                    .then(|| doc_view::media_id(clip))
+                    .flatten();
             if let Some(media) = steadied_anew {
                 // Turned on anew: a measurement the app died in is tried
                 // again, since the person asked.
@@ -205,14 +204,7 @@ fn text_style_field(field: ClipField) -> bool {
 /// echo, `at` the playhead's place on its content time - where a keyed
 /// number is written, as a key - and `streams` its file's sound streams,
 /// for the Audio panel's list.
-fn set_field(
-    clip: &mut Item,
-    kind: Kind,
-    field: ClipField,
-    value: f64,
-    at: Tick,
-    streams: &[u32],
-) {
+fn set_field(clip: &mut Item, kind: Kind, field: ClipField, value: f64, at: Tick, streams: &[u32]) {
     match field {
         // The Mask section's, which `mask_set` took before this.
         ClipField::MaskShape
@@ -246,18 +238,12 @@ fn set_field(
         ClipField::StretchY => {
             write_keyable(clip, KeyProperty::StretchY, value.clamp(0.1, 10.0), at)
         }
-        ClipField::OffsetX => {
-            write_keyable(clip, KeyProperty::OffsetX, value.clamp(-1.0, 1.0), at)
-        }
-        ClipField::OffsetY => {
-            write_keyable(clip, KeyProperty::OffsetY, value.clamp(-1.0, 1.0), at)
-        }
+        ClipField::OffsetX => write_keyable(clip, KeyProperty::OffsetX, value.clamp(-1.0, 1.0), at),
+        ClipField::OffsetY => write_keyable(clip, KeyProperty::OffsetY, value.clamp(-1.0, 1.0), at),
         ClipField::Rotation => {
             write_keyable(clip, KeyProperty::Rotation, value.clamp(-180.0, 180.0), at)
         }
-        ClipField::Opacity => {
-            write_keyable(clip, KeyProperty::Opacity, value.clamp(0.0, 1.0), at)
-        }
+        ClipField::Opacity => write_keyable(clip, KeyProperty::Opacity, value.clamp(0.0, 1.0), at),
         ClipField::CutoutFeather => {
             clip.picture
                 .cutout
@@ -741,7 +727,11 @@ mod tests {
         set_words(&mut text, "oh a big cat".to_owned(), Some(3));
         assert_eq!(spans(&text), vec![(5, 8)], "typed before it moves it");
         set_words(&mut text, "oh a bigger cat".to_owned(), Some(11));
-        assert_eq!(spans(&text), vec![(5, 11)], "typed on from its end is its own");
+        assert_eq!(
+            spans(&text),
+            vec![(5, 11)],
+            "typed on from its end is its own"
+        );
         set_words(&mut text, "oh a bigger cat!".to_owned(), Some(16));
         assert_eq!(spans(&text), vec![(5, 11)], "typed after it leaves it");
         set_words(&mut text, "oh a bier cat!".to_owned(), Some(7));

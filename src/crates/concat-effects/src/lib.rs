@@ -69,7 +69,6 @@ pub enum Error {
 mod tests {
     use std::collections::BTreeMap;
 
-
     use super::*;
 
     fn applied(id: &str, params: &[(&str, f64)]) -> AppliedFilter {

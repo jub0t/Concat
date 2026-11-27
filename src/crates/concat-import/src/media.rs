@@ -48,7 +48,10 @@ pub(crate) fn color_space(build: &mut Build, name: Option<&str>) -> ColorSpace {
 
 /// Every file of the bin, each under a new id, and the old ids that name
 /// them.
-pub(crate) fn bin(build: &mut Build, list: &[Value]) -> Result<HashMap<String, MediaId>, ImportError> {
+pub(crate) fn bin(
+    build: &mut Build,
+    list: &[Value],
+) -> Result<HashMap<String, MediaId>, ImportError> {
     let mut ids: HashMap<String, MediaId> = HashMap::with_capacity(list.len());
     for value in list {
         let mut f = Fields::of(value);
@@ -60,7 +63,10 @@ pub(crate) fn bin(build: &mut Build, list: &[Value]) -> Result<HashMap<String, M
         kept.rest("", &f);
         if !kept.is_empty() {
             let names = kept.names().join(", ");
-            build.note(&place, format!("kept {names}, which this version has no place for"));
+            build.note(
+                &place,
+                format!("kept {names}, which this version has no place for"),
+            );
         }
         let media = Media {
             residual: kept.residual(&mut build.words),
@@ -72,13 +78,14 @@ pub(crate) fn bin(build: &mut Build, list: &[Value]) -> Result<HashMap<String, M
             .media
             .insert(id, media)
             .map_err(|error| ImportError::Rejected(error.to_string()))?;
-        if ids.contains_key(&old) {
-            build.note(
+        match ids.entry(old) {
+            std::collections::hash_map::Entry::Occupied(_) => build.note(
                 &place,
                 "its id is another file's too; the clips that name it play the first",
-            );
-        } else {
-            ids.insert(old, id);
+            ),
+            std::collections::hash_map::Entry::Vacant(free) => {
+                free.insert(id);
+            }
         }
     }
     Ok(ids)

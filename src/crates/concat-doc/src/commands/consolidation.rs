@@ -112,21 +112,25 @@ pub fn consolidation(model: &Model, items: &[ItemId]) -> Result<Vec<ItemId>, Str
             .any(|(id, start, end)| {
                 start < to
                     && end > from
-                    && model.items.get(id).is_some_and(|item| !is_sound(model, item))
+                    && model
+                        .items
+                        .get(id)
+                        .is_some_and(|item| !is_sound(model, item))
             });
         if covered {
-            return refuse("Clips above other visible content cannot be merged into an opaque video.");
+            return refuse(
+                "Clips above other visible content cannot be merged into an opaque video.",
+            );
         }
     }
-    let after_edge = model
-        .items
-        .index()
-        .on_lane(lane)
-        .any(|(id, start, _)| {
-            start == to
-                && !selected.contains(&id)
-                && model.items.get(id).is_some_and(|item| item.cut_in.is_some())
-        });
+    let after_edge = model.items.index().on_lane(lane).any(|(id, start, _)| {
+        start == to
+            && !selected.contains(&id)
+            && model
+                .items
+                .get(id)
+                .is_some_and(|item| item.cut_in.is_some())
+    });
     if clips[0].1.cut_in.is_some() || after_edge {
         return refuse("Include both sides of a transition in the merge.");
     }

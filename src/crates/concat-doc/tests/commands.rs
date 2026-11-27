@@ -1778,7 +1778,10 @@ fn keys_that_were_not_drawn_show_a_point_each() {
     let shown = speed_graph(bare).unwrap();
     assert_eq!(shown.len(), keys.len());
     for (point, key) in shown.iter().zip(&keys) {
-        assert_eq!(point.at, (key.at - i.offset).get() as f64 / i.len.get() as f64);
+        assert_eq!(
+            point.at,
+            (key.at - i.offset).get() as f64 / i.len.get() as f64
+        );
         assert_eq!(point.speed, time_of(bare).pace_at(key.at).unwrap());
         assert_eq!(point.slope, None);
     }

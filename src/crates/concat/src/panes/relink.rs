@@ -130,9 +130,7 @@ impl RelinkPane {
         let Some(media) = crate::doc_view::parse::<MediaId>(id) else {
             return;
         };
-        studio.apply(Command::RemoveMedia {
-            media,
-        });
+        studio.apply(Command::RemoveMedia { media });
         self.items.retain(|item| item.id != id);
         self.dismissed.remove(id);
         if self.items.is_empty() {

@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use concat_doc::model::{Cover, Font, ItemId, Media, MediaKind, Model, Rule, SequenceId};
-use concat_doc::{Document, Mint, Revision, Rejected, TypedId, Writer};
+use concat_doc::{Document, Mint, Rejected, Revision, TypedId, Writer};
 use serde_json::Value;
 
 pub use concat_doc::file::Note;
@@ -70,10 +70,16 @@ pub enum ImportError {
 impl fmt::Display for ImportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ImportError::NotJson(why) => write!(f, "the project's file is not readable JSON: {why}"),
+            ImportError::NotJson(why) => {
+                write!(f, "the project's file is not readable JSON: {why}")
+            }
             ImportError::NotAnEdit => f.write_str("the file is not a project of an earlier Concat"),
-            ImportError::TooLarge => f.write_str("the project holds more than a document can count"),
-            ImportError::Rejected(why) => write!(f, "the project could not be made into a document: {why}"),
+            ImportError::TooLarge => {
+                f.write_str("the project holds more than a document can count")
+            }
+            ImportError::Rejected(why) => {
+                write!(f, "the project could not be made into a document: {why}")
+            }
         }
     }
 }
@@ -133,11 +139,25 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
     let lone = serde_json::json!({ "id": "TL1", "name": "Timeline 1" });
     let mut made = Vec::new();
     if timelines.is_empty() {
-        let tracks: &[Value] = if top_tracks.is_empty() { STARTER.as_slice() } else { top_tracks };
-        made.push(timeline::timeline(&mut build, &bin, &lone, tracks, top_clips, top_video, 1)?);
+        let tracks: &[Value] = if top_tracks.is_empty() {
+            STARTER.as_slice()
+        } else {
+            top_tracks
+        };
+        made.push(timeline::timeline(
+            &mut build, &bin, &lone, tracks, top_clips, top_video, 1,
+        )?);
     } else {
         for (at, line) in timelines.iter().enumerate() {
-            made.push(timeline::timeline(&mut build, &bin, line, &[], &[], top_video, at + 1)?);
+            made.push(timeline::timeline(
+                &mut build,
+                &bin,
+                line,
+                &[],
+                &[],
+                top_video,
+                at + 1,
+            )?);
         }
         // The top-level clips are the showing timeline's, written twice.
         let showing = timelines
@@ -145,7 +165,11 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
             .find(|t| t.get("id").and_then(Value::as_str) == Some(active.as_str()));
         if let Some(showing) = showing
             && !top_clips.is_empty()
-            && showing.get("clips").and_then(Value::as_array).map(Vec::as_slice) != Some(top_clips)
+            && showing
+                .get("clips")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                != Some(top_clips)
         {
             build.note(
                 "",
@@ -167,7 +191,9 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
     for (at, font) in top.list("fonts").iter().enumerate() {
         let mut f = Fields::of(font);
         match (f.str("family"), f.str("path")) {
-            (Some(family), Some(path)) if !build.model.fonts.iter().any(|font| font.path == path) => {
+            (Some(family), Some(path))
+                if !build.model.fonts.iter().any(|font| font.path == path) =>
+            {
                 build.model.fonts.push(Font {
                     family: family.to_owned(),
                     path: path.to_owned(),
@@ -190,7 +216,10 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
     kept.rest("", &top);
     if !kept.is_empty() {
         let names = kept.names().join(", ");
-        build.note("", format!("kept {names}, which this version has no place for"));
+        build.note(
+            "",
+            format!("kept {names}, which this version has no place for"),
+        );
     }
     build.model.residual = kept.residual(&mut build.words);
 
@@ -253,7 +282,10 @@ fn cover(build: &mut Build, value: &Value) -> Result<Option<Cover>, ImportError>
                         .media
                         .insert(id, still)
                         .map_err(|error| ImportError::Rejected(error.to_string()))?;
-                    build.note("the cover", "its picture is in the bin now, where a cover's picture is kept");
+                    build.note(
+                        "the cover",
+                        "its picture is in the bin now, where a cover's picture is kept",
+                    );
                     id
                 }
             };
@@ -269,7 +301,10 @@ fn cover(build: &mut Build, value: &Value) -> Result<Option<Cover>, ImportError>
 /// The document: checked against every rule as a file is. A clip that
 /// breaks one is set aside, kept whole and inert on a lane of its own,
 /// and said; then the rest is checked again.
-fn finish(build: &mut Build, sources: &HashMap<ItemId, &Value>) -> Result<Document<Model>, ImportError> {
+fn finish(
+    build: &mut Build,
+    sources: &HashMap<ItemId, &Value>,
+) -> Result<Document<Model>, ImportError> {
     for _ in 0..8 {
         let mut counts: BTreeMap<Writer, u64> = build.words.highest.clone();
         let own = counts.entry(Writer::LOCAL).or_insert(0);
@@ -287,7 +322,9 @@ fn finish(build: &mut Build, sources: &HashMap<ItemId, &Value>) -> Result<Docume
             let Some(id) = violation.id else {
                 return Err(ImportError::Rejected(format!("{violation}")));
             };
-            let item = id.typed::<ItemId>().or_else(|| build.model.items.index().holding(id).next());
+            let item = id
+                .typed::<ItemId>()
+                .or_else(|| build.model.items.index().holding(id).next());
             match item {
                 Some(item) if !aside.contains(&item) => aside.push(item),
                 Some(_) => {}
@@ -295,7 +332,12 @@ fn finish(build: &mut Build, sources: &HashMap<ItemId, &Value>) -> Result<Docume
             }
         }
         for item in aside {
-            let name = build.model.items.get(item).map(|i| i.name.clone()).unwrap_or_default();
+            let name = build
+                .model
+                .items
+                .get(item)
+                .map(|i| i.name.clone())
+                .unwrap_or_default();
             let why: Vec<String> = violations
                 .iter()
                 .filter(|v| v.id == Some(item.any()))
@@ -308,7 +350,9 @@ fn finish(build: &mut Build, sources: &HashMap<ItemId, &Value>) -> Result<Docume
             timeline::set_aside(build, item, sources.get(&item).copied())?;
         }
     }
-    Err(ImportError::Rejected("clips kept breaking the document's rules".to_owned()))
+    Err(ImportError::Rejected(
+        "clips kept breaking the document's rules".to_owned(),
+    ))
 }
 
 fn describe(rule: &Rule) -> String {

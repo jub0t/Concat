@@ -21,10 +21,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use concat_core::Halt;
-use concat_host::media::{self, MediaSummary};
-use concat_host::voices::{self, Heard, SavedVoice};
 use concat_doc::commands::{Command, ItemPatch};
 use concat_doc::model::{ItemId, Media, MediaId, MediaOrigin};
+use concat_host::media::{self, MediaSummary};
+use concat_host::voices::{self, Heard, SavedVoice};
 
 use crate::doc_view::{self, Kind};
 use concat_speech::JobStage;
@@ -775,11 +775,7 @@ impl SpeechPane {
             .and_then(|id| studio.clip(&id))
             .filter(|clip| matches!(studio.kind(clip), Kind::Video | Kind::Audio))
             .and_then(doc_view::media_id)
-            .and_then(|media| {
-                self.samples(studio)
-                    .iter()
-                    .position(|(id, _)| *id == media)
-            })
+            .and_then(|media| self.samples(studio).iter().position(|(id, _)| *id == media))
             .unwrap_or(0)
     }
 
@@ -929,15 +925,9 @@ impl SpeechPane {
         self.samples(studio)
             .iter()
             .map(|(id, item)| match studio.peaks.get(&id.to_string()) {
-                Some(peaks) => wave_path(
-                    peaks,
-                    0.0,
-                    length_of(item) as f32,
-                    64,
-                    0.75,
-                    WAVE_FLOOR,
-                )
-                .into(),
+                Some(peaks) => {
+                    wave_path(peaks, 0.0, length_of(item) as f32, 64, 0.75, WAVE_FLOOR).into()
+                }
                 None => SharedString::new(),
             })
             .collect()

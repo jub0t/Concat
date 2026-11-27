@@ -355,9 +355,7 @@ impl Studio {
         let mut commands = Vec::new();
         for time in marks.iter().rev() {
             let beat = doc_view::tick(*time);
-            let at = rate
-                .snap(beat, concat_doc::Snap::Nearest)
-                .unwrap_or(beat);
+            let at = rate.snap(beat, concat_doc::Snap::Nearest).unwrap_or(beat);
             let ids: Vec<ItemId> = targets
                 .iter()
                 .filter(|(_, start, end)| at > *start + edge && at + edge < *end)

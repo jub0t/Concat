@@ -86,11 +86,6 @@ pub fn kind(doc: &Model, item: &Item) -> Kind {
     }
 }
 
-/// The kind of the item under an id; [`Kind::Other`] when it is gone.
-pub fn kind_of(doc: &Model, id: ItemId) -> Kind {
-    item(doc, id).map_or(Kind::Other, |item| kind(doc, item))
-}
-
 // ── ids ──
 
 /// An id of the document as the panels hold it: its text, `"c12"`.
@@ -113,7 +108,9 @@ pub fn showing(doc: &Model) -> Option<SequenceId> {
 
 /// The sequence showing, read.
 pub fn sequence(doc: &Model) -> Option<&Sequence> {
-    showing(doc).and_then(|id| doc.sequences.get(id)).map(|s| &**s)
+    showing(doc)
+        .and_then(|id| doc.sequences.get(id))
+        .map(|s| &**s)
 }
 
 /// A sequence's lanes from the bottom of its stack to the top: the order
@@ -185,11 +182,6 @@ pub fn sequence_of(doc: &Model, item: &Item) -> Option<SequenceId> {
     lane(doc, item.lane).map(|lane| lane.sequence)
 }
 
-/// Whether an item is on the sequence showing.
-pub fn is_showing(doc: &Model, item: &Item) -> bool {
-    sequence_of(doc, item).is_some_and(|sequence| Some(sequence) == showing(doc))
-}
-
 /// A lane's row on the panel: rows count from the top, lanes from the
 /// bottom. `None` for a lane that is not on the sequence showing.
 pub fn row_of(doc: &Model, lane: LaneId) -> Option<usize> {
@@ -259,11 +251,6 @@ pub fn dur(seconds: f64) -> TickDur {
 /// A length of some seconds, at least a tick.
 pub fn len(seconds: f64) -> TickLen {
     dur(seconds).to_len().unwrap_or(TickLen::ONE)
-}
-
-/// A length of some seconds, if it is more than nothing.
-pub fn len_if(seconds: f64) -> Option<TickLen> {
-    dur(seconds).to_len()
 }
 
 /// Where an item starts, in seconds.
@@ -420,8 +407,9 @@ pub fn covered(item: &Item) -> Option<(Tick, TickDur)> {
 pub fn speed(item: &Item) -> f64 {
     match time_map(item) {
         Some(TimeMap::Linear { speed, .. }) => speed.display(),
-        Some(TimeMap::Keyed { .. }) => covered(item)
-            .map_or(1.0, |(_, span)| span.get() as f64 / item.len.get() as f64),
+        Some(TimeMap::Keyed { .. }) => {
+            covered(item).map_or(1.0, |(_, span)| span.get() as f64 / item.len.get() as f64)
+        }
         _ => 1.0,
     }
 }
@@ -561,7 +549,10 @@ pub fn key_near(keys: &[Key<f64>], at: Tick) -> Option<&Key<f64>> {
 /// The keys either side of `at`, a hair excluded: the one before and the
 /// one after.
 pub fn keys_around(keys: &[Key<f64>], at: Tick) -> (Option<&Key<f64>>, Option<&Key<f64>>) {
-    let before = keys.iter().rev().find(|key| key.at < at && !near(key.at, at));
+    let before = keys
+        .iter()
+        .rev()
+        .find(|key| key.at < at && !near(key.at, at));
     let after = keys.iter().find(|key| key.at > at && !near(key.at, at));
     (before, after)
 }
@@ -596,11 +587,6 @@ pub fn ease_before(keys: &[Key<f64>], at: Tick) -> Ease {
         .rev()
         .find(|key| key.at < at)
         .map_or(Ease::LINEAR, |key| key.ease.clone())
-}
-
-/// Whether an ease is the straight line.
-pub fn is_linear(ease: &Ease) -> bool {
-    *ease == Ease::LINEAR
 }
 
 // ── titles, shapes and colours ──
@@ -820,7 +806,8 @@ pub fn picture_lane(doc: &Model) -> Option<LaneId> {
         .iter()
         .copied()
         .find(|lane| {
-            on_lane(doc, *lane).any(|(_, item)| matches!(kind(doc, item), Kind::Video | Kind::Image))
+            on_lane(doc, *lane)
+                .any(|(_, item)| matches!(kind(doc, item), Kind::Video | Kind::Image))
         })
         .or_else(|| lanes.first().copied())
 }
@@ -1128,7 +1115,13 @@ pub fn param_key_places(effect: &Effect) -> impl Iterator<Item = Tick> + '_ {
 /// An ease from its four numbers as a curve editor hands them: the
 /// times held from 0 to 1, what is not a number the straight line's.
 pub fn ease_of([x1, y1, x2, y2]: [f64; 4]) -> Ease {
-    let time = |x: f64, fallback: f64| if x.is_finite() { x.clamp(0.0, 1.0) } else { fallback };
+    let time = |x: f64, fallback: f64| {
+        if x.is_finite() {
+            x.clamp(0.0, 1.0)
+        } else {
+            fallback
+        }
+    };
     let value = |y: f64, fallback: f64| if y.is_finite() { y } else { fallback };
     Ease::Bezier {
         x1: time(x1, 0.0),
@@ -1525,7 +1518,9 @@ pub mod bench {
             let media = Media {
                 path: format!("/media/{name}"),
                 name: name.to_owned(),
-                size: (kind != MediaKind::Audio).then(|| Size::new(1920, 1080)).flatten(),
+                size: (kind != MediaKind::Audio)
+                    .then(|| Size::new(1920, 1080))
+                    .flatten(),
                 kind,
                 length,
                 has_sound,
@@ -1575,10 +1570,7 @@ mod tests {
 
     #[test]
     fn keys_hold_before_the_first_and_after_the_last() {
-        let keys = vec![
-            Key::linear(tick(1.0), 2.0),
-            Key::linear(tick(3.0), 4.0),
-        ];
+        let keys = vec![Key::linear(tick(1.0), 2.0), Key::linear(tick(3.0), 4.0)];
         assert_eq!(keys_at(&keys, tick(0.0)), Some(2.0));
         assert_eq!(keys_at(&keys, tick(5.0)), Some(4.0));
         assert!((keys_at(&keys, tick(2.0)).unwrap() - 3.0).abs() < 1e-9);

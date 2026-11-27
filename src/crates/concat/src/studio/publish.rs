@@ -311,7 +311,7 @@ impl Studio {
                         row: self.row_of_lane(clip.lane),
                         start: doc_view::start_s(clip) as f32,
                         duration: doc_view::len_s(clip) as f32,
-                        selected: self.selection.iter().any(|held| *held == id),
+                        selected: self.selection.contains(&id),
                         transition_selected: picked.as_deref() == Some(id.as_str()),
                         fx: doc_view::chain(&clip.effects)
                             .iter()

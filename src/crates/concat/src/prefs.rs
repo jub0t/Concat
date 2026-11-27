@@ -180,7 +180,8 @@ impl TitleLook {
     /// default title's.
     pub fn to_title(&self) -> Title {
         let base = Title::default();
-        let colour = |text: &str, fallback: Color| crate::doc_view::parse_hex(text).unwrap_or(fallback);
+        let colour =
+            |text: &str, fallback: Color| crate::doc_view::parse_hex(text).unwrap_or(fallback);
         let finite = |value: f64, fallback: f64| if value.is_finite() { value } else { fallback };
         let runs = self
             .runs
@@ -189,14 +190,19 @@ impl TitleLook {
                 start: run.start,
                 end: run.end,
                 color: run.color.as_deref().and_then(crate::doc_view::parse_hex),
-                font_scale: run.font_scale.map(|scale| finite(scale, 1.0).clamp(0.1, 10.0)),
+                font_scale: run
+                    .font_scale
+                    .map(|scale| finite(scale, 1.0).clamp(0.1, 10.0)),
                 font_weight: run
                     .font_weight
                     .map(|weight| finite(weight, 400.0).clamp(100.0, 900.0)),
                 italic: run.italic,
                 underline: run.underline,
                 strikethrough: run.strikethrough,
-                stroke_color: run.stroke_color.as_deref().and_then(crate::doc_view::parse_hex),
+                stroke_color: run
+                    .stroke_color
+                    .as_deref()
+                    .and_then(crate::doc_view::parse_hex),
             })
             .collect();
         Title {
@@ -928,7 +934,13 @@ mod tests {
         let back: Preferences = serde_json::from_str(&text).unwrap();
         let kept = back.title_look.expect("kept").to_title();
         // The empty run is tidied away; the rest is as it was.
-        assert_eq!(kept, Title { runs: Vec::new(), ..title });
+        assert_eq!(
+            kept,
+            Title {
+                runs: Vec::new(),
+                ..title
+            }
+        );
         let none: Preferences = serde_json::from_str(r#"{"titleStyle": {"fontSize": 3}}"#).unwrap();
         assert!(none.title_look.is_none());
     }

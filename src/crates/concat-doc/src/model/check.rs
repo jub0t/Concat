@@ -24,9 +24,7 @@ use super::item::{Content, Item, LinkKind, MediaCut, Take};
 use super::look::{ShapeStyle, Title};
 use super::media::{Media, MediaKind};
 use super::sequence::{Background, Cover, Marker};
-use super::timing::{
-    GraphFault, TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range,
-};
+use super::timing::{GraphFault, TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
 use super::{Model, ModelChanges};
 
 /// A rule the change would break, and the id it is broken at.

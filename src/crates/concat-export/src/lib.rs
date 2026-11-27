@@ -24,8 +24,8 @@ mod ahead;
 pub mod chains;
 pub mod flatten;
 pub mod parts;
-pub mod rgba;
 mod resolve;
+pub mod rgba;
 #[cfg(test)]
 mod speed_curve_tests;
 #[cfg(test)]
@@ -42,17 +42,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::Halt;
 use concat_core::SpeedCurve;
+use concat_core::animate::RidingMask;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
 use concat_core::frame::{Frame, Signal};
 use concat_core::shader::{RevealMap, ShaderPass};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
+use concat_doc::model::{Cutout, VoiceKind};
+use concat_effects::AppliedFilter;
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
-use concat_core::animate::RidingMask;
-use concat_doc::model::{Cutout, VoiceKind};
-use concat_effects::AppliedFilter;
 use concat_render::{
     Compositor, CpuCompositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition,
     WgpuCompositor, plan_frame,
@@ -596,10 +596,7 @@ pub struct ExportRequest {
     /// What shows where no picture covers the frame, straight
     /// `[r, g, b, a]`; opaque black when a request does not say. See
     /// `VideoSettings::canvas`.
-    #[serde(
-        default = "opaque_black",
-        deserialize_with = "crate::rgba::array"
-    )]
+    #[serde(default = "opaque_black", deserialize_with = "crate::rgba::array")]
     pub canvas: [u8; 4],
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
@@ -3284,10 +3281,7 @@ pub struct PreviewFrameRequest {
     pub color_space: ColorSpace,
     /// What shows where no picture covers the frame; opaque black when a
     /// request does not say.
-    #[serde(
-        default = "opaque_black",
-        deserialize_with = "crate::rgba::array"
-    )]
+    #[serde(default = "opaque_black", deserialize_with = "crate::rgba::array")]
     pub canvas: [u8; 4],
 }
 
@@ -4726,10 +4720,10 @@ mod tests {
     /// GPU.
     #[test]
     fn a_fresh_adjustment_layer_changes_nothing_on_the_monitor_or_in_the_export() {
-        use concat_core::frame::Frame;
-        use concat_media::{EncodeOptions, Encoder, FrameSink};
         use crate::test_doc::{Doc, at, long, video};
+        use concat_core::frame::Frame;
         use concat_doc::commands::{Command, ItemPatch};
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
 
         let (width, height) = (64_u32, 64_u32);
         let path = std::env::temp_dir().join(format!(
@@ -4849,9 +4843,10 @@ mod tests {
                 "concat.adjust",
             ));
         }
-        effects[0]
-            .params
-            .insert("exposure".into(), concat_doc::model::Param::fixed(Some(1.0)));
+        effects[0].params.insert(
+            "exposure".into(),
+            concat_doc::model::Param::fixed(Some(1.0)),
+        );
         doc.apply(Command::UpdateClip {
             item: layer_id,
             patch: ItemPatch {

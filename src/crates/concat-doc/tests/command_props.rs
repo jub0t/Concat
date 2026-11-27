@@ -12,8 +12,8 @@ use concat_doc::commands::{
     ClipMove, Command, CommandError, Cue, Edge, KeyProperty, run, speed_from_decimal, speed_graph,
 };
 use concat_doc::model::{
-    CaptionLook, Content, Ease, ItemId, LaneId, Media, MediaId, MediaKind, Model, Rule,
-    SequenceId, Size, SpeedPoint, TimeMap,
+    CaptionLook, Content, Ease, ItemId, LaneId, Media, MediaId, MediaKind, Model, Rule, SequenceId,
+    Size, SpeedPoint, TimeMap,
 };
 use concat_doc::{
     Budget, Document, Entry, History, Origin, TICKS_PER_SECOND, Tick, TickDur, TickLen,

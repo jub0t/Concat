@@ -503,7 +503,11 @@ pub struct Crop {
 /// What fills the frame where the picture does not reach.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Background {
     /// Black.
     None,
@@ -1283,15 +1287,7 @@ pub fn shape_cards() -> Vec<(String, ShapeStyle)> {
     ];
     let mut cards: Vec<(String, m::ShapeStyle)> = figures
         .into_iter()
-        .map(|(id, kind)| {
-            (
-                id.to_owned(),
-                m::ShapeStyle {
-                    kind,
-                    ..base()
-                },
-            )
-        })
+        .map(|(id, kind)| (id.to_owned(), m::ShapeStyle { kind, ..base() }))
         .collect();
     cards.push((
         "rounded".to_owned(),
@@ -1540,16 +1536,28 @@ fn double<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
 #[serde(rename_all = "camelCase")]
 pub struct ClipPatch {
     /// Which audio stream it plays; `null` is the file's first.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub audio_stream: Option<Option<u32>>,
     /// Its own background; `null` follows the timeline's.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub background: Option<Option<Background>>,
     /// The blend mode's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blend: Option<String>,
     /// The crop; `null` takes it off.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub crop: Option<Option<Crop>>,
     /// Fade in, seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1570,7 +1578,11 @@ pub struct ClipPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub masks: Option<Vec<Mask>>,
     /// The entrance, exit and loop; `null` takes them off.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub motion: Option<Option<ClipMotion>>,
     /// Its own sound silenced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1588,10 +1600,18 @@ pub struct ClipPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<ShapeStyle>,
     /// A title's words and look.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub text: Option<Option<TextStyle>>,
     /// The transition on the cut into it; `null` takes it off.
-    #[serde(default, deserialize_with = "double", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub transition_in: Option<Option<Transition>>,
     /// The picture effects, whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2042,7 +2062,11 @@ fn share_at(item: &m::Item, share: f64) -> Result<Tick, String> {
 }
 
 /// Keys at shares of a clip as an animated number's keys.
-fn keyed(item: &m::Item, value: f64, keys: Option<&Vec<ParamKey>>) -> Result<Animated<f64>, String> {
+fn keyed(
+    item: &m::Item,
+    value: f64,
+    keys: Option<&Vec<ParamKey>>,
+) -> Result<Animated<f64>, String> {
     let mut number = Animated::fixed(value);
     for key in keys.into_iter().flatten() {
         number.keys.push(m::Key {
@@ -2076,10 +2100,9 @@ fn effects(
             let mut effect = m::Effect::new(effect_id, link.id.clone());
             effect.enabled = link.enabled;
             for (name, value) in &link.params {
-                effect.params.insert(
-                    name.clone(),
-                    m::Param::fixed(Some(finite(*value, name)?)),
-                );
+                effect
+                    .params
+                    .insert(name.clone(), m::Param::fixed(Some(finite(*value, name)?)));
             }
             for (name, keys) in &link.keys {
                 let base = link.params.get(name).copied();
@@ -2224,7 +2247,11 @@ fn cutout(cutout: &Cutout) -> Result<m::Cutout, String> {
         },
         subject: subject(cutout.subject),
         feather: finite(cutout.feather, "feather")?,
-        strokes: cutout.strokes.iter().map(stroke).collect::<Result<_, _>>()?,
+        strokes: cutout
+            .strokes
+            .iter()
+            .map(stroke)
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -2264,8 +2291,7 @@ fn moves(moves: &[ClipMove]) -> Result<Vec<doc::ClipMove>, String> {
 }
 
 fn speed(value: f64) -> Result<m::Speed, String> {
-    doc::speed_from_decimal(finite(value, "speed")?)
-        .ok_or_else(|| "a speed is not zero".to_owned())
+    doc::speed_from_decimal(finite(value, "speed")?).ok_or_else(|| "a speed is not zero".to_owned())
 }
 
 /// The effect at `entry` of an item's picture chain.
@@ -2325,7 +2351,12 @@ fn patch(item: &m::Item, model: &Model, patch: &ClipPatch) -> Result<doc::ItemPa
         masks: patch
             .masks
             .as_ref()
-            .map(|masks| masks.iter().map(|m| mask(item, m)).collect::<Result<Vec<_>, _>>())
+            .map(|masks| {
+                masks
+                    .iter()
+                    .map(|m| mask(item, m))
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .transpose()?,
         motion: patch
             .motion
@@ -2825,12 +2856,8 @@ pub fn to_doc(model: &Model, command: &Command) -> Result<doc::Command, String> 
                 at: share_at(it, *at)?,
             }
         }
-        W::DetachAudio { clip_id } => D::DetachAudio {
-            item: id(clip_id)?,
-        },
-        W::ReattachAudio { clip_id } => D::ReattachAudio {
-            item: id(clip_id)?,
-        },
+        W::DetachAudio { clip_id } => D::DetachAudio { item: id(clip_id)? },
+        W::ReattachAudio { clip_id } => D::ReattachAudio { item: id(clip_id)? },
         W::AddTrack { bottom } => D::AddTrack { bottom: *bottom },
         W::RemoveTrack { track_id } => D::RemoveTrack {
             lane: id(track_id)?,

@@ -306,11 +306,9 @@ impl Studio {
                                 Some(index) => {
                                     let held = &mut masks[index];
                                     if doc_view::mask_shape(held) != Some(shape) {
-                                        let roundness = doc_view::mask_number(
-                                            held,
-                                            MaskNumber::Roundness,
-                                        )
-                                        .cloned();
+                                        let roundness =
+                                            doc_view::mask_number(held, MaskNumber::Roundness)
+                                                .cloned();
                                         held.source = doc_view::mask_of(fresh, shape).source;
                                         if let (Some(roundness), Some(number)) = (
                                             roundness,
@@ -396,7 +394,10 @@ impl Studio {
         let Some(number) = mask_number_of(field) else {
             return Vec::new();
         };
-        let Some(item) = self.sole_selection().and_then(|id| doc_view::parse::<ItemId>(&id)) else {
+        let Some(item) = self
+            .sole_selection()
+            .and_then(|id| doc_view::parse::<ItemId>(&id))
+        else {
             return Vec::new();
         };
         let Some((clip, at)) = self.key_point() else {
