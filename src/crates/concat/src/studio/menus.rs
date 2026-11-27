@@ -3,7 +3,6 @@
 //! Edits from the menus and the tray.
 
 use concat_doc::commands::MIN_LEN;
-use concat_doc::model::SpeedPoint;
 use concat_doc::model::TimeMap;
 
 use super::*;
@@ -64,41 +63,6 @@ pub(super) fn delete_to_playhead(
         1 => commands.into_iter().next()?,
         _ => Command::Batch { commands },
     })
-}
-
-/// How many samples of a speed curve a copy is retimed by, when the
-/// curve's own points are not to hand: enough that the footage lands
-/// within a frame of where the source shows it.
-const CURVE_SAMPLES: usize = 32;
-
-/// The speed curve an item plays, read back off its time map as points
-/// along its length: the speed at each sample, straight between them.
-fn sampled_curve(item: &Item) -> Option<Vec<SpeedPoint>> {
-    let map = doc_view::time_map(item)?;
-    let len = item.len.get();
-    let step = (len / (CURVE_SAMPLES as i64 * 4)).max(1);
-    let speed_at = |c: Tick| -> Option<f64> {
-        let low = (c - TickDur::new(step)).max(item.offset);
-        let high = (c + TickDur::new(step)).min(item.offset + item.len);
-        let run = (high - low).get();
-        if run <= 0 {
-            return None;
-        }
-        let rise = doc_view::source_at(map, high)? - doc_view::source_at(map, low)?;
-        Some(rise.get() as f64 / run as f64)
-    };
-    let points: Vec<SpeedPoint> = (0..=CURVE_SAMPLES)
-        .filter_map(|n| {
-            let share = n as f64 / CURVE_SAMPLES as f64;
-            let speed = speed_at(doc_view::at_share(item, share))?;
-            Some(SpeedPoint {
-                at: share,
-                speed: speed.abs(),
-                slope: None,
-            })
-        })
-        .collect();
-    (points.len() >= 2).then_some(points)
 }
 
 /// An effect as a copy holds it: its keys moved by `shift` onto the
@@ -253,7 +217,7 @@ pub(super) fn shape_copy(
             }
             match doc_view::time_map(source) {
                 Some(TimeMap::Keyed { .. }) => {
-                    if let Some(curve) = sampled_curve(source) {
+                    if let Some(curve) = concat_doc::commands::speed_graph(source) {
                         edits.push(Command::SetClipSpeedCurve {
                             item: laid_id,
                             curve: Some(curve),

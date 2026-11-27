@@ -33,8 +33,7 @@ use concat_doc::commands::{
     ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag,
 };
 use concat_doc::model::{
-    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, SpeedPoint, TextAlign,
-    Title,
+    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, TextAlign, Title,
 };
 use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
 use concat_effects::Catalogue;
@@ -1348,10 +1347,6 @@ pub struct Studio {
     /// The curve as it was when a drag of the chosen points began: each
     /// move is measured from it, so a point held at a limit does not drift.
     speed_grabbed: Option<Vec<model::SpeedPoint>>,
-    /// The speed graph's points as the person last set them on a clip,
-    /// with the time map they made: the document keeps only the map, and
-    /// while the map is the same one these are what the graph shows.
-    curve_points: HashMap<ItemId, (model::TimeMap, Vec<model::SpeedPoint>)>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
@@ -2211,17 +2206,9 @@ fn command_words(command: &Command) -> String {
 /// The commands that turn `before` into `after`, the item under `item` as
 /// the echo left it against the document's: a transform, a cutout, a
 /// stabilization, a voice mix, a speed, the keys, and one patch for
-/// everything else that differs. Empty when nothing does. `shaped` is the
-/// speed curve the person last set on the item with the map it was
-/// previewed by (see `chains::speed_commands`). A speed change on a
-/// magnetic timeline moves the lane behind the clip with its end.
-fn clip_edit_commands(
-    item: ItemId,
-    before: &Item,
-    after: &Item,
-    shaped: Option<&(model::TimeMap, Vec<SpeedPoint>)>,
-    magnetic: bool,
-) -> Vec<Command> {
+/// everything else that differs. Empty when nothing does. A speed change
+/// on a magnetic timeline moves the lane behind the clip with its end.
+fn clip_edit_commands(item: ItemId, before: &Item, after: &Item, magnetic: bool) -> Vec<Command> {
     let mut commands = Vec::new();
     let (was, now) = (&before.picture, &after.picture);
     if now.scale.value != was.scale.value
@@ -2264,9 +2251,7 @@ fn clip_edit_commands(
     // A curve the person shaped lands as the curve, which brings the pace
     // and the length with it; a constant pace that moved lands as the
     // pace, and so does taking a curve away, at the pace it averaged.
-    commands.extend(chains::speed_commands(
-        item, before, after, shaped, magnetic,
-    ));
+    commands.extend(chains::speed_commands(item, before, after, magnetic));
     let mut patch = ItemPatch::default();
     if after.name != before.name {
         patch.name = Some(after.name.clone());
@@ -3061,7 +3046,6 @@ impl Studio {
             voice_failed: HashSet::new(),
             curve_selected: (String::new(), Vec::new()),
             speed_grabbed: None,
-            curve_points: HashMap::new(),
             stabilize_retry: HashSet::new(),
             failed_analyses: HashSet::new(),
             mask_focus: None,
@@ -3197,7 +3181,7 @@ mod tests {
         ] {
             let mut after = before.clone();
             after.sound.voice = Some(mix.clone());
-            let commands = clip_edit_commands(id, &before, &after, None, false);
+            let commands = clip_edit_commands(id, &before, &after, false);
             assert!(
                 commands.iter().any(|command| matches!(
                     command,
@@ -3209,7 +3193,7 @@ mod tests {
         let mut on = before.clone();
         on.sound.voice = Some(doc_view::keep_voice(VoiceKind::Speech));
         assert!(
-            clip_edit_commands(id, &on, &before, None, false)
+            clip_edit_commands(id, &on, &before, false)
                 .iter()
                 .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
         );
@@ -3236,11 +3220,11 @@ mod tests {
             })
         };
         assert_eq!(
-            patched(clip_edit_commands(id, &before, &after, None, false)),
+            patched(clip_edit_commands(id, &before, &after, false)),
             Some(after.picture.motion.clone())
         );
         assert_eq!(
-            patched(clip_edit_commands(id, &after, &before, None, false)),
+            patched(clip_edit_commands(id, &after, &before, false)),
             Some(Motion::default())
         );
     }
@@ -3866,7 +3850,7 @@ mod tests {
             let before = doc_view::item(&document, id).expect("clip");
             let mut after = before.clone();
             crate::batch_volume::set_level(&mut after, before, 0.5, tick(0.0));
-            commands.extend(clip_edit_commands(id, before, &after, None, false));
+            commands.extend(clip_edit_commands(id, before, &after, false));
         }
         let batch = Command::Batch { commands };
         let mut history: History<Model, Command, Vec<ItemId>> =

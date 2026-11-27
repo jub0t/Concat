@@ -8,7 +8,7 @@
 //! of the source at the asked-for start. These tests drive both on a
 //! document alone, with no window.
 
-use concat_doc::commands::{Command, Edge, speed_from_decimal};
+use concat_doc::commands::{Command, Edge, speed_from_decimal, speed_graph};
 use concat_doc::model::SpeedPoint;
 use concat_doc::model::{
     Effect, Item, ItemId, Key, LaneId, Mask, MediaId, MediaKind, Model, TimeMap,
@@ -258,7 +258,7 @@ fn a_copy_keeps_the_speed_curve() {
     let whole = copier.lay(0.0);
     curve(&mut copier, whole);
     let curved = copier.clip(whole);
-    assert!(doc_view::is_curved(&curved));
+    assert!(speed_graph(&curved).is_some());
     let cut = doc_view::start_s(&curved) + doc_view::len_s(&curved) * 0.4;
     let (_, (tail_id, tail)) = copier.split(whole, cut);
     let end = doc_view::end_s(&tail);
@@ -275,8 +275,8 @@ fn a_copy_keeps_the_speed_curve() {
 }
 
 /// Laid and shaped, as a paste from another timeline is, a curved piece
-/// keeps its footage exactly and its length to within a frame: the speed
-/// is read back off its curve.
+/// keeps its footage exactly and its length to within a frame, and the
+/// points its curve was drawn with.
 #[test]
 fn a_copy_laid_elsewhere_keeps_a_curved_piece_s_footage() {
     let mut copier = Copier::new(MediaKind::Video, 10.0);
@@ -298,7 +298,9 @@ fn a_copy_laid_elsewhere_keeps_a_curved_piece_s_footage() {
         doc_view::dur_secs(source_span)
     ));
     assert!((doc_view::len_s(&copy) - doc_view::len_s(&tail)).abs() < 1.0 / 30.0);
-    assert!(doc_view::is_curved(&copy));
+    // The speed pane draws the copy with the piece's own points.
+    assert_eq!(speed_graph(&copy), speed_graph(&tail));
+    assert!(speed_graph(&copy).is_some());
 }
 
 /// Everything else the source has comes with it - mix, fades, transform,

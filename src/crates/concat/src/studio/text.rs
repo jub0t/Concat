@@ -382,7 +382,6 @@ impl Studio {
                 item,
                 before,
                 after,
-                self.curve_points.get(&item),
                 self.prefs.magnetic(),
             ));
         }
@@ -433,10 +432,6 @@ impl Studio {
             _ => Command::Batch { commands },
         };
         self.apply_within(&key, command);
-        // The speed graph goes on showing the points the person set.
-        for id in &ids {
-            self.curve_landed(id);
-        }
         self.last_commit = Some((key, now));
     }
 }

@@ -3,11 +3,9 @@
 //! Effect chains, and the effect libraries they draw from.
 
 use super::*;
-use concat_doc::commands::{MIN_LEN, speed_from_decimal};
+use concat_doc::commands::speed_from_decimal;
 use concat_doc::model::SpeedPoint;
-use concat_doc::model::{Ease, Entry, TimeCurve, TimeMap};
-
-use crate::speed_ramp::{MAX_SPEED, MIN_SPEED};
+use concat_doc::model::{Ease, Entry, TimeMap};
 
 /// The effects of a chain this build read, to change in place on the
 /// echo, in the order the inspector counts them.
@@ -35,88 +33,55 @@ pub(super) fn linear_map(item: &Item, from: Tick, speed: f64) -> Option<TimeMap>
     })
 }
 
-/// The speed graph's points read back off a speed curve's position keys:
-/// one point a key, at its share of the item, at the speed leaving it -
-/// the last at the speed arriving - each straight to the next. None for
-/// a constant pace.
-pub(super) fn curve_of(item: &Item) -> Option<Vec<SpeedPoint>> {
-    let Some(TimeMap::Keyed { first, rest, .. }) = doc_view::time_map(item) else {
-        return None;
-    };
-    let speed_of =
-        |curve: &TimeCurve, a: &model::TimePoint, b: &model::TimePoint, leaving: bool| {
-            let speed = match curve {
-                TimeCurve::Smooth { leave, arrive } => {
-                    if leaving {
-                        leave.display()
-                    } else {
-                        arrive.display()
-                    }
-                }
-                TimeCurve::Linear | TimeCurve::Unknown(_) => {
-                    let run = (b.at - a.at).get() as f64;
-                    if run > 0.0 {
-                        (b.source - a.source).get() as f64 / run
-                    } else {
-                        1.0
-                    }
-                }
-            };
-            speed.abs().clamp(MIN_SPEED, MAX_SPEED)
-        };
-    let share = |point: &model::TimePoint| doc_view::share_of(item, point.at).clamp(0.0, 1.0);
-    let mut points = Vec::with_capacity(rest.len() + 1);
-    let mut from = first;
-    for (curve, to) in rest {
-        points.push(SpeedPoint {
-            at: share(from),
-            speed: speed_of(curve, from, to, true),
-            slope: None,
-        });
-        from = to;
-    }
-    if let Some((curve, last)) = rest.last() {
-        let before = rest.len().checked_sub(2).map_or(first, |at| &rest[at].1);
-        points.push(SpeedPoint {
-            at: share(last),
-            speed: speed_of(curve, before, last, false),
-            slope: None,
-        });
-    }
-    Some(points)
-}
-
 /// The speed edit that turns `before`'s pace into `after`'s, an item as
 /// the echo left it against the document's, or None when the pace is the
-/// same. `shaped` is the curve the person last set on the item and the
-/// map it was previewed with: while `after` still has that map, the edit
-/// is that curve. Otherwise a constant pace that moved lands as the pace,
-/// which also ends a curve. `ripple` moves what follows with the end.
+/// same. A drawn curve lands as the curve, its points as they were drawn;
+/// a constant pace lands as the pace, which also ends a curve. `ripple`
+/// moves what follows with the end.
 pub(super) fn speed_commands(
     item: ItemId,
     before: &Item,
     after: &Item,
-    shaped: Option<&(TimeMap, Vec<SpeedPoint>)>,
     ripple: bool,
 ) -> Option<Command> {
     let (was, now) = (doc_view::time_map(before)?, doc_view::time_map(after)?);
-    if let Some((_, points)) = shaped.filter(|(map, _)| map == now)
-        && (was != now || !doc_view::is_curved(before))
-    {
-        return Some(Command::SetClipSpeedCurve {
-            item,
-            curve: Some(points.clone()),
-            ripple,
-        });
+    if was == now {
+        return None;
     }
     match now {
-        TimeMap::Linear { speed, .. } if was != now => Some(Command::SetClipSpeed {
+        TimeMap::Keyed {
+            drawn: Some(graph), ..
+        } => Some(Command::SetClipSpeedCurve {
+            item,
+            curve: Some(graph.points.clone()),
+            ripple,
+        }),
+        TimeMap::Linear { speed, .. } => Some(Command::SetClipSpeed {
             item,
             speed: *speed,
             ripple,
         }),
         _ => None,
     }
+}
+
+/// The time map and the length the clip under `item` would have with
+/// `curve` set on it in `document`, or a constant pace at the mean for
+/// None. None when the document would refuse the curve or the clip is not
+/// there.
+pub(super) fn curve_preview(
+    document: &Document<Doc>,
+    item: ItemId,
+    curve: Option<Vec<SpeedPoint>>,
+) -> Option<(TimeMap, TickLen)> {
+    let command = Command::SetClipSpeedCurve {
+        item,
+        curve,
+        ripple: false,
+    };
+    let shown = doc_view::preview(document, &command)?;
+    let made = doc_view::item(&shown, item)?;
+    Some((doc_view::time_map(made)?.clone(), made.len))
 }
 
 impl Studio {
@@ -310,116 +275,46 @@ impl Studio {
         matches!(self.kind_by(&id), Kind::Video | Kind::Audio).then_some(id)
     }
 
-    /// The speed graph's points on the clip under `id`, echo or document:
-    /// the ones the person set while its map is still the one they made,
-    /// else the ones its speed curve's keys give. None for a constant pace.
+    /// The speed graph's points on the clip under `id`, echo or document,
+    /// as the document gives them. None for a constant pace.
     pub(super) fn speed_points(&self, id: &str) -> Option<Vec<SpeedPoint>> {
-        let item = self.clip(id)?;
-        let map = doc_view::time_map(item)?;
-        let held = doc_view::parse::<ItemId>(id).and_then(|id| self.curve_points.get(&id));
-        // A constant map stands for a curve only while the echo previews
-        // one: a curve chosen and never committed is no curve.
-        if let Some((held, points)) = held
-            && held == map
-            && (matches!(map, TimeMap::Keyed { .. }) || self.echo.is_some())
-        {
-            return Some(points.clone());
-        }
-        curve_of(item)
-    }
-
-    /// After a speed edit has landed on the clip under `id`: the points the
-    /// person set are kept against the map the command made of them, so the
-    /// graph goes on showing them rather than the keys they were fitted to.
-    pub(super) fn curve_landed(&mut self, id: &str) {
-        let Some(item) = doc_view::parse::<ItemId>(id) else {
-            return;
-        };
-        let landed = doc_view::item(self.committed(), item)
-            .and_then(doc_view::time_map)
-            .cloned();
-        match landed {
-            Some(map @ TimeMap::Keyed { .. }) => {
-                if let Some(held) = self.curve_points.get_mut(&item) {
-                    held.0 = map;
-                }
-            }
-            Some(map) => {
-                if self
-                    .curve_points
-                    .get(&item)
-                    .is_some_and(|held| held.0 != map)
-                {
-                    self.curve_points.remove(&item);
-                }
-            }
-            None => {
-                self.curve_points.remove(&item);
-            }
-        }
+        concat_doc::commands::speed_graph(self.clip(id)?)
     }
 
     /// The Speed tab's clip's curve, edited on the echo by `edit`, which is
     /// handed the curve - None for a constant rate - and the clip's rate.
     ///
-    /// The length then follows the curve the way the command will make it,
-    /// so the timeline shows the new length as the graph is dragged: the
-    /// footage the clip covers is kept, and the length is that footage at
-    /// the curve's mean, the echo playing it at that mean meanwhile. A
-    /// curve taken away leaves the rate it averaged and the length.
+    /// The echo then shows the clip as the curve will make it: its time map
+    /// and its length, so the timeline shows the new length as the graph is
+    /// dragged. A curve taken away leaves the rate it averaged and the
+    /// length. A curve the document would refuse changes nothing.
     fn edit_curve_points(&mut self, edit: impl FnOnce(&mut Option<Vec<SpeedPoint>>, f64)) {
         let Some(id) = self.speed_clip() else {
             return;
         };
-        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(&id), self.clip(&id).cloned())
-        else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(&id), self.clip(&id)) else {
             return;
         };
-        let Some((from, span)) = doc_view::covered(&clip) else {
-            return;
-        };
+        let rate = doc_view::speed(clip).abs();
         let mut points = self.speed_points(&id);
         let was_curve = points.is_some();
-        edit(&mut points, doc_view::speed(&clip).abs());
-        let sign = if span < TickDur::ZERO { -1.0 } else { 1.0 };
-        let footage = span.get().abs() as f64;
-        let (map, len) = match &points {
-            Some(points) => {
-                let mean = crate::speed_ramp::average_speed(points).clamp(MIN_SPEED, MAX_SPEED);
-                let ticks = ((footage / mean).round() as i64).max(MIN_LEN.get());
-                let (Some(map), Some(len)) =
-                    (linear_map(&clip, from, sign * mean), TickLen::new(ticks))
-                else {
-                    return;
-                };
-                (map, len)
-            }
-            None if was_curve => {
-                let mean = footage / clip.len.get() as f64;
-                let Some(map) = linear_map(&clip, from, sign * mean) else {
-                    return;
-                };
-                (map, clip.len)
-            }
-            None => return,
+        edit(&mut points, rate);
+        if points.is_none() && !was_curve {
+            return;
+        }
+        // The points are the whole curve, so it is set on the document as
+        // committed each time, however many moves the echo has shown.
+        let Some((map, len)) = curve_preview(&self.document, item, points) else {
+            return;
         };
         self.commit_targets = vec![id.clone()];
         self.begin_echo();
-        let preview = map.clone();
         self.echo_edit(&id, move |item| {
             if let Some(time) = time_map_mut(item) {
-                *time = preview;
+                *time = map;
             }
             item.len = len;
         });
-        match points {
-            Some(points) => {
-                self.curve_points.insert(item, (map, points));
-            }
-            None => {
-                self.curve_points.remove(&item);
-            }
-        }
     }
 
     /// Curve (`on`) or Constant. Curve gives a clip without one a level,

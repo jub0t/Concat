@@ -422,11 +422,6 @@ pub fn constant_speed(item: &Item) -> Option<Speed> {
     }
 }
 
-/// Whether an item plays a speed curve.
-pub fn is_curved(item: &Item) -> bool {
-    matches!(time_map(item), Some(TimeMap::Keyed { .. }))
-}
-
 /// The source second an item shows at a timeline second; the in-point
 /// for one with no source.
 pub fn source_second(item: &Item, at: f64) -> f64 {

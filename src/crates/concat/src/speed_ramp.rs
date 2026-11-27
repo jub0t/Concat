@@ -40,12 +40,6 @@ pub fn engine_curve(points: &[SpeedPoint]) -> Option<SpeedCurve> {
     SpeedCurve::with_tangents(&pairs, slopes.as_deref())
 }
 
-/// The pace a curve averages: the source it plays over the clip's length.
-/// 1 for a curve that plays nothing.
-pub fn average_speed(points: &[SpeedPoint]) -> f64 {
-    engine_curve(points).map_or(1.0, |curve| curve.mean())
-}
-
 /// One of the Speed tab's ready-made curves.
 #[derive(Clone, Copy, Debug)]
 pub struct SpeedPreset {
