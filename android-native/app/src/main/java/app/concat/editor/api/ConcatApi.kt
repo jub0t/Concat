@@ -22,8 +22,8 @@ class ApiException(val code: String, override val message: String) : Exception(m
  * The API's requests as Kotlin calls, each one JSON object through
  * [EngineBridge.call] on the IO dispatcher. The request shapes are
  * concat-api's `Request` (tagged by `method`, camelCase fields), and an
- * edit is concat-doc's `Command` (tagged by `op`), as [Commands]
- * builds them.
+ * edit is concat-api's wire `Command` (tagged by `op`, times in seconds),
+ * as [Commands] builds them.
  */
 class ConcatApi(val engine: EngineBridge) {
     val events: Flow<ApiEvent> = engine.events.mapNotNull { ApiEvent.parse(it) }
@@ -251,7 +251,7 @@ class ConcatApi(val engine: EngineBridge) {
     }
 }
 
-/** concat-doc's `Command`s, as `edit.apply` carries them: `{"op": ..., camelCase fields}`. */
+/** The edit commands as `edit.apply` carries them (concat-api's wire.rs): `{"op": ..., camelCase fields}`. */
 object Commands {
     private fun op(name: String) = JSONObject().put("op", name)
     private fun ids(ids: List<String>) = JSONArray().apply { ids.forEach { put(it) } }

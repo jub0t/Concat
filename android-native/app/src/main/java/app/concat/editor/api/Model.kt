@@ -7,10 +7,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /*
- * What the app reads out of the API's replies (concat-api's message.rs,
- * concat-host's EditorView and ProjectInfo, concat-doc's model). Only
- * the fields the phone shows; the rest of each object is ignored, and kept
- * where a command needs it back whole (a title's style).
+ * What the app reads out of the API's replies (concat-api's message.rs).
+ * An editor view's `project` is the phone's view of the edit, made by the
+ * engine for this app (concat-mobile's view.rs, which says what each field
+ * is and its unit): times in seconds, ids as strings handed back as they
+ * are. Only the fields the phone shows; the rest of each object is
+ * ignored, and kept where a command needs it back whole (a title's style,
+ * a chain, a mask), in the spelling the command takes.
  */
 
 /** One recents entry: `project.list`. */
@@ -99,11 +102,11 @@ data class Clip(
     val speed: Double,
     /** A title's whole style, as the document holds it. */
     val text: JSONObject?,
-    /** The picture's chain, in order; a transition clip's package is its first link. */
+    /** The picture's chain, in order; a transition clip's package is its first link, which no chain edit changes. */
     val videoEffects: List<AppliedEffect> = emptyList(),
     /** The sound's chain, in order. */
     val filters: List<AppliedEffect> = emptyList(),
-    /** Placement (concat-doc's `Clip`): a multiplier over the fitted size. */
+    /** Placement: a multiplier over the fitted size. */
     val scale: Double = 1.0,
     /** Offset from centred, as a fraction of the frame's width; positive is right. */
     val offsetX: Double = 0.0,
@@ -144,10 +147,7 @@ data class ProjectView(
     val canUndo: Boolean,
     val canRedo: Boolean,
     val media: List<MediaItem>,
-    /**
-     * The active timeline's lanes as the document stores them: bottom
-     * first, the last one drawn on top (concat-doc's `AddTrack`).
-     */
+    /** The active timeline's lanes, bottom first: the last one is drawn on top. */
     val tracks: List<Track>,
     val clips: List<Clip>,
     val createdId: String?,

@@ -28,6 +28,7 @@ use concat_host::playback::{ClipSpec, Playback, PlaybackEvents};
 mod api;
 mod preview;
 mod render;
+mod view;
 
 pub use api::{ApiEvents, EditorApi};
 pub use preview::Preview;

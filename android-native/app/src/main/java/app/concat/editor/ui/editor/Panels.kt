@@ -295,7 +295,8 @@ fun PackagePanel(
         val newest = links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
         val pkg = newest?.let { catalogue.find(it.third.id) }
         val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity } ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
-        if (clip != null && newest != null && pkg != null && knob != null) {
+        // A transition's knobs are the clip itself, changed by picking another.
+        if (clip != null && clip.kind != ClipKind.Transition && newest != null && pkg != null && knob != null) {
             LinkStrength(clip, newest.first, newest.second, newest.third, pkg, knob, editor)
         }
     }
