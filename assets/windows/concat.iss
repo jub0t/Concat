@@ -117,3 +117,32 @@ Name: "{autodesktop}\Concat"; Filename: "{app}\concat.exe"; IconFilename: "{app}
 
 [Run]
 Filename: "{app}\concat.exe"; Description: "{cm:LaunchProgram,Concat}"; Flags: nowait postinstall skipifsilent
+
+[CustomMessages]
+; In English for every language: the vendored translations stay verbatim.
+RemoveLocalData=Remove Concat's downloaded models, caches and logs as well?%n%n%1%n%nYour settings are kept.
+RemoveLocalDataFailed=Could not remove all of Concat's local data:%n%n%1%n%nSome files may be in use. You can delete this folder manually.
+
+[Code]
+// The models, caches and logs live in %LOCALAPPDATA%\app.concat.editor
+// (IDENTIFIER in concat-host's dirs.rs), apart from the program, and can
+// run to gigabytes (#850). Offer to take them out too, No by default, and
+// never in a silent uninstall. The settings in %APPDATA% stay.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{localappdata}\app.concat.editor');
+    if (not UninstallSilent) and DirExists(DataDir) then
+      if SuppressibleMsgBox(FmtMessage(CustomMessage('RemoveLocalData'), [DataDir]),
+          mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+        if not DelTree(DataDir, True, True, True) then
+        begin
+          Log('Failed to remove local data directory: ' + DataDir);
+          SuppressibleMsgBox(FmtMessage(CustomMessage('RemoveLocalDataFailed'), [DataDir]),
+            mbError, MB_OK, IDOK);
+        end;
+  end;
+end;
