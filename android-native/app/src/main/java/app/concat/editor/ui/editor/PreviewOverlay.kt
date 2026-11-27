@@ -3,6 +3,7 @@
 
 package app.concat.editor.ui.editor
 
+import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -55,19 +56,12 @@ data class Placement(val scale: Double, val offsetX: Double, val offsetY: Double
     }
 }
 
-/**
- * A clip's box on the frame, in pixels of it: centre, size, and turn.
- * [anchor] is the clip's own position, which a gesture moves and turns it
- * about; it is the box's centre but for a title aligned to an edge, whose
- * block the painter lays beside its position.
- */
 private class Box(val centre: Offset, val width: Float, val height: Float, val degrees: Float, val anchor: Offset = centre) {
     fun contains(point: Offset, slack: Float = 0f): Boolean {
         val local = unrotate(point)
         return abs(local.x) <= width / 2 + slack && abs(local.y) <= height / 2 + slack
     }
 
-    /** [point] in the box's own frame, its centre the origin. */
     fun unrotate(point: Offset): Offset {
         val d = point - centre
         val r = -degrees * PI.toFloat() / 180f
@@ -84,12 +78,6 @@ private class Box(val centre: Offset, val width: Float, val height: Float, val d
     val corners get() = listOf(corner(-1f, -1f), corner(1f, -1f), corner(1f, 1f), corner(-1f, 1f))
 }
 
-/**
- * Where [clip] is drawn on a [frame]-sized picture at [placement]: a title's
- * or shape's block as the engine painted it ([bounds], from `clips.bounds`),
- * a reading of its style until that comes, and a picture fitted to the
- * frame (by its own aspect when the probe found one).
- */
 private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size, bounds: Map<String, ClipBounds>): Box {
     val centre = Offset(
         frame.width / 2f + (placement.offsetX * frame.width).toFloat(),
@@ -99,7 +87,6 @@ private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Si
     val turn = placement.rotation.toFloat()
     val painted = bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
     if (painted != null) {
-        // The block's offset is canvas pixels: it scales and turns with the clip.
         val px = (painted.offsetX * frame.width).toFloat() * scale
         val py = (painted.offsetY * frame.height).toFloat() * scale
         val r = turn * PI.toFloat() / 180f
@@ -121,7 +108,6 @@ private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Si
         return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, turn)
     }
     if (clip.kind == ClipKind.Shape) {
-        // Until it is painted: a figure's default size, a third of the frame's height.
         val side = 0.35f * frame.height * scale
         return Box(centre, side, side, turn)
     }
@@ -133,14 +119,6 @@ private fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Si
 
 private enum class Grip { None, Body, Corner }
 
-/**
- * Editing on the preview: tap a title, picture or overlay to select it;
- * one finger drags it, two pinch and turn it, a corner handle scales and
- * turns it about its centre. It snaps to the frame's centre lines (and to
- * square turns) with guides and a tick; the safe area shows while it moves.
- * The change is drawn here as it happens and written once, as the gesture
- * ends, through [onCommit]. A double tap on a title edits its words.
- */
 @Composable
 fun PreviewOverlay(
     view: ProjectView,
@@ -152,15 +130,21 @@ fun PreviewOverlay(
     onCommit: (clipId: String, placement: Placement) -> Unit,
     onEditText: (clipId: String) -> Unit,
     modifier: Modifier = Modifier,
+    eyedropperFrame: Bitmap? = null,
+    onPickColor: ((String) -> Unit)? = null,
 ) {
     val haptics = LocalHapticFeedback.current
     var live by remember { mutableStateOf<Pair<String, Placement>?>(null) }
     var guides by remember { mutableStateOf(Pair(false, false)) }
     var moving by remember { mutableStateOf(false) }
+    var dropPoint by remember { mutableStateOf<Offset?>(null) }
+    var dropColor by remember { mutableStateOf<Color?>(null) }
     val currentView by rememberUpdatedState(view)
     val currentBounds by rememberUpdatedState(bounds)
     val currentPosition by rememberUpdatedState(position)
     val currentSelected by rememberUpdatedState(selected)
+    val currentFrame by rememberUpdatedState(eyedropperFrame)
+    val pickColor by rememberUpdatedState(onPickColor)
     val select by rememberUpdatedState(onSelect)
     val commit by rememberUpdatedState(onCommit)
     val editText by rememberUpdatedState(onEditText)
@@ -170,13 +154,30 @@ fun PreviewOverlay(
         appear.snapTo(0f)
         if (selected != null) appear.animateTo(1f, Motion.tweenShort())
     }
-    // The document caught up with what was drawn: let the live copy go.
+    LaunchedEffect(eyedropperFrame) {
+        if (eyedropperFrame == null) {
+            dropPoint = null
+            dropColor = null
+        }
+    }
     val committed = view.clip(live?.first)?.let { Placement.of(it) }
     LaunchedEffect(committed) { if (!moving) live = null }
 
+    fun sampleAt(pt: Offset, frameSize: Size) {
+        val bmp = currentFrame ?: return
+        val nx = (pt.x / frameSize.width.coerceAtLeast(1f)).coerceIn(0f, 0.999f)
+        val ny = (pt.y / frameSize.height.coerceAtLeast(1f)).coerceIn(0f, 0.999f)
+        val px = (nx * bmp.width).toInt().coerceIn(0, bmp.width - 1)
+        val py = (ny * bmp.height).toInt().coerceIn(0, bmp.height - 1)
+        val pixel = bmp.getPixel(px, py)
+        val hex = String.format("#%06x", 0xFFFFFF and pixel)
+        dropPoint = Offset(nx * frameSize.width, ny * frameSize.height)
+        dropColor = Color(pixel)
+        pickColor?.invoke(hex)
+    }
+
     fun visible(clips: List<Clip>, at: Double) = clips.filter { it.placeable && at >= it.start && at < it.end }
 
-    /** What a tap at [point] lands on: titles and overlays first, the main track's picture last. */
     fun hitTest(point: Offset, frame: Size): Clip? {
         val v = currentView
         val order = v.tracks.map { it.id }
@@ -196,13 +197,26 @@ fun PreviewOverlay(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val frame = Size(size.width.toFloat(), size.height.toFloat())
+
+                if (currentFrame != null) {
+                    down.consume()
+                    sampleAt(down.position, frame)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        sampleAt(change.position, frame)
+                    }
+                    return@awaitEachGesture
+                }
+
                 val v = currentView
                 val chosen = v.clip(currentSelected)?.takeIf { it.placeable && currentPosition >= it.start && currentPosition < it.end }
                 val handleReach = 24.dp.toPx()
                 var grip = Grip.None
                 var target: Clip? = null
-                // A title or overlay under the finger wins over the main
-                // picture behind it, even while that picture is selected.
                 val hit = hitTest(down.position, frame)
                 val over = hit?.takeIf { it.id != chosen?.id && it.trackId != mainTrackId }
                 if (chosen != null) {
@@ -219,7 +233,6 @@ fun PreviewOverlay(
                 }
                 val clip = target
                 if (clip == null) {
-                    // Nothing here: a tap clears the selection.
                     var tapped = true
                     while (true) {
                         val event = awaitPointerEvent()
@@ -269,7 +282,6 @@ fun PreviewOverlay(
                         centre = change.position - grabbed
                         travelled = max(travelled, (change.position - down.position).getDistance())
                     }
-                    // Snap the centre to the frame's middle lines, and square turns.
                     val snapX = abs(centre.x - frame.width / 2) < snapPx
                     val snapY = abs(centre.y - frame.height / 2) < snapPx
                     if (snapX) centre = Offset(frame.width / 2, centre.y)
@@ -296,7 +308,6 @@ fun PreviewOverlay(
                     live = clip.id to now
                     commit(clip.id, now)
                 } else {
-                    // A tap; two on one title edit its words.
                     val time = down.uptimeMillis
                     if (clip.kind == ClipKind.Text && lastTap.first == clip.id && time - lastTap.second < viewConfiguration.doubleTapTimeoutMillis + 100) {
                         editText(clip.id)
@@ -310,8 +321,18 @@ fun PreviewOverlay(
     ) {
         val frame = size
         val stroke = 1.5.dp.toPx()
+
+        val pt = dropPoint
+        val sampled = dropColor
+        if (eyedropperFrame != null && pt != null && sampled != null) {
+            val previewCenter = Offset(pt.x, (pt.y - 44.dp.toPx()).coerceAtLeast(24.dp.toPx()))
+            drawCircle(Color.Black.copy(alpha = 0.6f), 22.dp.toPx(), previewCenter)
+            drawCircle(sampled, 18.dp.toPx(), previewCenter)
+            drawCircle(Color.White, 19.dp.toPx(), previewCenter, style = Stroke(2.dp.toPx()))
+            drawCircle(Color.White, 5.dp.toPx(), pt, style = Stroke(1.5.dp.toPx()))
+        }
+
         if (moving) {
-            // The safe area, and the centre guides when snapped.
             val insetX = frame.width * 0.06f
             val insetY = frame.height * 0.08f
             drawRect(
@@ -341,7 +362,6 @@ fun PreviewOverlay(
             drawCircle(Color.Black.copy(alpha = 0.3f * alpha), 7.dp.toPx(), corner)
             drawCircle(Color.White.copy(alpha = alpha), 6.dp.toPx(), corner)
         }
-        // The bottom-right handle scales and turns: lime, with the turn mark.
         val handle = corners[2]
         val r = 12.dp.toPx()
         drawCircle(Color.Black.copy(alpha = 0.3f * alpha), r + 1.dp.toPx(), handle)
