@@ -34,12 +34,12 @@ use concat_core::animate::Track as GainTrack;
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
 use concat_doc::commands::{
-    ClipMove, Command, Edge, Framing, ItemPatch, KeyProperty, LaneFlag, SpeedPoint, placeholder,
+    ClipMove, Command, Edge, Framing, ItemPatch, KeyProperty, LaneFlag, placeholder,
 };
 use concat_doc::model::{
     Background, Blend, Color, ColorRange, Content, Crop, CutIn, Ease, Effect, EffectId, Entry,
-    Frame as DocFrame, Item, ItemId, LaneId, MediaId, Model, Param, SequenceId, Speed, TimeMap,
-    Title,
+    Frame as DocFrame, Item, ItemId, LaneId, MediaId, Model, Param, SequenceId, Speed, SpeedPoint,
+    TimeMap, Title,
 };
 use concat_doc::{AnyId, Document, Tick, TickDur, TickLen, TypedId};
 use concat_host::dirs::AppDirs;

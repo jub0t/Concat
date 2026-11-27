@@ -322,7 +322,7 @@ fn timing_of(map: &TimeMap, item: &Item) -> Timing {
             speed: speed.display().abs(),
             curve: Vec::new(),
         },
-        TimeMap::Keyed { first, rest } => {
+        TimeMap::Keyed { first, rest, .. } => {
             let end = map.source_of(to).map_or(source_start, secs);
             let window = len(item.len);
             let speed = if window > 0.0 {
@@ -730,12 +730,12 @@ mod tests {
             Command::SetClipSpeedCurve {
                 item,
                 curve: Some(vec![
-                    commands::SpeedPoint {
+                    concat_doc::model::SpeedPoint {
                         at: 0.0,
                         speed: 1.0,
                         slope: None,
                     },
-                    commands::SpeedPoint {
+                    concat_doc::model::SpeedPoint {
                         at: 1.0,
                         speed: 2.0,
                         slope: None,

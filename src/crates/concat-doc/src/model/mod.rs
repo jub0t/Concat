@@ -177,6 +177,14 @@
 //! 49. A caption lane's look has no words and no runs of its own: each
 //!     caption's are the caption's. *a_caption_look_with_words_is_refused*
 //!
+//! **Speed graphs**
+//!
+//! 50. The speed graph a keyed time map was drawn with has at least one
+//!     point; its numbers are finite; each point's share is from 0 to 1
+//!     and the points are in order of their shares; each speed is from a
+//!     sixteenth to sixteen times; and its span is within the range.
+//!     *a_broken_speed_graph_is_refused*
+//!
 //! The empty document keeps every rule (*an_empty_document_is_valid*).
 //! A random run of edits is checked two ways, by what changed and by
 //! reading the whole result as a file is read, and the two always agree
@@ -237,8 +245,8 @@ pub use media::{
 pub use order::{NotAnOrderKey, OrderKey};
 pub use sequence::{Background, Color, Cover, Font, Frame, Held, Lane, Marker, Sequence, View};
 pub use timing::{
-    FASTEST, SLOWEST, Speed, TICK_LIMIT, TimeCurve, TimeMap, TimePoint, dur_in_range, len_in_range,
-    tick_in_range,
+    FASTEST, GraphFault, SLOWEST, Speed, SpeedGraph, SpeedPoint, TICK_LIMIT, TimeCurve, TimeMap,
+    TimePoint, dur_in_range, len_in_range, tick_in_range,
 };
 
 /// A table of rows, as the comparison reads it: a plain one, or one that

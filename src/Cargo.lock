@@ -1185,6 +1185,7 @@ dependencies = [
  "block2 0.6.2",
  "concat-api",
  "concat-core",
+ "concat-doc",
  "concat-effects",
  "concat-export",
  "concat-host",

@@ -6,7 +6,8 @@
 //! played as - one stream whose tempo steps when the pitch is held, or
 //! pieces at a constant rate each when the pitch follows the speed.
 
-use concat_doc::commands::{Command, SpeedPoint};
+use concat_doc::commands::Command;
+use concat_doc::model::SpeedPoint;
 
 use crate::test_doc::{Doc, at, video};
 use crate::{ClipKind, ExportClip, audio_pieces};
