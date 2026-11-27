@@ -21,6 +21,9 @@ concat-worker.workspace = true
 concat-log.workspace = true
 concat-media.workspace = true
 concat-doc.workspace = true
+# A project of an earlier Concat is made into a document as it opens; see
+# session.rs.
+concat-import.workspace = true
 concat-export.workspace = true
 # The lanes every job that computes is handed to, sized to the machine.
 concat-sched.workspace = true

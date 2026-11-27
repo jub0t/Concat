@@ -25,8 +25,17 @@
 //!   a project made moments ago, and opens as one empty timeline in the
 //!   manifest's frame.
 //!
-//! A folder whose manifest holds the edit itself is a project of an
-//! earlier Concat; it is refused, said plainly, and nothing is written.
+//! A folder whose manifest holds the edit itself, and no document, is a
+//! project of an earlier Concat, and opening it makes its document
+//! ([`concat_import`]). The import runs in memory first; one that fails
+//! fails the open and writes nothing. Then three writes, in this order:
+//! the manifest kept exactly as it was beside it
+//! ([`projects::earlier_copy_path`], never replaced), the document saved
+//! like every save, and the manifest rewritten to the settings alone, its
+//! name and frame kept. A crash before the document is saved leaves the
+//! folder for the next open to import again; a crash after it leaves a
+//! document, which the next open reads like any other. What the import
+//! carried over approximately or could not is in [`Session::imported`].
 //!
 //! # Gestures
 //!
@@ -124,6 +133,10 @@ pub struct Session {
     history: History<Model, Command, Selection, GestureKey>,
     /// What the open set aside or put right, for the window to say.
     notes: Vec<Note>,
+    /// What making the document of an earlier Concat's project carried
+    /// over approximately or could not; `None` when the project opened
+    /// from a document of its own.
+    imported: Option<Vec<Note>>,
     /// The links to retired effects the open rewrote, old package and new.
     upgraded: Vec<(String, String)>,
     /// What the window has selected, kept with the next step.
@@ -140,12 +153,16 @@ impl Session {
     /// project: one timeline in `settings.frame`, four lanes. A document
     /// that is there opens through [`concat_doc::save::open`] (a save left
     /// waiting beside it is taken up first); what it sets aside or puts
-    /// right is in [`Session::notes`]. A document that cannot be read, or
-    /// a project of an earlier Concat, is an error: answering with an
-    /// empty project would let the next save replace the edit.
+    /// right is in [`Session::notes`]. A project of an earlier Concat is
+    /// made into a document and saved as one (see the module's docs); what
+    /// that carried over approximately is in [`Session::imported`]. A
+    /// document that cannot be read, or an earlier project that cannot be
+    /// imported, is an error: answering with an empty project would let the
+    /// next save replace the edit.
     pub fn open(path: &str, settings: ProjectSettings) -> Result<Session, String> {
         let root = Path::new(path);
         let file = document_path(root);
+        let mut imported = None;
         let (document, notes) = if file.is_file() || concat_doc::save::pending(&file).is_some() {
             // The file as this open found it, kept before any save of this
             // run can replace it.
@@ -159,11 +176,11 @@ impl Session {
             let opened = concat_doc::save::open(&file).map_err(|error| error.to_string())?;
             (opened.document, opened.notes)
         } else {
-            match projects::read_document(path)? {
-                Some(manifest) if !projects::is_settings_only(&manifest) => {
-                    return Err(format!(
-                        "{path} was saved by an earlier Concat, whose projects this one does not open"
-                    ));
+            match projects::read_document_as_stored(path)? {
+                Some((manifest, bytes)) if !projects::is_settings_only(&manifest) => {
+                    let (document, notes) = import_earlier(path, &settings, &bytes)?;
+                    imported = Some(notes);
+                    (document, Vec::new())
                 }
                 // A manifest and no document: a project made moments ago.
                 Some(_) | None => (fresh(&settings.frame)?, Vec::new()),
@@ -184,10 +201,20 @@ impl Session {
             settings,
             history: History::new(document, Budget::default()),
             notes,
+            imported,
             upgraded,
             selection: Vec::new(),
             gesture: 0,
         })
+    }
+
+    /// What making this project's document from an earlier Concat's
+    /// project carried over approximately or could not, in plain words,
+    /// each naming its clip: `Some` when this open made the document so
+    /// (empty when all of it came over as it was), `None` when the project
+    /// opened from a document of its own.
+    pub fn imported(&self) -> Option<&[Note]> {
+        self.imported.as_deref()
     }
 
     /// Opens the project a [`projects::ProjectInfo`] describes.
@@ -456,6 +483,63 @@ fn fresh(frame: &Frame) -> Result<Document<Model>, String> {
     Ok(document)
 }
 
+/// The document of the earlier Concat's project in `path`, whose manifest
+/// `bytes` holds the edit, and what the import carried over approximately
+/// or could not. Imported in memory first, so a project that cannot be
+/// imported fails here with nothing written; then the manifest is kept as
+/// it was beside it, the document saved, and the manifest rewritten to
+/// `settings` alone, in that order (see the module's docs for a crash
+/// between them).
+fn import_earlier(
+    path: &str,
+    settings: &ProjectSettings,
+    bytes: &[u8],
+) -> Result<(Document<Model>, Vec<Note>), String> {
+    let root = Path::new(path);
+    let refused = |why: &dyn std::fmt::Display| {
+        format!(
+            "{path} was made with an earlier Concat and could not be opened: {why}. Its file was left as it was"
+        )
+    };
+    let text = std::str::from_utf8(bytes).map_err(|error| refused(&error))?;
+    let (document, notes) = concat_import::import_project(text).map_err(|error| refused(&error))?;
+    let kept = projects::keep_earlier_copy(path, bytes).map_err(|error| {
+        refused(&format_args!(
+            "a copy of its file could not be kept beside it ({error})"
+        ))
+    })?;
+    projects::save_document_ordered(
+        root,
+        &document_path(root),
+        &settings.name,
+        &settings.frame,
+        &document,
+        projects::ticket(),
+    )
+    .map_err(|error| {
+        format!(
+            "{path} was made with an earlier Concat and could not be saved as a project of this one: {error}. A copy of its file is kept at {}",
+            kept.display()
+        )
+    })?;
+    if notes.is_empty() {
+        log::info!(
+            "project: made the document of {path}, a project of an earlier Concat, all of it carried over; its file is kept at {}",
+            kept.display()
+        );
+    } else {
+        log::warn!(
+            "project: made the document of {path}, a project of an earlier Concat, with {} parts carried over approximately or not at all; its file is kept at {}",
+            notes.len(),
+            kept.display()
+        );
+        for note in &notes {
+            log::warn!("project: {note}");
+        }
+    }
+    Ok((document, notes))
+}
+
 /// The document with every link to a retired effect read as a link to the
 /// effect that stands in for it (its `[[replaces]]`), knobs carried over,
 /// and the pairs of package ids that changed, each once. Made as the
@@ -676,19 +760,6 @@ mod tests {
             })
             .expect("applies");
         assert!(change.changes.is_none() && !change.can_undo);
-    }
-
-    #[test]
-    fn a_project_of_an_earlier_concat_is_refused_and_left_alone() {
-        let scratch = tempfile::tempdir().expect("scratch");
-        let info = made(scratch.path());
-        let manifest = projects::manifest_path(Path::new(&info.path));
-        let old = br#"{"concat":"0.2.12","name":"Old","video":{"width":1920,"height":1080,"rateNum":30,"rateDen":1},"timelines":[]}"#;
-        std::fs::write(&manifest, old).expect("writes");
-        let error = Session::open_info(&info).err().expect("refused");
-        assert!(error.contains("earlier Concat"), "{error}");
-        assert_eq!(std::fs::read(&manifest).expect("reads"), old);
-        assert!(!document_path(Path::new(&info.path)).exists());
     }
 
     #[test]

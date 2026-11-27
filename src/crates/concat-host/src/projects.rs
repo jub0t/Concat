@@ -499,6 +499,48 @@ pub fn keep_opened_copy(path: &str, bytes: &[u8]) -> Result<(), String> {
     temporary.commit(&opened_copy_path(root))
 }
 
+/// Where the manifest of an earlier Concat's project is kept as it was
+/// once its document has been made from it: beside the manifest, under its
+/// name with `.earlier` before the extension (`concat.earlier.json`).
+/// Never a manifest itself, so nothing that looks for projects takes it
+/// for one.
+pub fn earlier_copy_path(root: &Path) -> PathBuf {
+    let manifest = manifest_path(root);
+    let stem = manifest
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "concat".to_owned());
+    root.join(format!("{stem}.earlier.json"))
+}
+
+/// Keeps `bytes` - the manifest of an earlier Concat's project exactly as
+/// it was read - at [`earlier_copy_path`], and returns where. A copy that
+/// is already there is never replaced: the same bytes are left as they
+/// are, and different bytes go beside it under the next free number
+/// (`concat.earlier.2.json`), so no original is ever lost. Written like
+/// the manifest: a temporary of its own, flushed, renamed.
+pub fn keep_earlier_copy(path: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let root = Path::new(path);
+    let first = earlier_copy_path(root);
+    let stem = first
+        .file_name()
+        .map(|name| name.to_string_lossy().trim_end_matches(".json").to_owned())
+        .unwrap_or_else(|| "concat.earlier".to_owned());
+    let mut copy = first;
+    for number in 2.. {
+        match std::fs::read(&copy) {
+            Ok(kept) if kept == bytes => return Ok(copy),
+            Ok(_) => copy = root.join(format!("{stem}.{number}.json")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(format!("could not read {}: {error}", copy.display())),
+        }
+    }
+    let mut temporary = Temporary::open(root)?;
+    temporary.write(bytes)?;
+    temporary.commit(&copy)?;
+    Ok(copy)
+}
+
 /// Reads an existing project's settings.
 pub fn open(path: &str) -> Result<ProjectInfo, String> {
     let root = PathBuf::from(path);
