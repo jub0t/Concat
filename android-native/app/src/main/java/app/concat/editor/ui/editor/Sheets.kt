@@ -8,72 +8,56 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.concat.editor.api.Clip
+import app.concat.editor.export.EXPORT_FPS_OPTIONS
 import app.concat.editor.export.EXPORT_PRESETS
 import app.concat.editor.export.ExportState
 import app.concat.editor.ui.Palette
 
-/** Presets, then progress and Cancel, then Share: the export from start to end. */
+/** Presets (Resolution & FPS), then progress and Cancel, then Share: the export from start to end. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExportSheet(model: EditorViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val state by model.exports.state.collectAsStateWithLifecycle()
-    var preset by remember { mutableStateOf(EXPORT_PRESETS[1]) }
-    // The progress notification needs the permission from API 33; the
-    // export runs either way.
+    var preset by remember { mutableStateOf(EXPORT_PRESETS[2]) }
+    var fps by remember { mutableStateOf(EXPORT_FPS_OPTIONS[0]) }
+
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        model.export(preset)
+        model.export(preset, fps)
     }
     fun start() {
         val needs = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        if (needs) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) else model.export(preset)
+        if (needs) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) else model.export(preset, fps)
     }
     val close = {
         model.exports.dismiss()
@@ -85,12 +69,25 @@ fun ExportSheet(model: EditorViewModel, onDismiss: () -> Unit) {
             when (val now = state) {
                 ExportState.Idle -> {
                     Text("Export", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Resolution", color = Palette.muted, fontSize = 12.sp)
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         for (option in EXPORT_PRESETS) {
                             FilterChip(selected = option == preset, onClick = { preset = option }, label = { Text(option.label) })
                         }
                     }
-                    Text("H.264, quality ${preset.crf}, ${preset.preset}", color = Palette.muted, fontSize = 12.sp)
+                    Text("Frame Rate (FPS)", color = Palette.muted, fontSize = 12.sp)
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (option in EXPORT_FPS_OPTIONS) {
+                            FilterChip(selected = option == fps, onClick = { fps = option }, label = { Text(option.label) })
+                        }
+                    }
+                    Text("H.264 • ${preset.label} • ${fps.label} • CRF ${preset.crf} (${preset.preset})", color = Palette.muted, fontSize = 12.sp)
                     Button(onClick = ::start, modifier = Modifier.fillMaxWidth()) { Text("Export") }
                 }
                 is ExportState.Running -> {
