@@ -3161,6 +3161,10 @@ fn edit_point(spans: &[(f64, f64)], playhead: f32, rate: f32, forward: bool) -> 
 }
 
 #[cfg(test)]
+#[path = "processor_tests.rs"]
+mod processor_tests;
+
+#[cfg(test)]
 mod tests {
     use concat_doc::commands::{ClipMove, KeyProperty};
     use concat_doc::model::{Content, Ease, Item, ItemId, MediaKind, Motion, Move, VoiceKind};
