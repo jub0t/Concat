@@ -14,7 +14,7 @@
 use std::fmt::Write as _;
 
 use concat_core::retime::SpeedCurve;
-use concat_doc::commands::SpeedPoint;
+use concat_doc::model::SpeedPoint;
 
 use crate::i18n::t;
 

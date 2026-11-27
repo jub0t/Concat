@@ -39,10 +39,11 @@ use concat_host::{
 };
 use concat_media::Pyramid;
 use concat_doc::commands::{
-    ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag, SpeedPoint,
+    ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag,
 };
 use concat_doc::model::{
-    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, TextAlign, Title,
+    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, SpeedPoint, TextAlign,
+    Title,
 };
 use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
 
@@ -1351,11 +1352,11 @@ pub struct Studio {
     curve_selected: (String, Vec<usize>),
     /// The curve as it was when a drag of the chosen points began: each
     /// move is measured from it, so a point held at a limit does not drift.
-    speed_grabbed: Option<Vec<concat_doc::commands::SpeedPoint>>,
+    speed_grabbed: Option<Vec<model::SpeedPoint>>,
     /// The speed graph's points as the person last set them on a clip,
     /// with the time map they made: the document keeps only the map, and
     /// while the map is the same one these are what the graph shows.
-    curve_points: HashMap<ItemId, (model::TimeMap, Vec<concat_doc::commands::SpeedPoint>)>,
+    curve_points: HashMap<ItemId, (model::TimeMap, Vec<model::SpeedPoint>)>,
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,

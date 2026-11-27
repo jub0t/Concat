@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 //! Edits from the menus and the tray.
 
-use concat_doc::commands::{MIN_LEN, SpeedPoint};
+use concat_doc::commands::MIN_LEN;
+use concat_doc::model::SpeedPoint;
 use concat_doc::model::TimeMap;
 
 use super::*;

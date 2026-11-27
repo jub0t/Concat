@@ -3,7 +3,8 @@
 //! Effect chains, and the effect libraries they draw from.
 
 use super::*;
-use concat_doc::commands::{MIN_LEN, SpeedPoint, speed_from_decimal};
+use concat_doc::commands::{MIN_LEN, speed_from_decimal};
+use concat_doc::model::SpeedPoint;
 use concat_doc::model::{Ease, Entry, TimeCurve, TimeMap};
 
 use crate::speed_ramp::{MAX_SPEED, MIN_SPEED};

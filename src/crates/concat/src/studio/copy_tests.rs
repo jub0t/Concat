@@ -8,7 +8,8 @@
 //! of the source at the asked-for start. These tests drive both on a
 //! document alone, with no window.
 
-use concat_doc::commands::{Command, Edge, SpeedPoint, speed_from_decimal};
+use concat_doc::commands::{Command, Edge, speed_from_decimal};
+use concat_doc::model::SpeedPoint;
 use concat_doc::model::{
     Effect, Item, ItemId, Key, LaneId, Mask, MediaId, MediaKind, Model, TimeMap,
 };

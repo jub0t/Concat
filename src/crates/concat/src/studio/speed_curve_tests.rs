@@ -6,7 +6,8 @@
 //! extreme sliders, Smooth and Straight, the drawn line, the presets' names,
 //! and the edits a change on the graph lands as.
 
-use concat_doc::commands::{Command, SpeedPoint, speed_from_decimal};
+use concat_doc::commands::{Command, speed_from_decimal};
+use concat_doc::model::SpeedPoint;
 use concat_doc::model::{Item, ItemId, MediaKind, TimeMap};
 
 use super::chains::{curve_of, linear_map, speed_commands, time_map_mut};
