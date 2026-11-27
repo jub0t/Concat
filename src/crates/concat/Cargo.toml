@@ -53,7 +53,7 @@ libc = "0.2"
 # Where the desktop really is: Windows' known folder, which OneDrive may
 # have moved, and the XDG user dirs, which name it in the desktop's own
 # language. New projects default to a folder on it.
-dirs = "6"
+dirs = "7"
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-default",
@@ -75,9 +75,9 @@ slint = { version = "1.18", default-features = false, features = [
     "unstable-fontique-011",
 ] }
 # Native file and folder dialogs, which Slint deliberately does not have.
-rfd = "0.17"
+rfd = "0.18"
 # Reveal an exported file in the platform's file manager.
-opener = { version = "0.8", features = ["reveal"] }
+opener = { version = "0.9", features = ["reveal"] }
 # The log facade. The window writes `log::warn!`; where that ends up is
 # concat-host's logs.rs, opened by whichever entry point started this run.
 log = "0.4"
