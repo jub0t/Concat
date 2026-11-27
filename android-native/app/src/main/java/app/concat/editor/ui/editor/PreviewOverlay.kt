@@ -48,7 +48,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** A picture's placement as concat-project keeps it: scale, offsets as fractions of the frame, clockwise degrees. */
+/** A picture's placement as concat-doc keeps it: scale, offsets as fractions of the frame, clockwise degrees. */
 data class Placement(val scale: Double, val offsetX: Double, val offsetY: Double, val rotation: Double) {
     companion object {
         fun of(clip: Clip) = Placement(clip.scale, clip.offsetX, clip.offsetY, clip.rotation)

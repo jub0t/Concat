@@ -11,7 +11,7 @@
     { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
     { "method": "media.import", "path": "$project", "file": "$file.c", "as": "c" },
     { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
-    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 0.5 }, "as": "clipB", "bind": { "trackB": "/project/timelines/0/clips/1/trackId" } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 0.5 }, "as": "clipB", "bind": { "trackB": "/project/items/$clipB/lane" } },
     { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$c", "start": 1 } },
     { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipA", "patch": { "muted": true } } },
     { "method": "edit.apply", "path": "$project", "command": { "op": "setTrackFlag", "trackId": "$trackB", "flag": "muted", "value": true } },

@@ -36,13 +36,13 @@ This launches a real GUI window (Slint desktop app on macOS/Windows/Linux). It i
 cd "<repo-root>/src"
 
 # Full test suite for the crates most likely to be touched by an effects/transitions/rendering change
-cargo test -p concat-effects -p concat-export -p concat-render -p concat-project --features gpu
+cargo test -p concat-effects -p concat-export -p concat-render -p concat-doc --features gpu
 
 # Full app type-check, including the Slint UI macro — catches .slint wiring errors cargo test alone won't
 cargo check -p concat
 
 # Lint
-cargo clippy -p concat -p concat-export -p concat-effects -p concat-render -p concat-project \
+cargo clippy -p concat -p concat-export -p concat-effects -p concat-render -p concat-doc \
   --features concat-render/gpu -- -D warnings
 ```
 

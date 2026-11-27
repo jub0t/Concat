@@ -10,7 +10,7 @@
     { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
     { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 }, "as": "clipA" },
     { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 } },
-    { "step": "spliceDocument", "append": [{ "at": "/timelines/0/clips", "value": { "id": "c900", "kind": "hologram", "trackId": "T1", "start": 10, "duration": 1, "shimmer": [1, 2, 3] } }, { "at": "/timelines/0/clips/0/videoEffects", "value": { "mystery": true, "depth": { "a": 1 } } }], "merge": [{ "at": "/timelines/0/clips/1", "value": { "fromTheFuture": { "keep": "me" } } }] },
+    {"step": "spliceDocument", "merge": [{"at": "/items", "value": {"c900": {"lane": "t3", "start": 0, "len": 705600000, "content": {"hologram": {"shimmer": [1, 2, 3]}}}}}, {"at": "/items/c8", "value": {"effects": [{"id": "fx901", "package": "later.glow", "needs": ["gpu_fx"], "params": {"radius": {"curve": "spring"}}}]}}, {"at": "/items/c9", "value": {"fromTheFuture": {"keep": "me"}}}]},
     { "method": "edit.apply", "path": "$project", "command": { "op": "updateClip", "clipId": "$clipA", "patch": { "opacity": 1 } } },
     { "step": "closeAndReopen" }
   ],

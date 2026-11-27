@@ -8,14 +8,14 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 |---|---|---|
 | `concat-core` | Time, arena, frames, timeline model. The vocabulary every other crate speaks. | **none** (std only) |
 | `concat-media` | Getting pixels and samples in and out of files. Links FFmpeg (libav*), and is the only crate that knows it exists. | `concat-core`, ffmpeg-the-third |
-| `concat-project` | The edit itself: document model, operations as commands, undo, concat.json IO. | serde, serde_json |
+| `concat-doc` | The edit itself: the document model, every edit as a command checked before it is kept, undo, and the project file. | serde, serde_json |
 | `concat-render` | Turning a timeline plus a timestamp into one finished frame. | `concat-core`, wgpu (optional) |
-| `concat-effects` | Effect packages: manifests, WGSL shaders for pictures and FFmpeg chain templates for sound, the catalogue. Each built-in effect is a folder under `packages/`. | `concat-project`, serde, toml |
-| `concat-export` | Timeline to file: flatten, the frame-by-frame render loop, the paused monitor's true frame. | `concat-core`, `concat-media`, `concat-render`, `concat-project`, `concat-effects` |
-| `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports as jobs, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-project` |
+| `concat-effects` | Effect packages: manifests, WGSL shaders for pictures and FFmpeg chain templates for sound, the catalogue. Each built-in effect is a folder under `packages/`. | `concat-doc`, serde, toml |
+| `concat-export` | Timeline to file: flatten, the frame-by-frame render loop, the paused monitor's true frame. | `concat-core`, `concat-media`, `concat-render`, `concat-doc`, `concat-effects` |
+| `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports as jobs, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-doc` |
 | `concat-server` | The API on a socket: JSON-RPC lines over TCP or a Unix socket, and gRPC behind the `grpc` feature. One dispatcher, many callers. | `concat-api`; tonic and tokio with `grpc` |
 | `concat-cli` | A binary to drive the above: `probe`, `render`, `api` (the API over stdin and stdout) and `serve` (the API on a socket). | `concat-server`, `concat-api`, the engine crates |
-| `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
+| `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-doc`, `concat-export`, cpal |
 | `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint, `concat-host`, `concat-speech` |
 | `concat-mobile` | The engine for the Android app (`android-native/`, Kotlin and Compose): the API and the preview, through UniFFI. | `concat-api`, `concat-host`, uniffi |
@@ -23,9 +23,9 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 The dependency arrows point one way:
 
 ```
-concat -> concat-speech -> concat-host -> {export, project, media} -> core
+concat -> concat-speech -> concat-host -> {export, doc, media} -> core
                                        -> render -> core
-                                          export -> effects -> project
+                                          export -> effects -> doc
 concat-cli -> concat-server -> concat-api -> concat-host
 ```
 
@@ -34,7 +34,7 @@ been put in the wrong crate.
 
 `concat` is the app. It opens project folders through `concat-host`, reads
 the engine's project to draw the bin and the lanes, and writes every edit as
-a `concat-project` command.
+a `concat-doc` command.
 
 ## Build and run
 
@@ -126,7 +126,7 @@ per line, and the response comes back with the call's id:
 {"jsonrpc":"2.0","method":"export.done","params":{"job":"j1","path":"/edits/Reel","output":"/edits/reel.mp4","width":1920,"height":1080}}
 ```
 
-An `edit.apply` carries a `concat-project` command as it is, so every edit
+An `edit.apply` carries a `concat-doc` command as it is, so every edit
 the window can make is one a caller can make, with the same refusals. An
 error is `{"code": -32001, "message": "...", "data": {"code": "notOpen"}}`:
 the number is JSON-RPC's, the name in `data` is the API's - `parse`,
