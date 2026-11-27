@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "concat"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-api",
  "concat-core",
@@ -1168,7 +1168,7 @@ dependencies = [
 
 [[package]]
 name = "concat-api"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "base64 0.22.1",
  "concat-core",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "concat-cli"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "clap",
  "concat-api",
@@ -1204,11 +1204,11 @@ dependencies = [
 
 [[package]]
 name = "concat-core"
-version = "0.2.12"
+version = "0.2.13"
 
 [[package]]
 name = "concat-corpus"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "base64 0.22.1",
  "concat-api",
@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "concat-doc"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "proptest",
  "proptest-state-machine",
@@ -1237,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "concat-effects"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "naga",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "concat-export"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "concat-doc",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "concat-host"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "concat-doc",
@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "concat-import"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-doc",
  "serde_json",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "concat-log"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "log",
  "windows-sys 0.61.2",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "concat-mcp"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-api",
  "concat-doc",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "concat-media"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "concat-stretch",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "concat-mobile"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "android_logger",
  "concat-api",
@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "concat-render"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "ash",
  "concat-core",
@@ -1382,14 +1382,14 @@ dependencies = [
 
 [[package]]
 name = "concat-sched"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "concat-server"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-api",
  "getrandom 0.3.4",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "concat-speech"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "concat-host",
@@ -1420,14 +1420,14 @@ dependencies = [
 
 [[package]]
 name = "concat-stretch"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "concat-text"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "fontdb 0.23.0",
  "memmap2",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "concat-vision"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "concat-doc",
@@ -1453,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "concat-worker"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "concat-core",
  "log",
