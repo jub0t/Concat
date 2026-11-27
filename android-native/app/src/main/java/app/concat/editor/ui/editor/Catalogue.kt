@@ -249,19 +249,24 @@ private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect,
         out.put("params", params).put("enabled", enabled)
         editor.setLink(clip.id, field, index, out)
     }
+    // A transition's package and knobs are the clip itself: it is changed by
+    // picking another, not adjusted here.
+    val adjustable = clip.kind != ClipKind.Transition
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.raised).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(pkg?.name ?: link.id, color = Palette.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Switch(checked = enabled, onCheckedChange = {
-                enabled = it
-                send()
-            })
+            if (adjustable) {
+                Switch(checked = enabled, onCheckedChange = {
+                    enabled = it
+                    send()
+                })
+            }
             if (removable) TextButton(onClick = { editor.removeLink(clip.id, field, index) }) { Text("Remove") }
         }
-        val params = pkg?.params?.filter { it.sliderable }.orEmpty()
+        val params = pkg?.params?.filter { it.sliderable && adjustable }.orEmpty()
         if (params.isEmpty()) SectionLabel(pkg?.description?.ifBlank { null } ?: "Nothing to adjust.")
         for (param in params) {
             ParamControl(param, values[param.key] ?: param.default) {
