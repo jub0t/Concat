@@ -471,6 +471,58 @@ pub enum Request {
     },
 }
 
+impl Request {
+    /// The project folder the request is about, when it is about one: what
+    /// a window it is embedded in is asked about for live mode. Every
+    /// method is named here, none by a wildcard, so a method added to the
+    /// API is a decision about this too. A file's path - a probe's, a
+    /// filmstrip's - is not a project.
+    pub fn project(&self) -> Option<&str> {
+        match self {
+            Request::ProjectOpen { path }
+            | Request::ProjectClose { path, .. }
+            | Request::ProjectGet { path }
+            | Request::ProjectDocument { path }
+            | Request::ProjectSave { path, .. }
+            | Request::ProjectSetVideo { path, .. }
+            | Request::EditApply { path, .. }
+            | Request::EditUndo { path }
+            | Request::EditRedo { path }
+            | Request::MediaImport { path, .. }
+            | Request::TemplateSave { path, .. }
+            | Request::ExportRun { path, .. }
+            | Request::CaptionsTranscribe { path, .. }
+            | Request::CaptionsPlace { path, .. }
+            | Request::ProjectCover { path, .. }
+            | Request::ClipsBounds { path }
+            | Request::SpeechSpeak { path, .. }
+            | Request::ClipsFreeze { path, .. }
+            | Request::ClipsReplace { path, .. }
+            | Request::ClipsReverse { path, .. }
+            | Request::ClipsUseReversed { path, .. }
+            | Request::PreviewFrame { path, .. } => Some(path),
+            Request::MediaPeaks { path, .. } => path.as_deref(),
+            Request::Version
+            | Request::ProjectCreate { .. }
+            | Request::ProjectList
+            | Request::MediaProbe { .. }
+            | Request::CatalogueList { .. }
+            | Request::TemplateList
+            | Request::TemplateInstantiate { .. }
+            | Request::ExportCancel { .. }
+            | Request::ExportStatus { .. }
+            | Request::CaptionsCancel { .. }
+            | Request::MediaFilmstrip { .. }
+            | Request::ShapesList
+            | Request::ModelsList
+            | Request::ModelsDownload { .. }
+            | Request::ModelsDelete { .. }
+            | Request::SpeechCancel { .. }
+            | Request::ReverseCancel { .. } => None,
+        }
+    }
+}
+
 /// One template slot and the file that takes it.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]

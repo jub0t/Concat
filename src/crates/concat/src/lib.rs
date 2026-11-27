@@ -42,6 +42,7 @@ mod grading;
 mod host;
 mod i18n;
 mod keymap;
+mod live;
 mod meters;
 mod motion_tiles;
 mod platform;
@@ -2438,6 +2439,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     }));
     app.on_settings_server_enabled_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ServerEnabledChanged(on)));
+    }));
+    app.on_settings_server_live_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::ServerLiveChanged(on)));
     }));
     app.on_settings_server_host_edited(on_window!(|state, text: SharedString| {
         state.handle(Msg::Settings(SettingsMsg::ServerHostEdited(

@@ -193,7 +193,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_open",
             "Open a project",
-            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. Refused when the Concat window has that project open. Returns the project summary.",
+            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. The project open in the Concat window is refused unless the person lets agents edit it there (live mode: Settings > Automation > Let agents edit the open project); then it is the window's project you edit, on screen as each call returns, and project_close leaves it open there. Returns the project summary.",
             "project.open",
             Summary,
         )

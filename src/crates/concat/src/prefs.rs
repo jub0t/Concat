@@ -588,6 +588,10 @@ pub struct ServerPrefs {
     /// server makes one up each time it starts. Only ever a token that
     /// passed the check, since Apply refuses one that does not.
     pub token: String,
+    /// Let a caller edit the project open in the window (live mode): its
+    /// calls on that project borrow the window's session, and each lands in
+    /// the window's undo history. Off unless the person turns it on.
+    pub live: bool,
 }
 
 impl Default for ServerPrefs {
@@ -596,6 +600,7 @@ impl Default for ServerPrefs {
             enabled: false,
             listen: DEFAULT_LISTEN.to_owned(),
             token: String::new(),
+            live: false,
         }
     }
 }

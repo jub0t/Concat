@@ -679,3 +679,73 @@ pub(crate) fn pulled(time: f32, threshold: f32, targets: impl IntoIterator<Item 
     }
     best
 }
+
+// ── live mode: the session lent to the API for one call ──
+
+impl Studio {
+    /// Hands the session over for one API call on the project at `path`
+    /// (live mode; see `concat_api::live`). The caller holds the event
+    /// loop until [`Studio::take_back`], so nothing here runs without it.
+    /// Refused, saying why, when the setting is off, when another project
+    /// or none is open, or while a gesture is under way: its echo would be
+    /// committed over whatever the call did.
+    pub(crate) fn lend_session(&mut self, path: &str) -> Result<Session, concat_api::ApiError> {
+        use concat_api::{ApiError, ErrorCode};
+        if !self.prefs.server.live {
+            return Err(ApiError::new(
+                ErrorCode::Refused,
+                format!(
+                    "{path} is open in the Concat window, and that window does not let agents edit it: turn on Settings > Automation > Let agents edit the open project there"
+                ),
+            ));
+        }
+        let Some(session) = self.session.as_ref() else {
+            return Err(ApiError::new(
+                ErrorCode::NotOpen,
+                format!("{path} is not open in the window any more"),
+            ));
+        };
+        if !same_folder(session.path(), path) {
+            return Err(ApiError::new(
+                ErrorCode::Refused,
+                format!(
+                    "{path} is not the project open in the window ({} is)",
+                    session.path()
+                ),
+            ));
+        }
+        if self.echo.is_some() {
+            return Err(ApiError::new(
+                ErrorCode::Busy,
+                "the person at the window is in the middle of an edit; try again in a moment",
+            ));
+        }
+        // An inspector edit still being folded is the person's: it is
+        // committed before the call, so the call's step comes after it.
+        self.flush_commit();
+        self.end_burst();
+        self.session.take().ok_or_else(|| {
+            ApiError::new(
+                ErrorCode::NotOpen,
+                format!("{path} is not open in the window"),
+            )
+        })
+    }
+
+    /// The session home again from an API call. When the call changed the
+    /// edit, everything that follows the document follows it, as after an
+    /// edit made here: the call's steps are the window's to undo.
+    pub(crate) fn take_back(&mut self, session: Session, returned: concat_api::Returned) {
+        let changed = !Document::ptr_eq(&self.document, &session.document());
+        self.session = Some(session);
+        if changed {
+            self.echo = None;
+            self.refresh_document();
+            Asked::log(format_args!("edit: made by a connected agent"));
+            self.after_change();
+        }
+        if returned.saved {
+            self.dirty = false;
+        }
+    }
+}
