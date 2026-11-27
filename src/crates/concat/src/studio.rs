@@ -1172,7 +1172,7 @@ pub struct Studio {
     /// Bumped when the library should show its Media page: a file the
     /// editor just made and put in the bin. See `Editor.media-jump-token`.
     pub media_jump: i32,
-    /// Bumped to turn the library to Text & Captions > Captions; see
+    /// Bumped to turn the library to the Captions page; see
     /// `Editor.captions-jump-token`.
     pub captions_jump: i32,
     /// A look being shown before it is laid down: the filter's id. It is
