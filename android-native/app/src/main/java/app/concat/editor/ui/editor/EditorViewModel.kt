@@ -24,7 +24,10 @@ import app.concat.editor.api.errorMessage
 import app.concat.editor.api.wasCancelled
 import app.concat.editor.concat
 import app.concat.editor.engine.PreviewBridge
+import app.concat.editor.export.EXPORT_FPS_OPTIONS
+import app.concat.editor.export.ExportFps
 import app.concat.editor.export.ExportPreset
+import app.concat.editor.subtitle.SubtitleCodec
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -100,8 +103,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
                 say(error.message ?: "The project would not open.")
             }
         }
-        // The painted blocks of the titles and shapes, again whenever the
-        // project changes, so the transform box sits on what is drawn.
         viewModelScope.launch {
             ui.map { it.view }.distinctUntilChanged().collectLatest { view ->
                 if (view == null) return@collectLatest
@@ -115,7 +116,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
                 }
             }
         }
-        // The cover, painted again when the document names another.
         viewModelScope.launch {
             ui.map { it.view?.cover?.toString() }.distinctUntilChanged().collectLatest { named ->
                 if (named == null) {
@@ -144,11 +144,9 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
                 Log.w(TAG, "shapes.list failed", error)
             }
         }
-        // Scrubs, the latest one only: a drag sends far more than a frame can show.
         viewModelScope.launch(Dispatchers.IO) {
             for (seconds in seeks) preview?.seek(seconds)
         }
-        // The playhead, from the engine's clock while it plays.
         viewModelScope.launch {
             while (true) {
                 val shown = preview
@@ -172,7 +170,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     fun surfaceDestroyed() {
         pending = null
-        // Must return only once nothing draws on it.
         preview?.detachSurface()
     }
 
@@ -238,18 +235,8 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     private suspend fun apply(command: JSONObject) = api.apply(path, command)
 
-    /**
-     * An edit another screen's model makes (captions placed, a file read
-     * aloud): run in turn with every other edit, its reply shown and the
-     * preview refreshed, as [change] does.
-     */
     fun edit(label: String, body: suspend () -> ProjectView?) = change(label, body)
 
-    /**
-     * A clip dragged to [start] on [target]: `moveClips`, or onto a new lane
-     * `moveClipsToNewTrack`, which makes the lane and moves the clip in one
-     * undo step.
-     */
     fun move(clipId: String, start: Double, target: LaneTarget) {
         val at = start.coerceAtLeast(0.0)
         change("Move") {
@@ -261,12 +248,10 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** One end of a clip dragged by [delta] seconds: `trimClip`, the lane left as it is. */
     fun trim(clipId: String, edge: String, delta: Double) {
         change("Trim") { apply(Commands.trimClip(clipId, edge, delta, ripple = false)) }
     }
 
-    /** A sound file (read aloud, recorded) into the bin and onto the timeline at [at]. */
     fun placeSound(file: String, at: Double, label: String) {
         change(label) {
             val after = api.import(path, file)
@@ -280,18 +265,10 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     // -- effects, filters, transitions --
 
-    /**
-     * A package from the catalogue onto the selected clip: an effect or a
-     * filter at the end of its picture chain (`updateClip` with the whole
-     * `videoEffects`), a sound effect at the end of its sound chain
-     * (`filters`). A transition is a clip of its own, centred on the cut
-     * into the selected clip, or at the playhead with nothing selected.
-     */
     fun applyPackage(kind: String, packageId: String, name: String) {
         if (kind == "transition") {
             val clip = selectedClip()
             if (clip?.kind == ClipKind.Transition) {
-                // A transition clip selected: it becomes this one, at its defaults.
                 val patch = JSONObject().put("name", name)
                     .put("videoEffects", org.json.JSONArray().put(AppliedEffect.fresh(packageId)))
                 change("Transition") { apply(Commands.updateClip(clip.id, patch)) }
@@ -313,6 +290,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     }
 
     private val liveChains = Channel<Triple<String, String, List<JSONObject>>>(Channel.CONFLATED)
+    private val liveText = Channel<Pair<String, JSONObject>>(Channel.CONFLATED)
 
     init {
         viewModelScope.launch {
@@ -330,12 +308,38 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
                 }
             }
         }
+        viewModelScope.launch {
+            for ((clipId, style) in liveText) {
+                edits.withLock {
+                    try {
+                        val existing = _ui.value.view?.clip(clipId) ?: continue@withLock
+                        val lane = _ui.value.view?.tracks?.firstOrNull { it.id == existing.trackId }
+                        val captions = lane?.captions
+                        val view = if (lane != null && captions != null) {
+                            val words = Commands.updateClip(existing.id, JSONObject().put("text", style))
+                            val shared = JSONObject(style.toString()).put("content", "")
+                            val look = JSONObject(captions.toString()).put("style", shared)
+                            apply(Commands.batch(listOf(words, Commands.setCaptionLook(lane.id, look))))
+                        } else {
+                            apply(Commands.updateClip(existing.id, JSONObject().put("text", style)))
+                        }
+                        withContext(Dispatchers.IO) { preview?.refresh() }
+                        _ui.update { it.copy(view = view) }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Log.w(TAG, "live text failed", error)
+                    }
+                }
+            }
+        }
     }
 
-    /**
-     * One link of a chain changed as a slider moves: the newest whole chain
-     * wins, so a drag sends only what the engine can keep up with.
-     */
+    /** Memperbarui gaya & teks klip secara real-time saat mengetik atau menggeser slider/eyedropper. */
+    fun previewText(clipId: String, style: JSONObject) {
+        liveText.trySend(clipId to style)
+    }
+
     fun setLink(clipId: String, field: String, index: Int, link: JSONObject) {
         val clip = _ui.value.view?.clip(clipId) ?: return
         val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }.toMutableList()
@@ -352,7 +356,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Remove") { apply(Commands.setChain(clipId, field, chain)) }
     }
 
-    /** Several links off one clip at once, (field, index) each: one undo step. */
     fun removeLinks(clipId: String, links: List<Pair<String, Int>>) {
         val clip = _ui.value.view?.clip(clipId) ?: return
         if (links.isEmpty()) return
@@ -379,10 +382,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Delete") { apply(Commands.removeClips(listOf(clip.id), ripple = true)) }
     }
 
-    /**
-     * A copy of the whole clip right after it, on its lane, in one undo
-     * step: the edit model's own `duplicateClips`.
-     */
     fun duplicate() {
         val clip = selectedClip() ?: return
         change("Duplicate") {
@@ -392,10 +391,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /**
-     * The picture under the playhead held for a second: `clips.freeze`, the
-     * hold left selected. The playhead has to be inside the clip.
-     */
     fun freeze() {
         val clip = selectedClip() ?: return
         val at = _ui.value.position
@@ -409,7 +404,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** A picked file in place of the selected clip's, its place, length and look kept. */
     fun replace(uri: Uri?) {
         val clip = selectedClip() ?: return
         if (uri == null) return
@@ -425,10 +419,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         viewModelScope.launch { api.rawEvents.collect { reverses.offer(it) } }
     }
 
-    /**
-     * The selected clip's span written backwards (`clips.reverse`, a job),
-     * then shown from the copy (`clips.useReversed`) as one undo step.
-     */
     fun reverse() {
         val clip = selectedClip() ?: return
         if (_ui.value.reversing != null) return say("A reverse is already running.")
@@ -496,7 +486,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Fade") { apply(Commands.updateClip(clip.id, JSONObject().put("fadeIn", fadeIn).put("fadeOut", fadeOut))) }
     }
 
-    /** A crop, mask or animation patch ([ClipLook.kt]) onto the selected clip: one undo step. */
     fun setLook(label: String, patch: JSONObject) {
         val clip = selectedClip() ?: return
         change(label) { apply(Commands.updateClip(clip.id, patch)) }
@@ -507,7 +496,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change(if (clip.muted) "Unmute" else "Mute") { apply(Commands.updateClip(clip.id, JSONObject().put("muted", !clip.muted))) }
     }
 
-    /** The main track's own sound off or on, every clip on it in one undo step. */
     fun setTrackSoundMuted(trackId: String, muted: Boolean) {
         val clips = _ui.value.view?.clips?.filter { it.trackId == trackId && it.kind == ClipKind.Video }.orEmpty()
         if (clips.isEmpty()) return
@@ -521,11 +509,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         change("Flip") { apply(Commands.updateClip(clip.id, JSONObject().put("flipH", !clip.flipH))) }
     }
 
-    /**
-     * A picture placed on the preview: `setClipTransform`, one undo step
-     * at the end of the gesture. Scale over the fitted size, offsets as
-     * fractions of the frame, clockwise degrees.
-     */
     fun setTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) {
         change("Move") { apply(Commands.setClipTransform(clipId, scale, offsetX, offsetY, rotation)) }
     }
@@ -535,11 +518,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         setTransform(clip.id, 1.0, 0.0, 0.0, 0.0)
     }
 
-    /**
-     * The keyframe diamond: the selected clip's placement and opacity keyed
-     * where the playhead is, or those keys taken off when it already sits
-     * on one.
-     */
     fun toggleKeyframe() {
         val clip = selectedClip() ?: return
         if (clip.duration <= 0) return
@@ -559,7 +537,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** The frame's shape: `project.setVideo`, the rate kept. */
     fun setAspect(width: Int, height: Int) {
         val view = _ui.value.view ?: return
         if (view.width == width && view.height == height) return
@@ -580,7 +557,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** The clip under the playhead on [trackId], selected: the Edit tool. */
     fun selectAtPlayhead(trackId: String?) {
         val view = _ui.value.view ?: return
         val at = _ui.value.position
@@ -590,38 +566,103 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     }
 
     /** A new title at the playhead, or the selected one restyled when [clipId] names it. */
-    fun saveText(clipId: String?, content: String, fontSize: Double, color: String, fontWeight: Double? = null) {
-        if (content.isBlank()) return
+    fun saveText(clipId: String?, style: JSONObject) {
+        val content = style.optString("content").trim()
+        if (content.isEmpty()) return
+        val cleanStyle = JSONObject(style.toString()).put("content", content)
         val existing = _ui.value.view?.clip(clipId)
         val lane = existing?.let { clip -> _ui.value.view?.tracks?.firstOrNull { it.id == clip.trackId } }
         val captions = lane?.captions
         change("Text") {
             if (existing != null && lane != null && captions != null) {
-                // A caption: its words are its own, its look is the lane's,
-                // and the lane's look restyles every caption on it - one edit.
-                val words = Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight)))
-                val style = Commands.textStyle("", fontSize, color, captions.optJSONObject("style"), fontWeight)
-                val look = JSONObject(captions.toString()).put("style", style)
+                val words = Commands.updateClip(existing.id, JSONObject().put("text", cleanStyle))
+                val shared = JSONObject(cleanStyle.toString()).put("content", "")
+                val look = JSONObject(captions.toString()).put("style", shared)
                 apply(Commands.batch(listOf(words, Commands.setCaptionLook(lane.id, look))))
             } else if (existing != null) {
-                apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight))))
+                apply(Commands.updateClip(existing.id, JSONObject().put("text", cleanStyle)))
             } else {
-                val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(content, fontSize, color, fontWeight = fontWeight)))
+                val view = apply(Commands.addTextClip(_ui.value.position, cleanStyle))
                 view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
                 view
             }
         }
     }
 
+    // -- eyedropper & subtitles --
+
+    /** Mengambil frame komposit pada waktu aktif sebagai Bitmap untuk Eyedropper. */
+    suspend fun grabEyedropperFrame(): Bitmap? = withContext(Dispatchers.IO) {
+        val view = _ui.value.view ?: return@withContext null
+        val tall = view.height >= view.width
+        val w = if (tall) 360 else 640
+        val h = (w * view.height.toDouble() / view.width.coerceAtLeast(1)).toInt().coerceAtLeast(2)
+        val out = File(getApplication<Application>().cacheDir, "eyedropper-${path.hashCode()}.png")
+        try {
+            api.previewFrameTo(path, _ui.value.position, out.absolutePath, w, h)
+            BitmapFactory.decodeFile(out.absolutePath)
+        } catch (error: Exception) {
+            Log.w(TAG, "eyedropper frame failed", error)
+            null
+        }
+    }
+
+    /** Mengimpor file .srt atau .ass menjadi multi-track text clip tanpa mem-flatten waktu yang overlap. */
+    fun importSubtitles(uri: Uri?) {
+        if (uri == null) return
+        val view = _ui.value.view ?: return
+        change("Import Subtitles") {
+            val (rawText, fileName) = withContext(Dispatchers.IO) {
+                val resolver = getApplication<Application>().contentResolver
+                var name = "subtitle.srt"
+                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    if (it.moveToFirst()) name = it.getString(0) ?: name
+                }
+                val text = resolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: throw IOException("Tidak dapat membaca file subtitle.")
+                text to name
+            }
+            val cues = SubtitleCodec.parse(rawText, fileName, view.height)
+            if (cues.isEmpty()) {
+                say("Tidak ada baris subtitle yang terbaca.")
+                return@change null
+            }
+            val cmds = SubtitleCodec.buildImportCommands(cues)
+            val updated = apply(Commands.batch(cmds))
+            say("Berhasil impor ${cues.size} baris subtitle.")
+            updated
+        }
+    }
+
+    /** Mengekspor semua track teks/subtitle ke file .srt atau .ass yang dipilih user. */
+    fun exportSubtitles(uri: Uri?, asAss: Boolean) {
+        if (uri == null) return
+        val view = _ui.value.view ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val content = if (asAss) {
+                    SubtitleCodec.exportAss(view)
+                } else {
+                    SubtitleCodec.exportSrt(view)
+                }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+                    it.write(content)
+                } ?: throw IOException("Gagal membuka tujuan simpan.")
+                say(if (asAss) "File .ASS berhasil diekspor." else "File .SRT berhasil diekspor.")
+            } catch (error: Exception) {
+                Log.w(TAG, "export subtitles failed", error)
+                say(error.message ?: "Gagal mengekspor subtitle.")
+            }
+        }
+    }
+
     // -- cover --
 
-    /** The frame under the playhead as the cover. */
     fun setCoverFrame() {
         val at = _ui.value.position
         change("Cover") { apply(Commands.setCover(time = at)) }
     }
 
-    /** A picture from the phone as the cover, copied in so the project keeps it. */
     fun setCoverPicture(uri: Uri?) {
         if (uri == null) return
         change("Cover") {
@@ -630,13 +671,11 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** Back to a frame early in the edit. */
     fun resetCover() {
         if (_ui.value.view?.cover == null) return
         change("Cover") { apply(Commands.setCover()) }
     }
 
-    /** A sticker from the Stickers page at the playhead, over the picture, and selected. */
     fun addSticker(card: ShapeCard, name: String) {
         change("Sticker") {
             val view = apply(Commands.addShapeClip(_ui.value.position, card.style, name))
@@ -645,11 +684,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /**
-     * Picked files copied into the app's storage (the engine reads paths),
-     * imported one by one in the order picked, then laid down as one run:
-     * pictures after the last picture, sound at the playhead.
-     */
     fun import(uris: List<Uri>, audio: Boolean) {
         if (uris.isEmpty()) return
         change("Import") {
@@ -668,10 +702,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /**
-     * Picked pictures over the main track: each onto a new lane on top, at
-     * the playhead.
-     */
     fun importOverlay(uris: List<Uri>) {
         if (uris.isEmpty()) return
         change("Overlay") {
@@ -696,7 +726,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) name = it.getString(0) ?: name
         }
-        // Each pick its own file: two picks of one name are two files.
         val target = File(app.mediaDir, "${System.currentTimeMillis()}-${name.replace('/', '_')}")
         val input = resolver.openInputStream(uri) ?: throw IOException("The provider would not open $uri")
         input.use { stream -> target.outputStream().use { stream.copyTo(it, 1 shl 20) } }
@@ -705,17 +734,16 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     // -- export --
 
-    fun export(preset: ExportPreset) {
+    fun export(preset: ExportPreset, fps: ExportFps = EXPORT_FPS_OPTIONS[0]) {
         val view = _ui.value.view ?: return
         pause()
         viewModelScope.launch {
-            // The document on disk first: what renders is what was saved.
             try {
                 api.save(path)
             } catch (error: Exception) {
                 Log.w(TAG, "save before export failed", error)
             }
-            exports.start(path, view.name.ifBlank { "Concat" }, view.width, view.height, preset)
+            exports.start(path, view.name.ifBlank { "Concat" }, view.width, view.height, preset, fps)
                 .onFailure { say(it.message ?: "The export did not start.") }
         }
     }
@@ -733,7 +761,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /** Back: save, close the project, let the preview go, then [done]. */
     fun close(done: () -> Unit) {
         if (closed) return done()
         closed = true
@@ -754,11 +781,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /**
-     * The projects screen's card for this project: a frame from the edit
-     * (`preview.frame` to a PNG in the folder) and its length, written as
-     * the editor closes.
-     */
     private suspend fun writeCard() {
         val view = _ui.value.view ?: return
         val folder = File(path)
@@ -796,12 +818,9 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     companion object {
         private const val TAG = "concat-editor"
-        /** Vulkan, falling back to OpenGL ES inside the engine. */
         private const val MODE = "vulkan"
-        /** The projects screen's card for a project: its frame and its facts, in its folder. */
         const val THUMBNAIL = ".concat-thumb.png"
         const val CARD = ".concat-card.json"
-        /** The timeline's cover square, painted at this many pixels a side. */
         private const val COVER_SIDE = 160
     }
 }
