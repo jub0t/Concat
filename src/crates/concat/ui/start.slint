@@ -1679,10 +1679,10 @@ component Glow inherits Rectangle {
     background: @radial-gradient(circle, root.tint 0%, root.tint.with-alpha(0.55) 34%, root.tint.with-alpha(0) 70%);
 }
 
-// What is new in Concat, as a card of warm light: orange running into
+// Concat's home on the web, as a card of warm light: orange running into
 // rose, magenta and a deep violet, with the line in large white type over
 // it. Its own colours in either theme - it is a picture, not a surface -
-// and a press opens the post that tells the rest.
+// and a press opens the site.
 component NewsCard inherits Pressable {
     in property <string> title;
     in property <string> note;
@@ -1844,9 +1844,9 @@ component WideHome inherits Rectangle {
             if side.news: NewsCard {
                 height: side.news-h;
                 small: true;
-                title: I18n.t1("start.whatsNew", root.version);
-                note: I18n.t("start.newsNote");
-                clicked => { root.link("news"); }
+                title: I18n.t("start.onTheWeb");
+                note: I18n.t("start.onTheWebNote");
+                clicked => { root.link("website"); }
             }
 
             VerticalLayout {
@@ -2160,9 +2160,9 @@ component NarrowHome inherits Rectangle {
             NewsCard {
                 height: 150px;
                 compact: true;
-                title: I18n.t1("start.whatsNew", root.version);
-                note: I18n.t("start.newsNote");
-                clicked => { root.link("news"); }
+                title: I18n.t("start.onTheWeb");
+                note: I18n.t("start.onTheWebNote");
+                clicked => { root.link("website"); }
             }
 
             Rectangle { height: 12px; }

@@ -96,6 +96,8 @@ pub fn shown<'a>(
 
 /// The official site, which the guides and the developer docs are pages of.
 const SITE: &str = "https://concat.standalones.org";
+/// Concat's home on the web: its library and its forum.
+const HOME: &str = "https://concatapp.com/";
 /// The repository: the code, the issues, the releases.
 pub const REPOSITORY: &str = "https://github.com/jub0t/Concat";
 
@@ -109,12 +111,8 @@ pub fn link(name: &str) -> Option<String> {
         "guides" => format!("{SITE}/guides/"),
         "report" => format!("{SITE}/guides/report-a-problem/"),
         "github" => REPOSITORY.to_owned(),
-        // The gradient card: this version's "What's new" post on the
-        // website's blog, the polished telling of its release notes.
-        "news" => format!(
-            "{SITE}/blog/whats-new-in-{}/",
-            env!("CARGO_PKG_VERSION").replace('.', "-")
-        ),
+        // The gradient card: Concat's home on the web.
+        "website" => HOME.to_owned(),
         // The invite the README carries.
         "discord" => "https://discord.gg/DVuPfpXfqP".to_owned(),
         // The notes for the release this build is, under the tag the
@@ -707,7 +705,7 @@ mod tests {
             "report",
             "github",
             "discord",
-            "news",
+            "website",
             "release-notes",
         ] {
             assert!(
