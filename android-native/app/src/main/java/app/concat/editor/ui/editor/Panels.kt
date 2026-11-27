@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.concat.editor.api.AppliedEffect
 import app.concat.editor.api.Clip
 import app.concat.editor.api.ClipKind
+import app.concat.editor.api.Commands
 import app.concat.editor.api.PackageInfo
 import app.concat.editor.api.ProjectView
 import app.concat.editor.ui.components.ChoiceChip
@@ -66,18 +67,11 @@ import kotlin.math.ln
 import kotlin.math.pow
 import org.json.JSONObject
 
-/*
- * The tools' sub-panels: what opens above the toolbar when a tool has
- * options. Sliders apply when the finger lifts (one undo
- * step each), chips at once; the check closes the panel.
- */
-
 private val SPEEDS = listOf(0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0)
 
 /** Speed on a log rail from 0.1x to 10x, with the usual stops as chips. */
 @Composable
 fun SpeedPanel(clip: Clip, onApply: (Double) -> Unit, onClose: () -> Unit) {
-    // The rail is log2 of the speed, so 1x sits in the middle.
     var rail by remember(clip.id) { mutableFloatStateOf(log2(clip.speed).toFloat()) }
     ToolPanel("Speed", onClose = onClose, onConfirm = onClose) {
         ValueSlider(
@@ -156,78 +150,250 @@ fun colourOf(hex: String): Color = try {
     Color.White
 }
 
+private enum class TextTab { Text, Fill, Outline, Box }
+private enum class ColorTarget { Fill, Outline, Box }
+
 /**
- * A title's words and look: a new one (at the playhead) or [existing]
- * restyled. The words in a field that takes the keyboard at once.
+ * Panel editor teks real-time: mendukung gaya huruf, warna, outline/stroke,
+ * drop shadow, background plate, dan Eyedropper langsung dari frame video.
  */
 @Composable
 fun TextPanel(
     existing: Clip?,
-    onSave: (content: String, size: Double, colour: String, weight: Double) -> Unit,
+    eyedropperActive: Boolean,
+    pickedHex: String?,
+    onToggleEyedropper: (Boolean) -> Unit,
+    onLiveChange: (JSONObject) -> Unit,
+    onSave: (JSONObject) -> Unit,
     onClose: () -> Unit,
     caption: Boolean = false,
 ) {
     val style = existing?.text
+    var tab by remember { mutableStateOf(TextTab.Text) }
+    var colorTarget by remember { mutableStateOf(ColorTarget.Fill) }
+
     var content by remember(existing?.id) { mutableStateOf(style?.optString("content") ?: "") }
-    // The document's size is a fraction of the frame's height.
     var size by remember(existing?.id) { mutableFloatStateOf((style?.optDouble("fontSize", 0.07) ?: 0.07).toFloat()) }
     var colour by remember(existing?.id) { mutableStateOf(style?.optString("color", "#ffffff") ?: "#ffffff") }
     var weight by remember(existing?.id) { mutableStateOf(style?.optDouble("fontWeight", 700.0) ?: 700.0) }
+    var italic by remember(existing?.id) { mutableStateOf(style?.optBoolean("italic", false) ?: false) }
+
+    var strokeColour by remember(existing?.id) { mutableStateOf(style?.optString("strokeColor", "#000000") ?: "#000000") }
+    var strokeWidth by remember(existing?.id) { mutableFloatStateOf((style?.optDouble("strokeWidth", 0.0) ?: 0.0).toFloat()) }
+    var shadow by remember(existing?.id) { mutableStateOf(style?.optBoolean("shadow", true) ?: true) }
+    var plateColour by remember(existing?.id) {
+        mutableStateOf(style?.optString("plate")?.takeIf { it.startsWith("#") })
+    }
+
+    fun buildStyle(): JSONObject = Commands.textStyle(
+        content = content.ifEmpty { " " },
+        fontSize = size.toDouble(),
+        color = colour,
+        base = style,
+        fontWeight = weight,
+        italic = italic,
+        strokeColor = strokeColour,
+        strokeWidth = strokeWidth.toDouble(),
+        shadow = shadow,
+        plate = plateColour,
+        clearPlate = plateColour == null,
+    )
+
+    fun pushLive() {
+        if (existing != null && content.isNotBlank()) {
+            onLiveChange(buildStyle())
+        }
+    }
+
+    LaunchedEffect(pickedHex) {
+        if (pickedHex != null && eyedropperActive) {
+            when (colorTarget) {
+                ColorTarget.Fill -> colour = pickedHex
+                ColorTarget.Outline -> {
+                    strokeColour = pickedHex
+                    if (strokeWidth <= 0f) strokeWidth = 0.005f
+                }
+                ColorTarget.Box -> plateColour = pickedHex
+            }
+            pushLive()
+        }
+    }
+
     val focus = remember { FocusRequester() }
     LaunchedEffect(existing?.id) { if (existing == null) focus.requestFocus() }
+
     fun save() {
-        if (content.isNotBlank()) onSave(content.trim(), size.toDouble(), colour, weight)
+        onToggleEyedropper(false)
+        if (content.isNotBlank()) onSave(buildStyle())
         onClose()
     }
 
-    ToolPanel(if (existing == null) "Add text" else if (caption) "Caption" else "Text", onClose = onClose, onConfirm = ::save) {
-        if (caption) PanelLabel("The words are this caption's; the look changes every caption.")
-        BasicTextField(
-            value = content,
-            onValueChange = { content = it },
-            textStyle = ConcatType.title.copy(color = ConcatColors.fg),
-            cursorBrush = SolidColor(ConcatColors.accent),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            maxLines = 4,
-            modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            decorationBox = { field ->
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(ConcatColors.launchField)
-                        .padding(horizontal = Spacing.md, vertical = 10.dp),
-                ) {
-                    if (content.isEmpty()) Text("Enter text", style = ConcatType.title, color = ConcatColors.fgDim)
-                    field()
-                }
-            },
-        )
+    ToolPanel(
+        title = if (existing == null) "Add text" else if (caption) "Caption" else "Text",
+        onClose = {
+            onToggleEyedropper(false)
+            onClose()
+        },
+        onConfirm = ::save,
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            ChoiceChip("Regular", selected = weight < 600, onClick = { weight = 400.0 })
-            ChoiceChip("Bold", selected = weight >= 600 && weight < 800, onClick = { weight = 700.0 })
-            ChoiceChip("Black", selected = weight >= 800, onClick = { weight = 900.0 })
+            ChoiceChip("Text", selected = tab == TextTab.Text, onClick = { tab = TextTab.Text; onToggleEyedropper(false) })
+            ChoiceChip("Color", selected = tab == TextTab.Fill, onClick = { tab = TextTab.Fill; colorTarget = ColorTarget.Fill })
+            ChoiceChip("Outline", selected = tab == TextTab.Outline, onClick = { tab = TextTab.Outline; colorTarget = ColorTarget.Outline })
+            ChoiceChip("Box & Shadow", selected = tab == TextTab.Box, onClick = { tab = TextTab.Box; colorTarget = ColorTarget.Box })
         }
-        ValueSlider("Size", size, 0.03f..0.2f, { "${(it * 100).toInt()}" }, onChange = { size = it })
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            for (hex in TEXT_COLOURS) {
-                val picked = hex.equals(colour, ignoreCase = true)
-                Box(
-                    Modifier.size(32.dp).clip(CircleShape)
-                        .border(if (picked) 2.dp else 1.dp, if (picked) ConcatColors.accent else ConcatColors.lineStrong, CircleShape)
-                        .padding(if (picked) 4.dp else 0.dp)
-                        .clip(CircleShape)
-                        .background(colourOf(hex))
-                        .clickable { colour = hex },
+
+        when (tab) {
+            TextTab.Text -> {
+                if (caption) PanelLabel("Perubahan teks & gaya langsung terlihat di preview.")
+                BasicTextField(
+                    value = content,
+                    onValueChange = {
+                        content = it
+                        pushLive()
+                    },
+                    textStyle = ConcatType.title.copy(color = ConcatColors.fg),
+                    cursorBrush = SolidColor(ConcatColors.accent),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    decorationBox = { field ->
+                        Box(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(ConcatColors.launchField)
+                                .padding(horizontal = Spacing.md, vertical = 10.dp),
+                        ) {
+                            if (content.isEmpty()) Text("Ketik teks...", style = ConcatType.title, color = ConcatColors.fgDim)
+                            field()
+                        }
+                    },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    ChoiceChip("Regular", selected = weight < 600 && !italic, onClick = { weight = 400.0; italic = false; pushLive() })
+                    ChoiceChip("Bold", selected = weight >= 600 && weight < 800, onClick = { weight = 700.0; pushLive() })
+                    ChoiceChip("Black", selected = weight >= 800, onClick = { weight = 900.0; pushLive() })
+                    ChoiceChip("Italic", selected = italic, onClick = { italic = !italic; pushLive() })
+                }
+                ValueSlider(
+                    "Size",
+                    size,
+                    0.02f..0.25f,
+                    { "${(it * 100).toInt()}" },
+                    onChange = { size = it; pushLive() },
+                )
+            }
+
+            TextTab.Fill -> {
+                ColorPickerRow(
+                    selectedHex = colour,
+                    eyedropperActive = eyedropperActive && colorTarget == ColorTarget.Fill,
+                    onToggleEyedropper = {
+                        colorTarget = ColorTarget.Fill
+                        onToggleEyedropper(!eyedropperActive)
+                    },
+                    onPick = { hex ->
+                        colour = hex
+                        pushLive()
+                    },
+                )
+            }
+
+            TextTab.Outline -> {
+                ValueSlider(
+                    "Outline thickness",
+                    strokeWidth,
+                    0f..0.025f,
+                    { if (it <= 0.0002f) "Off" else "%.1f".format(it * 1000f) },
+                    onChange = { strokeWidth = it; pushLive() },
+                )
+                ColorPickerRow(
+                    selectedHex = strokeColour,
+                    eyedropperActive = eyedropperActive && colorTarget == ColorTarget.Outline,
+                    onToggleEyedropper = {
+                        colorTarget = ColorTarget.Outline
+                        onToggleEyedropper(!eyedropperActive)
+                    },
+                    onPick = { hex ->
+                        strokeColour = hex
+                        if (strokeWidth <= 0f) strokeWidth = 0.005f
+                        pushLive()
+                    },
+                )
+            }
+
+            TextTab.Box -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    ChoiceChip(
+                        if (shadow) "Shadow: On" else "Shadow: Off",
+                        selected = shadow,
+                        onClick = { shadow = !shadow; pushLive() },
+                    )
+                    ChoiceChip(
+                        "No Box",
+                        selected = plateColour == null,
+                        onClick = { plateColour = null; pushLive() },
+                    )
+                }
+                ColorPickerRow(
+                    selectedHex = plateColour ?: "",
+                    eyedropperActive = eyedropperActive && colorTarget == ColorTarget.Box,
+                    onToggleEyedropper = {
+                        colorTarget = ColorTarget.Box
+                        onToggleEyedropper(!eyedropperActive)
+                    },
+                    onPick = { hex ->
+                        plateColour = hex
+                        pushLive()
+                    },
                 )
             }
         }
     }
 }
 
-/**
- * Effects, filters or transitions as a row of tiles over the clip:
- * "None" first, a tap applies, and the newest of this shelf's links
- * gets its strength slider beneath. "All" opens the full catalogue sheet
- * with search, categories and every knob.
- */
+@Composable
+private fun ColorPickerRow(
+    selectedHex: String,
+    eyedropperActive: Boolean,
+    onToggleEyedropper: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        if (eyedropperActive) {
+            PanelLabel("Geser jari di atas video preview untuk mengambil warna.")
+        }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(34.dp).clip(CircleShape)
+                    .background(if (eyedropperActive) ConcatColors.accent else ConcatColors.raised)
+                    .border(1.dp, if (eyedropperActive) ConcatColors.accent else ConcatColors.lineStrong, CircleShape)
+                    .clickable { onToggleEyedropper() },
+                contentAlignment = Alignment.Center,
+            ) {
+                ConcatIcon(
+                    ConcatIcons.Wand,
+                    tint = if (eyedropperActive) ConcatColors.onAccent else ConcatColors.fg,
+                    size = 18.dp,
+                )
+            }
+            for (hex in TEXT_COLOURS) {
+                val picked = hex.equals(selectedHex, ignoreCase = true)
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape)
+                        .border(if (picked) 2.dp else 1.dp, if (picked) ConcatColors.accent else ConcatColors.lineStrong, CircleShape)
+                        .padding(if (picked) 4.dp else 0.dp)
+                        .clip(CircleShape)
+                        .background(colourOf(hex))
+                        .clickable { onPick(hex) },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun PackagePanel(
     shelf: Shelf,
@@ -242,7 +408,6 @@ fun PackagePanel(
     val kinds = shelf.kinds(clip)
     LaunchedEffect(Unit) { catalogue.load() }
     val offered = state.packages.filter { it.kind in kinds }
-    // The chain's links this shelf owns, as (field, index, link).
     val links = clip?.let { c ->
         buildList {
             if ("audio" in kinds) c.filters.forEachIndexed { i, link -> add(Triple("filters", i, link)) }
@@ -291,7 +456,6 @@ fun PackagePanel(
                 ) { editor.applyPackage(pkg.kind, pkg.id, pkg.name) }
             }
         }
-        // The newest link's strength, live as the finger moves.
         val newest = links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
         val pkg = newest?.let { catalogue.find(it.third.id) }
         val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity } ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
@@ -316,7 +480,6 @@ private fun LinkStrength(
     val high = knob.max.toFloat().coerceAtLeast(low + 1e-3f)
     Column(Modifier.padding(horizontal = Spacing.lg)) {
         ValueSlider(
-            // The effect's name says what its strength is; another knob is named after it.
             if (knob.key == pkg.intensity) pkg.name else "${pkg.name} ${knob.label.lowercase()}",
             value,
             low..high,
@@ -365,7 +528,6 @@ private fun PackageTileSmall(name: String, tint: Brush?, selected: Boolean, enab
     }
 }
 
-/** The frame's shapes. */
 enum class AspectChoice(val label: String, val width: Int, val height: Int) {
     Portrait("9:16", 1080, 1920),
     Landscape("16:9", 1920, 1080),
@@ -424,3 +586,4 @@ fun BackgroundPanel(onPick: (JSONObject) -> Unit, onClose: () -> Unit) {
         }
     }
 }
+
