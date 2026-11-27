@@ -26,11 +26,24 @@ import kotlinx.coroutines.withContext
 /** A choice on the export sheet. */
 data class ExportPreset(val label: String, val shortSide: Int, val crf: Int, val preset: String)
 
+data class ExportFps(val label: String, val rateNum: Long?, val rateDen: Long?)
+
 val EXPORT_PRESETS = listOf(
+    ExportPreset("480p", 480, 24, "veryfast"),
     ExportPreset("720p", 720, 23, "veryfast"),
     ExportPreset("1080p", 1080, 20, "medium"),
     ExportPreset("1080p HQ", 1080, 17, "slow"),
+    ExportPreset("2K", 1440, 19, "medium"),
     ExportPreset("4K", 2160, 20, "medium"),
+)
+
+val EXPORT_FPS_OPTIONS = listOf(
+    ExportFps("Auto", null, null),
+    ExportFps("24 fps", 24000, 1001),
+    ExportFps("25 fps", 25, 1),
+    ExportFps("30 fps", 30, 1),
+    ExportFps("50 fps", 50, 1),
+    ExportFps("60 fps", 60, 1),
 )
 
 sealed interface ExportState {
@@ -60,8 +73,6 @@ class ExportManager(private val context: Context, private val api: ConcatApi, pr
     private fun handle(event: ApiEvent) = synchronized(this) {
         val running = _state.value as? ExportState.Running
         if (running == null || event.job != running.job) {
-            // An engine may report before the reply naming the job lands;
-            // the last word on each job is kept for that moment.
             if (early.size > 8) early.clear()
             early[event.job] = event
             return@synchronized
@@ -78,15 +89,22 @@ class ExportManager(private val context: Context, private val api: ConcatApi, pr
         }
     }
 
-    /** Starts rendering [path] at [preset]; the frame keeps the timeline's shape. */
-    suspend fun start(path: String, title: String, width: Int, height: Int, preset: ExportPreset): Result<Unit> {
+    /** Starts rendering [path] at [preset] and [fps]; the frame keeps the timeline's shape. */
+    suspend fun start(
+        path: String,
+        title: String,
+        width: Int,
+        height: Int,
+        preset: ExportPreset,
+        fps: ExportFps = EXPORT_FPS_OPTIONS[0],
+    ): Result<Unit> {
         if (_state.value is ExportState.Running) return Result.failure(IllegalStateException("An export is already running."))
         val (w, h) = sized(width, height, preset.shortSide)
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
         val safe = title.replace(Regex("[^A-Za-z0-9 _-]"), "_").ifBlank { "Concat" }
         val output = File(dir, "$safe-${System.currentTimeMillis()}.mp4")
         return try {
-            val job = api.exportRun(path, output.absolutePath, w, h, preset.crf, preset.preset)
+            val job = api.exportRun(path, output.absolutePath, w, h, preset.crf, preset.preset, fps.rateNum, fps.rateDen)
             val caught = synchronized(this) {
                 _state.value = ExportState.Running(job, title, "starting", 0f)
                 early.remove(job)
@@ -140,8 +158,6 @@ class ExportManager(private val context: Context, private val api: ConcatApi, pr
                 put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/Concat")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             } else {
-                // Before scoped storage the row names its file, which needs
-                // WRITE_EXTERNAL_STORAGE (declared up to API 28).
                 @Suppress("DEPRECATION")
                 val movies = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Concat").apply { mkdirs() }
                 @Suppress("DEPRECATION")
