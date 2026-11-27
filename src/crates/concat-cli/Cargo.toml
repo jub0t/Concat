@@ -32,7 +32,7 @@ log = "0.4"
 
 [dev-dependencies]
 # The still the worker tests put on the timeline.
-png = "0.17"
+png = "0.18"
 
 [features]
 # `serve --grpc`. Off by default; see concat-server.
