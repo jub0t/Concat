@@ -666,6 +666,7 @@
   "shortcuts.hint": "행을 클릭한 다음 반응할 키를 누르세요. Escape는 취소하며, 다른 동작이 쓰고 있는 키 조합은 이쪽으로 옮겨지고 그 동작은 자체 초기화로 키를 되돌릴 때까지 키가 없는 상태가 됩니다. 일부 키 조합은 창이 사용하므로 지정할 수 없습니다.",
   "shortcuts.nextEdit": "다음 컷으로 이동",
   "shortcuts.pan": "손 도구",
+  "shortcuts.playRate": "재생 속도",
   "shortcuts.press": "키를 누르세요…",
   "shortcuts.prevEdit": "이전 컷으로 이동",
   "shortcuts.previewAxis": "미리보기 축",

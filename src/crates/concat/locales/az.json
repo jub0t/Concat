@@ -666,6 +666,7 @@
   "shortcuts.hint": "Bir sətirə klikləyin, sonra onun cavab verəcəyi düymələrə basın. Escape ləğv edir, başqa əməliyyatın tutduğu kombinasiya bura keçir və həmin əməliyyat öz Sıfırla düyməsi bir düymə qaytarana qədər düyməsiz qalır. Bəzi kombinasiyalar pəncərəyə aiddir və təyin edilə bilməz.",
   "shortcuts.nextEdit": "Növbəti kəsimə keç",
   "shortcuts.pan": "Sürüşdürmə aləti",
+  "shortcuts.playRate": "Oxutma sürəti",
   "shortcuts.press": "Bir düyməyə basın…",
   "shortcuts.prevEdit": "Əvvəlki kəsimə keç",
   "shortcuts.previewAxis": "Önbaxış oxu",

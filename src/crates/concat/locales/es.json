@@ -666,6 +666,7 @@
   "shortcuts.hint": "Haz clic en una fila y pulsa las teclas con las que debe responder. Escape cancela, y un atajo que usa otra acción pasa a esta, dejando a la otra sin tecla hasta que su propio Restablecer le devuelva una. Algunos atajos pertenecen a la ventana y no se pueden asignar.",
   "shortcuts.nextEdit": "Ir al corte siguiente",
   "shortcuts.pan": "Herramienta mano",
+  "shortcuts.playRate": "Velocidad de reproducción",
   "shortcuts.press": "Pulsa una tecla…",
   "shortcuts.prevEdit": "Ir al corte anterior",
   "shortcuts.previewAxis": "Eje de vista previa",

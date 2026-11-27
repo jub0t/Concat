@@ -666,6 +666,7 @@
   "shortcuts.hint": "Fai clic su una riga, poi premi i tasti a cui deve rispondere. Escape annulla, e una combinazione tenuta da un'altra azione passa a questa, lasciando l'altra senza tasto finché il suo Ripristina non gliene rimette uno. Alcune combinazioni appartengono alla finestra e non si possono assegnare.",
   "shortcuts.nextEdit": "Vai al taglio successivo",
   "shortcuts.pan": "Strumento mano",
+  "shortcuts.playRate": "Velocità di riproduzione",
   "shortcuts.press": "Premi un tasto…",
   "shortcuts.prevEdit": "Vai al taglio precedente",
   "shortcuts.previewAxis": "Asse anteprima",

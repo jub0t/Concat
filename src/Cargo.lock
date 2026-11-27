@@ -1276,6 +1276,7 @@ dependencies = [
  "concat-media",
  "concat-render",
  "concat-sched",
+ "concat-stretch",
  "concat-text",
  "concat-vision",
  "concat-worker",

@@ -666,6 +666,7 @@
   "shortcuts.hint": "Klik sebuah baris, lalu tekan tombol yang harus ditanggapinya. Escape membatalkan, dan kombinasi tombol yang dipegang tindakan lain akan pindah ke sini, sehingga tindakan itu tanpa tombol sampai Atur ulang miliknya sendiri mengembalikannya. Beberapa kombinasi milik jendela dan tidak bisa ditetapkan.",
   "shortcuts.nextEdit": "Ke potongan berikutnya",
   "shortcuts.pan": "Alat geser",
+  "shortcuts.playRate": "Kecepatan putar",
   "shortcuts.press": "Tekan tombol…",
   "shortcuts.prevEdit": "Ke potongan sebelumnya",
   "shortcuts.previewAxis": "Sumbu pratinjau",

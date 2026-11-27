@@ -666,6 +666,7 @@
   "shortcuts.hint": "Cliquez sur une ligne, puis appuyez sur les touches qui doivent la déclencher. Escape annule, et un raccourci déjà pris par une autre action passe à celle-ci, laissant l'autre sans touche jusqu'à ce que son propre bouton Réinitialiser en remette une. Quelques raccourcis appartiennent à la fenêtre et ne peuvent pas être attribués.",
   "shortcuts.nextEdit": "Aller à la coupe suivante",
   "shortcuts.pan": "Outil Main",
+  "shortcuts.playRate": "Vitesse de lecture",
   "shortcuts.press": "Appuyez sur une touche…",
   "shortcuts.prevEdit": "Aller à la coupe précédente",
   "shortcuts.previewAxis": "Axe d'aperçu",

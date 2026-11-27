@@ -279,6 +279,8 @@ export global Editor {
     in-out property <int> ratio-index;
     in-out property <int> quality-index;
     in-out property <bool> playing;
+    /// The pace the timeline plays at, as a row of 1x, 2x, 3x.
+    in-out property <int> play-rate;
     in-out property <bool> has-picture;
     in-out property <string> preview-clip-name;
     in-out property <float> preview-duration;
@@ -293,6 +295,7 @@ export global Editor {
     in-out property <bool> see-through;
 
     callback play-toggled();
+    callback play-rate-picked(index: int);
     callback seek(seconds: float);
     callback step-frames(frames: float);
     callback ratio-changed(index: int);

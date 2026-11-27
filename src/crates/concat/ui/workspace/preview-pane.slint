@@ -777,6 +777,9 @@ export component PreviewPane inherits Rectangle {
     in property <[StageGuideData]> stage-guides;
 
     callback play-toggled();
+    /// The pace the timeline plays at, as a row of 1x, 2x, 3x.
+    in property <int> play-rate;
+    callback play-rate-picked(index: int);
     /// Absolute, in seconds.
     callback seek(seconds: float);
     /// Relative, in frames — one for an arrow, a second's worth for shift.
@@ -1322,6 +1325,20 @@ export component PreviewPane inherits Rectangle {
                         label: I18n.t("common.goToEnd");
                         enabled: !root.at-end;
                         clicked => { root.seek(root.duration); }
+                    }
+
+                    // How fast the timeline is watched. A library file on the
+                    // monitor plays at its own pace, so it has none.
+                    if root.source-name == "": VerticalLayout {
+                        alignment: center;
+                        padding-left: 6px;
+                        Select {
+                            snug: true;
+                            width: self.natural-width;
+                            current: root.play-rate;
+                            options: ["1×", "2×", "3×"];
+                            changed(index) => { root.play-rate-picked(index); }
+                        }
                     }
                 }
 

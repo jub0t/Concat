@@ -136,6 +136,12 @@ impl<S: Source, M: TimeMap> Stretch<S, M> {
         }
     }
 
+    /// The source, for what it reads from to change under a stretch that
+    /// goes on: a player's mix after an edit.
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+
     /// Fills `out`, interleaved, with the next frames of the stretched
     /// sound. Past the end of the source it is silence, for as long as it
     /// is read.

@@ -666,6 +666,7 @@
   "shortcuts.hint": "行をクリックしてから、割り当てたいキーを押します。Escape で取り消します。別の操作が使っているキーの組み合わせはこちらに移り、その操作はリセットで戻すまでキーがない状態になります。一部の組み合わせはウィンドウが使うため割り当てられません。",
   "shortcuts.nextEdit": "次のカットへ移動",
   "shortcuts.pan": "パンツール",
+  "shortcuts.playRate": "再生速度",
   "shortcuts.press": "キーを押してください…",
   "shortcuts.prevEdit": "前のカットへ移動",
   "shortcuts.previewAxis": "プレビュー軸",

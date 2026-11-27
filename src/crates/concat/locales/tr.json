@@ -666,6 +666,7 @@
   "shortcuts.hint": "Bir satıra tıklayın, ardından karşılık vermesini istediğiniz tuşlara basın. Escape iptal eder; başka bir eylemin tuttuğu bir kombinasyon buraya geçer ve o eylem, kendi Sıfırla düğmesi bir tuş geri koyana kadar tuşsuz kalır. Bazı kombinasyonlar pencereye aittir ve atanamaz.",
   "shortcuts.nextEdit": "Sonraki kesime git",
   "shortcuts.pan": "El aracı",
+  "shortcuts.playRate": "Oynatma hızı",
   "shortcuts.press": "Bir tuşa basın…",
   "shortcuts.prevEdit": "Önceki kesime git",
   "shortcuts.previewAxis": "Önizleme ekseni",

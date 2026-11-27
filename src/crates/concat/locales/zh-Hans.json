@@ -666,6 +666,7 @@
   "shortcuts.hint": "点击一行，然后按下它要响应的按键。Escape 取消；若某个组合键已被其他操作占用，会转移到这里，那个操作将没有按键，直到它自己的“重置”把按键放回去。少数组合键属于窗口，无法绑定。",
   "shortcuts.nextEdit": "跳到下一个剪辑点",
   "shortcuts.pan": "平移工具",
+  "shortcuts.playRate": "播放速度",
   "shortcuts.press": "按下一个键…",
   "shortcuts.prevEdit": "跳到上一个剪辑点",
   "shortcuts.previewAxis": "预览轴",

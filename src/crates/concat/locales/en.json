@@ -666,6 +666,7 @@
   "shortcuts.hint": "Click a row, then press the keys it should answer to. Escape cancels, and a chord another action holds moves over, leaving that action with no key until its own Reset puts one back. A few chords belong to the window and cannot be bound.",
   "shortcuts.nextEdit": "Go to next cut",
   "shortcuts.pan": "Pan tool",
+  "shortcuts.playRate": "Playback speed",
   "shortcuts.press": "Press a key…",
   "shortcuts.prevEdit": "Go to previous cut",
   "shortcuts.previewAxis": "Preview axis",
