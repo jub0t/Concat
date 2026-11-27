@@ -785,7 +785,7 @@
   "start.location": "Lokalizacja",
   "start.newProject": "Nowy projekt",
   "start.newProjectNote": "Wybierz format i liczbę klatek na sekundę",
-  "start.newsNote": "Eksport na telefonie znów dochodzi do końca i nic nie przepada. Co nowego",
+  "start.newsNote": "22 nowe efekty, przejścia i błyski do wypróbowania. Co nowego",
   "start.noGraphicsDriver": "Concat nie znalazł na tym komputerze sterownika grafiki, którego mógłby użyć, więc rysuje za pomocą procesora, co jest znacznie wolniejsze. Zwykle pomaga zainstalowanie najnowszego sterownika grafiki od producenta komputera lub karty graficznej.",
   "start.noMatches": "Żaden projekt nie pasuje do „{0}”.",
   "start.noProjectsNote": "Wszystko, co utworzysz lub otworzysz, pojawi się tutaj.",
