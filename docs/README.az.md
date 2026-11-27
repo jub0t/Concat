@@ -44,7 +44,7 @@
 
 ## Haqqında
 
-Concat macOS, Windows, Linux, Android və iOS üçün pulsuz, açıq mənbəli video redaktorudur. Montajların çoxuna lazım olan hər şey burada var: avtomatik subtitrlər, səsin ayrılması, mətnin səsləndirilməsi, fonun silinməsi, animasiyalar və açar kadrlar, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.
+Concat macOS, Windows, Linux və Android üçün pulsuz, açıq mənbəli video redaktorudur. Montajların çoxuna lazım olan hər şey burada var: avtomatik subtitrlər, səsin ayrılması, mətnin səsləndirilməsi, fonun silinməsi, animasiyalar və açar kadrlar, effektlər və yazılar, bir neçə trekdə montaj, 4K ixrac. Üstəlik heç bir gizli şərt yoxdur: nə su nişanı, nə hesab, nə abunəlik, nə də faylların serverə yüklənməsi.
 
 Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüterinizdə işləyir; görüntünün birləşdirilməsi (kompozitinq) GPU-da aparılır. Proqramı quraşdırın, videonuzu əlavə edin və montaja başlayın. Subtitr, səsləndirmə və fon silmə üçün süni intellekt modelləri Parametrlər bölməsindən bir dəfə cihazınıza endirilir, sonra internetsiz işləyir. Videolarınız heç vaxt kompüterinizdən kənara çıxmır.
 
@@ -73,7 +73,7 @@ Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüteri
 - ⚡ **Sürətli.** Proksilər daxilidir, 4K rahat sürüşsün deyə. Yazılar bütün nüvələrdə çəkilir və hər effekt pəncərə açılan kimi hazırdır.
 - 🛟 **İstənilən kompüterdə işləməyə davam edir.** Qrafik çip imtina edəndə önbaxış çəkməyə davam edir.
 - 🤖 **Skriptlərlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri Concat ilə montaj edə bilər ([bir sətirlə quraşdırılır](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbə kodundan yığılan versiyaya əlavə olaraq komanda sətri aləti daxildir.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 dil. Eyni tətbiq, eyni layihə faylları.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 dil. Eyni tətbiq, eyni layihə faylları.
 
 ## Yükləmə
 
@@ -90,7 +90,6 @@ Concat hələ **beta** mərhələsindədir: işləyir, amma hələ də bəzi ça
 - ✅ **macOS** · Intel və Apple silicon. macOS imzasız versiyanı açmaq istəməsə: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 və ARM. `.deb`, `.rpm`, `.AppImage` və Arch paketi. Bundan əlavə, Flatpak versiyası da var: o, **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** icma deposundadır. Bu depo hər buraxılışın x86_64 `.deb` paketini Flatpak formatına salır və onunla birlikdə yenilənir
 - ✅ **Android** · telefonlar və planşetlər
-- ✅ **iOS / iPadOS** · iPhone və iPad, App Store-dan kənar quraşdırma (sideload) ilə
 
 ✅ Dəstəklənir · 🚧 Üzərində işlənir · 🧪 Test olunmalıdır
 

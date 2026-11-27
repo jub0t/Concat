@@ -296,8 +296,6 @@ export component App inherits Window {
     in property <int> recents-total;
     /// "0.2.7", for the launch screen's version line.
     in property <string> app-version;
-    /// A file can be dragged in from the system: a desk, not a phone.
-    in property <bool> can-drop;
     /// CapCut keeps drafts on this machine; see `concat_host::capcut`.
     in property <bool> capcut;
 
@@ -762,7 +760,6 @@ export component App inherits Window {
                 busy: root.start.busy;
                 phone: root.phone;
                 version: root.app-version;
-                can-drop: root.can-drop;
                 capcut: root.capcut;
 
                 compose => { root.start-compose(); }

@@ -44,7 +44,7 @@
 
 ## Hakkında
 
-Concat; macOS, Windows, Linux, Android ve iOS için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, ses ayırma, metinden sese, arka plan kaldırma, animasyonlar ve anahtar kareler, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
+Concat; macOS, Windows, Linux ve Android için ücretsiz, açık kaynaklı bir video düzenleyicidir. Çoğu kurgunun ihtiyaç duyduğu her şeyi karşılar: otomatik altyazı, ses ayırma, metinden sese, arka plan kaldırma, animasyonlar ve anahtar kareler, efektler ve yazılar, çok parçalı kurgu, 4K dışa aktarma. Hiçbir tuzak olmadan: filigran yok, hesap yok, abonelik yok, yükleme yok.
 
 Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır. Kurun, görüntüleri bırakın, kesin. Altyazı, ses ve kesme için yapay zekâ modelleri Ayarlar’dan bir kez indirilir ve sonrasında çevrimdışı çalışır. Görüntüleriniz diskinizden asla çıkmaz.
 
@@ -73,7 +73,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 - ⚡ **Hızlı.** Proxy dosyaları dahil, böylece 4K akıcı kayar. Yazılar tüm çekirdeklerde çizilir ve her efekt pencere açıldığı anda hazırdır.
 - 🛟 **Her makinede çalışmaya devam eder.** Grafik çipi pes ettiğinde önizleme çizmeye devam eder.
 - 🤖 **Betiklenebilir.** Betiklerin ve yapay zekâ ajanlarının video kesebileceği bir JSON-RPC API’si. Kaynaktan derlenen sürüm buna bir komut satırı aracı ekler.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 dil. Aynı uygulama, aynı proje dosyaları.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir
 
@@ -90,7 +90,6 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 - ✅ **macOS** · Intel ve Apple Silicon. macOS imzasız bir derlemeyi açmayı reddederse: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 ve ARM. `.deb`, `.rpm`, `.AppImage` ve bir Arch paketi. Ayrıca her sürümün x86_64 `.deb`’ini saran ve onunla güncellenen topluluk Flatpak deposu **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** üzerinde bir Flatpak
 - ✅ **Android** · telefonlar ve tabletler
-- ✅ **iOS / iPadOS** · iPhone ve iPad, sideload ile
 
 ✅ Destekleniyor · 🚧 Çalışılıyor · 🧪 Test edilecek
 

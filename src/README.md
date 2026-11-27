@@ -66,19 +66,18 @@ dependency pinned: `nix build` (then `./result/bin/concat`), `nix run`, or
 `nix develop` for a shell with the toolchain and libraries in it. Linux
 x86_64 and aarch64.
 
-### Phones
+### Android
 
-The engine builds for Android (arm64) and iOS (arm64). On Android the app
-is `android-native/`, Kotlin and Jetpack Compose over `concat-mobile`; on
-iOS the window itself runs. Two native libraries come from source for a phone, because no
-prebuilt covers them: FFmpeg, which `scripts/ffmpeg-mobile.sh` cross-builds
-as static archives with the platform's hardware codecs turned on -
-MediaCodec on Android, VideoToolbox on iOS - and whisper.cpp, which its
-crate builds with cmake for the target. sherpa-onnx ships as the shared
-library k2-fsa publishes, fetched by `scripts/sherpa-mobile.sh`; on Android
-the app carries it in `jniLibs`, on iOS as an embedded framework. Both
-scripts leave their output under `vendor/`, outside `target/`, and
-`scripts/mobile-env.sh` turns that into the build environment:
+The engine builds for Android (arm64). The app is `android-native/`,
+Kotlin and Jetpack Compose over `concat-mobile`. Two native libraries come
+from source for a phone, because no prebuilt covers them: FFmpeg, which
+`scripts/ffmpeg-mobile.sh` cross-builds as static archives with
+MediaCodec turned on, and whisper.cpp, which its crate builds with cmake
+for the target. sherpa-onnx ships as the shared library k2-fsa publishes,
+fetched by `scripts/sherpa-mobile.sh`, and the app carries it in
+`jniLibs`. Both scripts leave their output under `vendor/`, outside
+`target/`, and `scripts/mobile-env.sh` turns that into the build
+environment:
 
 ```sh
 # Android: the NDK under the SDK, JDK 17 and cargo-ndk.
@@ -87,20 +86,13 @@ scripts/sherpa-mobile.sh aarch64-linux-android
 scripts/android-libs.sh aarch64-linux-android
 ../android-native/build-rust.sh release                         # the engine and its bindings
 (cd ../android-native && ./gradlew assembleRelease)             # the APK
-
-# iOS: Xcode.
-scripts/ffmpeg-mobile.sh aarch64-apple-ios
-scripts/sherpa-mobile.sh aarch64-apple-ios
-eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
-cargo build --release -p concat --target aarch64-apple-ios
-scripts/ios-app.sh aarch64-apple-ios release                    # Concat.app
 ```
 
 `.github/workflows/mobile.yml` runs exactly this on every pull request
-and on a release tag, and keeps the FFmpeg builds cached. The window is one library: `concat` on the
-desktop and on iOS runs it from `main.rs`, and `crates/concat/src/platform.rs`
-is where the two differ - how the backend is chosen, how files are picked, and
-whether there is a title strip to drag.
+and on a release tag, and keeps the FFmpeg builds cached. The window is one
+library: `concat` runs it from `main.rs`, and `crates/concat/src/platform.rs`
+is where the desktops differ - how the backend is chosen, how files are
+picked, and whether there is a title strip to drag.
 
 ## Driving Concat without the window
 

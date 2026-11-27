@@ -216,8 +216,8 @@ use libc::localeconv;
 /// nothing (#762). Concat never sets the locale itself; this undoes it
 /// whoever did. One `localeconv` read when nothing is wrong. On Windows
 /// the program and FFmpeg's DLLs share the UCRT's one locale, so setting
-/// it here sets it for them. Android's and iOS's C libraries take the
-/// same calls; Android's has no locale but C's, so there it never acts.
+/// it here sets it for them. Android's C library takes the same calls and
+/// has no locale but C's, so there it never acts.
 pub(crate) fn keep_c_numbers() -> bool {
     #[cfg(any(unix, windows))]
     {
@@ -587,7 +587,7 @@ pub(crate) fn displayed(
 /// The platform's own AAC decoder, where FFmpeg wraps one: Apple's
 /// AudioToolbox and Android's MediaCodec, whose makers license AAC. Windows
 /// and Linux have none in FFmpeg, and decode on FFmpeg's.
-const PLATFORM_AAC: Option<&str> = if cfg!(any(target_os = "macos", target_os = "ios")) {
+const PLATFORM_AAC: Option<&str> = if cfg!(target_os = "macos") {
     Some("aac_at")
 } else if cfg!(target_os = "android") {
     Some("aac_mediacodec")

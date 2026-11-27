@@ -315,10 +315,8 @@ pub struct Preferences {
     /// Scrub copies: every video gets a small copy written in the
     /// background, every frame of it a keyframe, which a scrub reads so the
     /// picture keeps up with the hand, and playback at Half and Quarter
-    /// too; see concat_host::proxy. `None` is the platform's default -
-    /// on for a desktop, where the copy is a 540p software encode of about
-    /// 48 MB a minute; off for a phone, whose copies go through its chip
-    /// and are not every frame a keyframe yet.
+    /// too; see concat_host::proxy. `None` is on: the copy is a 540p
+    /// software encode of about 48 MB a minute.
     ///
     /// Stored as `scrubCopies`. It was `proxies`, off by default when a
     /// proxy was a full re-encode of every file larger than HD and helped
@@ -492,7 +490,7 @@ impl Preferences {
 
     /// Whether videos get scrub copies; see `scrub_copies`.
     pub fn scrub_copies(&self) -> bool {
-        self.scrub_copies.unwrap_or(!cfg!(target_os = "ios"))
+        self.scrub_copies.unwrap_or(true)
     }
 
     /// Which of `names` — the theme's accents, in its order — the remembered

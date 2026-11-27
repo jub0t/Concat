@@ -72,7 +72,7 @@ impl VideoCodec {
     /// The codec Concat writes its own working copies in, a proxy and a
     /// reversed clip's pieces: MPEG-4 on a desktop, and on a phone H.264,
     /// which its chip encodes for nothing where MPEG-4 would be its CPU's.
-    pub const WORKING: VideoCodec = if cfg!(any(target_os = "android", target_os = "ios")) {
+    pub const WORKING: VideoCodec = if cfg!(target_os = "android") {
         VideoCodec::H264
     } else {
         VideoCodec::Mpeg4
@@ -200,16 +200,6 @@ impl VideoCodec {
                 VideoCodec::Hevc => &["hevc_mediacodec"],
                 VideoCodec::Av1 => &["av1_mediacodec"],
                 VideoCodec::ProRes4444 | VideoCodec::Vp9Alpha | VideoCodec::Mpeg4 => &[],
-            };
-        }
-        if cfg!(target_os = "ios") {
-            return match self {
-                VideoCodec::H264 => &["h264_videotoolbox"],
-                VideoCodec::Hevc => &["hevc_videotoolbox"],
-                VideoCodec::Av1
-                | VideoCodec::ProRes4444
-                | VideoCodec::Vp9Alpha
-                | VideoCodec::Mpeg4 => &[],
             };
         }
         match self {
@@ -656,7 +646,7 @@ impl Family {
 /// laptops where libcuda crashes that is the usual way to say so.
 fn switched_on(encoder_name: &str, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     let family = Family::of(encoder_name);
-    if !family.hardware() || cfg!(any(target_os = "android", target_os = "ios")) {
+    if !family.hardware() || cfg!(target_os = "android") {
         return true;
     }
     if var("CONCAT_HARDWARE_ENCODE").is_some_and(|value| value.to_string_lossy().trim() == "0") {
@@ -1133,8 +1123,8 @@ fn open_video(
     }
     // VideoToolbox reads a quality from the context alone, as `-q:v` puts
     // it there on the command line: a flag, and the quality as a lambda.
-    // Only Apple silicon's chip takes one; an Intel Mac's, an iPhone's and
-    // Apple's software encoder refuse it, and are told the bitrate the CRF
+    // Only Apple silicon's chip takes one; an Intel Mac's and Apple's
+    // software encoder refuse it, and are told the bitrate the CRF
     // would come to instead. CBR is the target as the average and as the
     // ceiling over a second.
     if family == Family::VideoToolbox && !average {
@@ -3016,9 +3006,9 @@ mod tests {
         }
     }
 
-    /// Every codec has an encoder listed for every platform but AV1 on
-    /// iOS, and a phone lists its hardware alone, whatever `hardware` says:
-    /// its FFmpeg has nothing else.
+    /// Every codec has an encoder listed for every platform, and a phone
+    /// lists its hardware alone, whatever `hardware` says: its FFmpeg has
+    /// nothing else.
     #[test]
     fn a_phone_is_asked_for_its_own_hardware() {
         for codec in VideoCodec::ALL {
@@ -3034,15 +3024,13 @@ mod tests {
                     assert!(!names.is_empty(), "{codec:?}");
                 } else if cfg!(target_os = "android") {
                     assert!(names.iter().all(|name| name.ends_with("_mediacodec")));
-                } else if cfg!(target_os = "ios") {
-                    assert!(names.iter().all(|name| name.ends_with("_videotoolbox")));
                 } else {
                     assert!(!names.is_empty(), "{codec:?}");
                 }
             }
             // A desktop has a software encoder behind any hardware one, so
             // what is linked is what can be encoded.
-            if !cfg!(any(target_os = "android", target_os = "ios")) {
+            if !cfg!(target_os = "android") {
                 assert_eq!(codec.encodable(), codec.available(), "{codec:?}");
             }
         }
@@ -3148,7 +3136,7 @@ mod tests {
                     .map(|(_, value)| std::ffi::OsString::from(value))
             }
         }
-        let desktop = !cfg!(any(target_os = "android", target_os = "ios"));
+        let desktop = !cfg!(target_os = "android");
         assert!(switched_on("hevc_nvenc", env(&[])));
         assert!(switched_on(
             "libx265",
@@ -3174,8 +3162,7 @@ mod tests {
     }
 
     /// On a Mac, the fallback H.264 encoder for an FFmpeg without x264
-    /// opens with the settings it is handed, and the iPhone's H.264 is the
-    /// same encoder.
+    /// opens with the settings it is handed.
     #[test]
     fn the_hardware_h264_encoder_opens() {
         ffi::init();

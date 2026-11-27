@@ -25,7 +25,7 @@
 //! the chip's rate or better. A reader can insist on software or on a named
 //! device instead, which is what the tests do.
 //!
-//! The device is the platform's own: VideoToolbox on macOS and iOS, D3D11VA
+//! The device is the platform's own: VideoToolbox on macOS, D3D11VA
 //! on Windows, MediaCodec on Android. VAAPI on Linux is never chosen by
 //! default and only ever by name, because on an Intel i915 it has hung the
 //! GPU for every process on the machine until a reboot (issue #70).
@@ -70,7 +70,7 @@ use ffmpeg_the_third::util::frame::video::Video;
 /// A platform's video decode hardware, as libavcodec names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HwDevice {
-    /// Apple's, on macOS and iOS.
+    /// Apple's, on macOS.
     VideoToolbox,
     /// Direct3D 11 video acceleration, on Windows.
     D3d11va,
@@ -93,7 +93,7 @@ impl HwDevice {
     /// The device this binary's platform has, or `None` where there is no
     /// device worth choosing unasked: Linux, whose VAAPI is opt-in only.
     pub fn platform_default() -> Option<Self> {
-        if cfg!(any(target_os = "macos", target_os = "ios")) {
+        if cfg!(target_os = "macos") {
             Some(HwDevice::VideoToolbox)
         } else if cfg!(target_os = "windows") {
             Some(HwDevice::D3d11va)

@@ -46,7 +46,7 @@
 
 ## About
 
-Concat is a free, open-source video editor for macOS, Windows, Linux, Android and iOS. It covers what most edits need: auto-captions, voice isolation, text-to-speech, background removal, animations and keyframes, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
+Concat is a free, open-source video editor for macOS, Windows, Linux and Android. It covers what most edits need: auto-captions, voice isolation, text-to-speech, background removal, animations and keyframes, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
 
 Everything runs on your machine. Install it, drop in footage, cut. The AI models for captions, voices and cutout download once from Settings and work offline after that. Your footage never leaves your disk.
 
@@ -75,7 +75,7 @@ Everything runs on your machine. Install it, drop in footage, cut. The AI models
 - ⚡ **Fast.** Proxies built in, so 4K scrubs smoothly. Titles paint on every core, and every effect is ready the moment the window opens.
 - 🛟 **Keeps going on any machine.** When the graphics chip gives up, the preview keeps drawing.
 - 🤖 **Scriptable.** An MCP server built in, so Claude and other AI agents can edit with it ([one line to set up](docs/MCP.md)), and a JSON-RPC API for scripts. A build from source adds a command-line tool.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 languages. Same app, same project files.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 languages. Same app, same project files.
 
 ## Download
 
@@ -92,7 +92,6 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 - ✅ **macOS** · Intel and Apple silicon. If macOS refuses to open an unsigned build: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 and ARM. `.deb`, `.rpm`, `.AppImage` and an Arch package. Also a Flatpak on **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, a community Flatpak remote that wraps the x86_64 `.deb` of each release and updates with it
 - ✅ **Android** · phones and tablets
-- ✅ **iOS / iPadOS** · iPhone and iPad, sideloaded
 
 ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 

@@ -44,7 +44,7 @@
 
 ## Tentang
 
-Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, Android, dan iOS. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, isolasi suara, teks ke suara, penghapusan latar, animasi dan keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
+Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, dan Android. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, isolasi suara, teks ke suara, penghapusan latar, animasi dan keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
 
 Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatuhkan rekaman, potong. Model AI untuk teks, suara, dan pemotongan latar diunduh sekali dari Pengaturan dan setelah itu bekerja luring. Rekaman Anda tidak pernah meninggalkan disk Anda.
 
@@ -73,7 +73,7 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - ⚡ **Cepat.** Proksi bawaan, jadi 4K digeser dengan mulus. Judul digambar di setiap inti, dan setiap efek siap begitu jendela terbuka.
 - 🛟 **Tetap jalan di mesin apa pun.** Saat chip grafis menyerah, pratinjau tetap menggambar.
 - 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan alat baris perintah.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 bahasa. Aplikasi yang sama, file proyek yang sama.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 bahasa. Aplikasi yang sama, file proyek yang sama.
 
 ## Unduh
 
@@ -90,7 +90,6 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 - ✅ **macOS** · Intel dan Apple Silicon. Jika macOS menolak membuka build tanpa tanda tangan: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 dan ARM. `.deb`, `.rpm`, `.AppImage`, dan paket Arch. Juga Flatpak di **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, remote Flatpak komunitas yang membungkus `.deb` x86_64 setiap rilis dan ikut memperbarui bersamanya
 - ✅ **Android** · ponsel dan tablet
-- ✅ **iOS / iPadOS** · iPhone dan iPad, lewat sideload
 
 ✅ Didukung · 🚧 Dalam pengerjaan · 🧪 Perlu diuji
 

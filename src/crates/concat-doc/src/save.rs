@@ -493,16 +493,16 @@ impl Disk for RealDisk {
     }
 }
 
-/// Flushes `file` to the device: through the drive's own cache on Apple
-/// systems, where `fsync` stops short of it.
+/// Flushes `file` to the device: through the drive's own cache on macOS,
+/// where `fsync` stops short of it.
 fn flush_file(file: &File) -> io::Result<()> {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "macos")]
     {
         // A disk that has no such flush - a network share, a FAT stick -
         // gets the system's own.
         rustix::fs::fcntl_fullfsync(file).or_else(|_| file.sync_all())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(target_os = "macos"))]
     {
         file.sync_all()
     }

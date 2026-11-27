@@ -44,7 +44,7 @@
 
 ## O projektu
 
-Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux, Android i iOS. Pokriva ono što treba većini montaža: automatske titlove, izdvajanje glasa, pretvorbu teksta u govor, uklanjanje pozadine, animacije i ključne kadrove, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
+Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux i Android. Pokriva ono što treba većini montaža: automatske titlove, izdvajanje glasa, pretvorbu teksta u govor, uklanjanje pozadine, animacije i ključne kadrove, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
 
 Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, ubacite snimke, režite. AI modeli za titlove, glasove i izrezivanje preuzimaju se jednom iz Postavki i nakon toga rade izvan mreže. Vaše snimke nikada ne napuštaju vaš disk.
 
@@ -73,7 +73,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - ⚡ **Brzo.** Proxyji su ugrađeni da se 4K glatko pomiče. Naslovi se crtaju na svim jezgrama, a svaki je efekt spreman čim se prozor otvori.
 - 🛟 **Nastavlja raditi na svakom računalu.** Kad grafički čip odustane, pregled i dalje crta.
 - 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje alat za naredbeni redak.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 jezika. Ista aplikacija, iste datoteke projekata.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 jezika. Ista aplikacija, iste datoteke projekata.
 
 ## Preuzimanje
 
@@ -90,7 +90,6 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 - ✅ **macOS** · Intel i Apple Silicon. Ako macOS odbije otvoriti nepotpisanu inačicu: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 i ARM. `.deb`, `.rpm`, `.AppImage` i Arch paket. Također Flatpak na **[Flatparku](https://flatpark.org/apps/app.concat.editor/)**, Flatpak repozitoriju zajednice koji omata x86_64 `.deb` svakog izdanja i ažurira se s njim
 - ✅ **Android** · telefoni i tableti
-- ✅ **iOS / iPadOS** · iPhone i iPad, sideloadom
 
 ✅ Podržano · 🚧 U izradi · 🧪 Za testiranje
 

@@ -44,7 +44,7 @@
 
 ## Over Concat
 
-Concat is een gratis, open-source video-editor voor macOS, Windows, Linux, Android en iOS. Het doet wat de meeste montages nodig hebben: automatische ondertitels, stem isoleren, tekst-naar-spraak, achtergrond verwijderen, animaties en keyframes, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.
+Concat is een gratis, open-source video-editor voor macOS, Windows, Linux en Android. Het doet wat de meeste montages nodig hebben: automatische ondertitels, stem isoleren, tekst-naar-spraak, achtergrond verwijderen, animaties en keyframes, effecten en titels, monteren op meerdere sporen, exporteren in 4K. En dat zonder addertjes onder het gras: geen watermerk, geen account, geen abonnement, geen upload.
 
 Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installeren, beeldmateriaal erin slepen, knippen. De AI-modellen voor ondertitels, stemmen en uitsnijden download je één keer via Instellingen, daarna werken ze offline. Je beeldmateriaal verlaat je schijf nooit.
 
@@ -73,7 +73,7 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 - ⚡ **Snel.** Proxy’s ingebouwd, zodat 4K soepel scrubt. Titels worden getekend op elke kern, en elk effect is klaar zodra het venster opent.
 - 🛟 **Blijft werken op elke machine.** Als de grafische chip het opgeeft, blijft de preview tekenen.
 - 🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt een opdrachtregeltool toe.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 talen. Dezelfde app, dezelfde projectbestanden.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 talen. Dezelfde app, dezelfde projectbestanden.
 
 ## Downloaden
 
@@ -90,7 +90,6 @@ Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat he
 - ✅ **macOS** · Intel en Apple silicon. Als macOS een niet-ondertekende build niet wil openen: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 en ARM. `.deb`, `.rpm`, `.AppImage` en een Arch-pakket. Ook als Flatpak op **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, een Flatpak-remote uit de community die de x86_64-`.deb` van elke release verpakt en met elke release meegaat
 - ✅ **Android** · telefoons en tablets
-- ✅ **iOS / iPadOS** · iPhone en iPad, via sideloading
 
 ✅ Ondersteund · 🚧 In ontwikkeling · 🧪 Nog te testen
 

@@ -1770,12 +1770,12 @@ const NO_RENDERER: &str = "no GPU or software renderer is available to draw with
 
 /// On a phone there is nothing to install: the one GPU it has would not
 /// open, and the log says which and why (#312).
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 
 /// Elsewhere the platform's own software renderer is always there, so
 /// this is a machine whose GPU and fallback both refused.
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
@@ -5720,7 +5720,7 @@ mod tests {
             cfg!(target_os = "linux"),
             "{NO_RENDERER}"
         );
-        if cfg!(any(target_os = "android", target_os = "ios")) {
+        if cfg!(target_os = "android") {
             assert!(NO_RENDERER.contains("GPU could not be used"));
         }
     }

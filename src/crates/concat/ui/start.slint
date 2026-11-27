@@ -1769,7 +1769,6 @@ component WideHome inherits Rectangle {
     in property <int> sort;
     in property <bool> busy;
     in property <string> version;
-    in property <bool> can-drop;
     /// CapCut has drafts on this machine, which can come in as projects.
     in property <bool> capcut;
 
@@ -2203,8 +2202,6 @@ export component StartScreen inherits Rectangle {
     in property <bool> busy;
     /// "0.2.7"
     in property <string> version;
-    /// A file can be dragged in from the system here.
-    in property <bool> can-drop;
     in property <bool> phone;
     /// CapCut has drafts on this machine.
     in property <bool> capcut;
@@ -2238,7 +2235,6 @@ export component StartScreen inherits Rectangle {
         sort: root.sort;
         busy: root.busy;
         version: root.version;
-        can-drop: root.can-drop;
         capcut: root.capcut;
         compose => { root.compose(); }
         open => { root.open(); }

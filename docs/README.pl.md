@@ -44,7 +44,7 @@
 
 ## O Concat
 
-Concat to darmowy, otwartoźródłowy edytor wideo na systemy macOS, Windows, Linux, Android i iOS. Robi to, czego potrzebuje większość montaży: automatyczne napisy, izolację głosu, zamianę tekstu na mowę, usuwanie tła, animacje i klatki kluczowe, efekty i napisy tytułowe, montaż na wielu ścieżkach, eksport w 4K. I to bez żadnych haczyków: bez znaku wodnego, bez konta, bez subskrypcji, bez wysyłania plików.
+Concat to darmowy, otwartoźródłowy edytor wideo na systemy macOS, Windows, Linux i Android. Robi to, czego potrzebuje większość montaży: automatyczne napisy, izolację głosu, zamianę tekstu na mowę, usuwanie tła, animacje i klatki kluczowe, efekty i napisy tytułowe, montaż na wielu ścieżkach, eksport w 4K. I to bez żadnych haczyków: bez znaku wodnego, bez konta, bez subskrypcji, bez wysyłania plików.
 
 Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem na GPU. Zainstaluj, wrzuć materiał, tnij. Modele AI do napisów, głosów i wycinania pobierasz raz w Ustawieniach, a potem działają offline. Twój materiał nigdy nie opuszcza dysku.
 
@@ -73,7 +73,7 @@ Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem 
 - ⚡ **Szybko.** Proxy wbudowane, żeby 4K przewijało się płynnie. Napisy tytułowe rysują się na wszystkich rdzeniach, a każdy efekt jest gotowy w chwili otwarcia okna.
 - 🛟 **Działa dalej na każdym komputerze.** Gdy układ graficzny się poddaje, podgląd nadal się rysuje.
 - 🤖 **Skryptowalny.** API w JSON-RPC, przez które skrypty i agenci AI mogą montować wideo. Wersja zbudowana ze źródeł dodaje narzędzie wiersza poleceń.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 języków. Ta sama aplikacja, te same pliki projektu.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 języków. Ta sama aplikacja, te same pliki projektu.
 
 ## Pobieranie
 
@@ -90,7 +90,6 @@ Concat jest w fazie **beta**: działa, ale wciąż ma swoje niedoróbki. [Daj zn
 - ✅ **macOS** · Intel i Apple silicon. Jeśli macOS nie chce otworzyć niepodpisanej wersji: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 i ARM. `.deb`, `.rpm`, `.AppImage` i pakiet dla Archa. Do tego Flatpak na **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, społecznościowym repozytorium Flatpak, które opakowuje `.deb` dla x86_64 z każdego wydania i aktualizuje się razem z nim
 - ✅ **Android** · telefony i tablety
-- ✅ **iOS / iPadOS** · iPhone i iPad, przez sideloading
 
 ✅ Obsługiwane · 🚧 W trakcie prac · 🧪 Do przetestowania
 

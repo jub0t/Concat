@@ -8,9 +8,8 @@
 //! in [`studio`]. The state reads the engine's project and writes commands
 //! to it; nothing here decides what an edit means.
 //!
-//! A library so that every entry point is a few lines: `main.rs` on the
-//! desktop and on iOS. Each one calls [`run`]. Android's app is its own,
-//! over `concat-mobile`.
+//! A library so that the entry point, `main.rs`, is a few lines that call
+//! [`run`]. Android's app is its own, over `concat-mobile`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -42,23 +41,10 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
-/// The iPhone's pickers and its way to Photos; see the module.
-#[cfg(target_os = "ios")]
-mod ios;
 mod keymap;
 mod meters;
 mod motion_tiles;
 mod platform;
-/// What a phone's own crate installs before the window runs: the way to
-/// the system's file picker, and where a finished export is put so the
-/// phone shows it. See `platform::pick_files_async` and
-/// `platform::publish_export`.
-#[cfg(target_os = "ios")]
-pub use platform::{
-    ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
-};
-#[cfg(target_os = "ios")]
-pub use platform::{MicrophoneAccess, install_microphone_access};
 /// What a backend's hooks say of the window, for safe start: it drew a
 /// frame, or the person used it. On a desktop `DropHandler` says it. See
 /// `start_watch`.
@@ -325,12 +311,6 @@ fn watch_window_thread() -> slint::Timer {
 }
 
 fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
-    // What Import and a finished export reach on an iPhone. Android's own
-    // crate installs its; iOS runs this crate's binary, so it is here.
-    // https://github.com/jub0t/Concat/issues/332
-    #[cfg(target_os = "ios")]
-    ios::install();
-
     // The interface scale: a percent of the display's own, applied once
     // the window is up and kept through moves between monitors; see
     // `platform::apply_ui_scale`. https://github.com/jub0t/Concat/issues/320
@@ -458,14 +438,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     fonts::register();
     let app = App::new()?;
     app.set_macos(platform::MACOS);
-    // A phone wears the phone shell - see ui/phone/ - and its lanes keep
-    // the playhead at their middle; the strip and the dock are the desk's.
+    // The phone shell - see ui/phone/ and `platform::phone` - keeps the
+    // playhead at the middle of its lanes; the strip and the dock are the
+    // desk's.
     let phone = platform::phone();
     app.set_phone(phone);
-    // The launch screen's version line, and whether its drop zone is
-    // offered: a drag in from the system is a desk's (see platform.rs).
+    // The launch screen's version line.
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
-    app.set_can_drop(cfg!(not(target_os = "ios")));
     app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
@@ -582,7 +561,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         |studio, _, _, families| studio.system_fonts_known(families),
     );
 
-    // Which codecs can be written here, and which by the chip: a phone
+    // Which codecs can be written here, and which by the chip: a machine
     // finds out only by opening its encoders, two seconds or so on some,
     // and the export sheet asked on the window's first publish, before
     // the window answered a touch. Asked on a worker; the sheet offers
@@ -592,11 +571,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // can start one: opening a chip's encoder runs its driver, and a
     // driver that crashes there used to close the editor at launch. What
     // the helper found is remembered here, and the asking after it opens
-    // nothing. Where no helper starts or speaks - a phone, a sandbox that
-    // forbids it - the encoders are asked here, as they were.
+    // nothing. Where no helper starts or speaks - a sandbox that forbids
+    // it - the encoders are asked here.
     host::spawn_long(
         || {
-            #[cfg(not(target_os = "ios"))]
             if let Ok(program) = std::env::current_exe()
                 && let Err(why) =
                     concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])

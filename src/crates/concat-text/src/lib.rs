@@ -527,15 +527,14 @@ impl Fonts {
         let mut db = fontdb::Database::new();
         if system {
             db.load_system_fonts();
-            // fontdb knows a desk's font folders and not a phone's, so on a
-            // phone the system had lent titles nothing: every script the
-            // bundled faces lack was boxes.
+            // fontdb knows a desk's font folders and not Android's, so
+            // they are named here: without them the system lends titles
+            // nothing, and every script the bundled faces lack draws as
+            // boxes.
             #[cfg(target_os = "android")]
             for dir in ["/system/fonts", "/product/fonts"] {
                 db.load_fonts_dir(dir);
             }
-            #[cfg(target_os = "ios")]
-            db.load_fonts_dir("/System/Library/Fonts");
         }
         for face in BUNDLED.iter().chain(BASE_FONTS.iter()) {
             db.load_font_data(face.to_vec());

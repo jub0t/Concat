@@ -44,7 +44,7 @@
 
 ## Sobre
 
-O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux, Android e iOS. Ele cobre o que a maioria das edições precisa: legendas automáticas, isolamento de voz, texto para fala, remoção de fundo, animações e keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
+O Concat é um editor de vídeo gratuito e de código aberto para macOS, Windows, Linux e Android. Ele cobre o que a maioria das edições precisa: legendas automáticas, isolamento de voz, texto para fala, remoção de fundo, animações e keyframes, efeitos e títulos, corte multipista, exportação em 4K. Sem nenhuma pegadinha: sem marca d’água, sem conta, sem assinatura, sem upload.
 
 Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instale, solte o material, corte. Os modelos de IA para legendas, vozes e recorte são baixados uma vez nas Configurações e depois funcionam offline. Seu material nunca sai do seu disco.
 
@@ -73,7 +73,7 @@ Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instal
 - ⚡ **Rápido.** Proxies embutidos, para o 4K rolar com fluidez. Os títulos são desenhados em todos os núcleos, e cada efeito fica pronto assim que a janela abre.
 - 🛟 **Continua em qualquer máquina.** Quando o chip gráfico desiste, a prévia continua desenhando.
 - 🤖 **Automatizável.** Uma API JSON-RPC com a qual scripts e agentes de IA podem cortar vídeo. Compilando a partir do código-fonte, você ganha também uma ferramenta de linha de comando.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 idiomas. O mesmo app, os mesmos arquivos de projeto.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 idiomas. O mesmo app, os mesmos arquivos de projeto.
 
 ## Download
 
@@ -90,7 +90,6 @@ O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://githu
 - ✅ **macOS** · Intel e Apple Silicon. Se o macOS se recusar a abrir uma build sem assinatura: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 e ARM. `.deb`, `.rpm`, `.AppImage` e um pacote para Arch. Também um Flatpak no **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, um remoto Flatpak da comunidade que empacota o `.deb` x86_64 de cada versão e se atualiza com ela
 - ✅ **Android** · celulares e tablets
-- ✅ **iOS / iPadOS** · iPhone e iPad, por sideload
 
 ✅ Suportado · 🚧 Em andamento · 🧪 A testar
 
