@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "ভয়েসওভার রেকর্ড করুন",
   "tray.redo": "রিডু ({0})",
   "tray.showMeters": "লেভেল মিটার দেখান",
+  "tray.snapPlayhead": "প্লেহেড স্ন্যাপ করুন",
   "tray.splitAtPlayhead": "প্লেহেডে স্প্লিট করুন ({0})",
   "tray.splitTool": "বিভক্তকরণ টুল ({0})",
   "tray.stopRecording": "রেকর্ডিং বন্ধ করুন",

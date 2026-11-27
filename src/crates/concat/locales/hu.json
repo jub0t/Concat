@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Narráció felvétele",
   "tray.redo": "Újra ({0})",
   "tray.showMeters": "Szintmérők megjelenítése",
+  "tray.snapPlayhead": "Lejátszófej igazítása",
   "tray.splitAtPlayhead": "Vágás a lejátszófejnél ({0})",
   "tray.splitTool": "Vágóeszköz ({0})",
   "tray.stopRecording": "Felvétel leállítása",

@@ -3442,6 +3442,20 @@ mod tests {
         );
     }
 
+    /// A scrubbed playhead lands on the nearest target inside the pull, and
+    /// where it was asked to go when none is that near.
+    #[test]
+    fn a_scrub_is_pulled_to_the_nearest_edge_in_reach() {
+        // Every number here is exact in binary, the edge of the pull too.
+        let edges = [0.0, 2.0, 2.5, 5.0];
+        assert_eq!(super::edit::pulled(2.125, 0.25, edges), 2.0);
+        assert_eq!(super::edit::pulled(2.375, 0.25, edges), 2.5);
+        assert_eq!(super::edit::pulled(3.5, 0.25, edges), 3.5);
+        // On the edge of the pull is outside it.
+        assert_eq!(super::edit::pulled(4.75, 0.25, edges), 4.75);
+        assert_eq!(super::edit::pulled(1.0, 0.25, []), 1.0);
+    }
+
     /// A click on a clip is a move to where it already is, and is no edit:
     /// its own lane, named or not, at its own start.
     #[test]

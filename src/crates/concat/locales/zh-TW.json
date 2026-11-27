@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "錄製旁白",
   "tray.redo": "重做 ({0})",
   "tray.showMeters": "顯示音量表",
+  "tray.snapPlayhead": "貼齊播放磁頭",
   "tray.splitAtPlayhead": "在播放磁頭處分割（{0}）",
   "tray.splitTool": "分割工具（{0}）",
   "tray.stopRecording": "停止錄製",

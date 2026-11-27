@@ -497,6 +497,7 @@ impl Studio {
         editor.set_frame_rate(self.frame_rate());
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
+        editor.set_playhead_snap(self.prefs.playhead_snaps());
         editor.set_magnetic(self.prefs.magnetic());
         editor.set_linkage(doc_view::sequence(doc).is_some_and(|sequence| sequence.linkage));
         editor.set_trim_follow(self.prefs.trim_follow);

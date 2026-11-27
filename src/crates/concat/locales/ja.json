@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "ナレーションを録音",
   "tray.redo": "やり直す ({0})",
   "tray.showMeters": "レベルメーターを表示",
+  "tray.snapPlayhead": "再生ヘッドをスナップ",
   "tray.splitAtPlayhead": "再生ヘッドで分割 ({0})",
   "tray.splitTool": "分割ツール ({0})",
   "tray.stopRecording": "録音を停止",

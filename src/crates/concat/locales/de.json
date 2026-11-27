@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Voiceover aufnehmen",
   "tray.redo": "Wiederholen ({0})",
   "tray.showMeters": "Pegelanzeige einblenden",
+  "tray.snapPlayhead": "Abspielkopf einrasten",
   "tray.splitAtPlayhead": "Am Abspielkopf teilen ({0})",
   "tray.splitTool": "Schneidewerkzeug ({0})",
   "tray.stopRecording": "Aufnahme beenden",

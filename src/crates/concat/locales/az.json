@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Səsyazmanı qeyd et",
   "tray.redo": "Təkrar ({0})",
   "tray.showMeters": "Səviyyə göstəricilərini göstər",
+  "tray.snapPlayhead": "Oxutma başlığını yapışdır",
   "tray.splitAtPlayhead": "Oxutma başlığında böl ({0})",
   "tray.splitTool": "Bölmə aləti ({0})",
   "tray.stopRecording": "Qeydi dayandır",

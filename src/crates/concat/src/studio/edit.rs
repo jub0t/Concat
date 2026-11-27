@@ -314,6 +314,31 @@ impl Studio {
         best
     }
 
+    /// Where a scrub asked for `time` lands: on the timeline's start, a
+    /// clip's edge, a shown beat or a key of the selected clip when one is
+    /// within eight pixels, and at `time` when none is or the toolbar's
+    /// playhead snap is off. Not the playhead itself, which [`Self::snapped`]
+    /// also pulls towards: a playhead that snapped to where it is would
+    /// never leave. Nor on a phone's lanes, which slide under a playhead
+    /// held at their middle - a pull there would jerk the whole cut.
+    pub fn playhead_snapped(&self, time: f32) -> f32 {
+        if !self.prefs.playhead_snaps() || self.lanes.centred {
+            return time;
+        }
+        let edges = doc_view::items(self.doc())
+            .into_iter()
+            .flat_map(|(_, item)| [doc_view::start_s(item) as f32, doc_view::end_s(item) as f32]);
+        let beats = self.timeline_beats().into_iter().map(|beat| beat as f32);
+        pulled(
+            time,
+            8.0 * self.lanes.seconds_per_pixel,
+            std::iter::once(0.0)
+                .chain(edges)
+                .chain(beats)
+                .chain(self.key_marks()),
+        )
+    }
+
     pub fn snapped(&self, time: f32, threshold: f32, exclude: &str) -> f32 {
         if !self.lanes.snap {
             return time;
@@ -638,4 +663,19 @@ impl Studio {
             .playback
             .set_clips(std::path::PathBuf::from(session.path()), specs);
     }
+}
+
+/// The nearest of `targets` to `time` that is closer than `threshold`, or
+/// `time` itself when none is.
+pub(crate) fn pulled(time: f32, threshold: f32, targets: impl IntoIterator<Item = f32>) -> f32 {
+    let mut best = time;
+    let mut best_distance = threshold;
+    for target in targets {
+        let distance = (target - time).abs();
+        if distance < best_distance {
+            best = target;
+            best_distance = distance;
+        }
+    }
+    best
 }

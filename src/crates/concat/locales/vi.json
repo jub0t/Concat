@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Ghi âm lời dẫn",
   "tray.redo": "Làm lại ({0})",
   "tray.showMeters": "Hiện đồng hồ mức âm",
+  "tray.snapPlayhead": "Bám đầu phát",
   "tray.splitAtPlayhead": "Chia tại đầu phát ({0})",
   "tray.splitTool": "Công cụ tách ({0})",
   "tray.stopRecording": "Dừng ghi âm",

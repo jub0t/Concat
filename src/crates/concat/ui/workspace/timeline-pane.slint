@@ -38,6 +38,7 @@ export component TimelinePane inherits Rectangle {
     // ── the tray ─────────────────────────────────────────────────────────
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
+    in property <bool> playhead-snap: true;
     in property <bool> magnetic: false;
     in property <bool> linkage: true;
     in property <bool> pan-mode: false;
@@ -63,6 +64,7 @@ export component TimelinePane inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback playhead-snap-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
@@ -328,6 +330,7 @@ export component TimelinePane inherits Rectangle {
         tray := TimelineTray {
             tool: root.tool;
             snap: root.snap;
+            playhead-snap: root.playhead-snap;
             magnetic: root.magnetic;
             linkage: root.linkage;
             pan-mode: root.pan-mode;
@@ -349,6 +352,7 @@ export component TimelinePane inherits Rectangle {
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
+            playhead-snap-changed(on) => { root.playhead-snap-changed(on); }
             magnetic-changed(on) => { root.magnetic-changed(on); }
             linkage-changed(on) => { root.linkage-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }

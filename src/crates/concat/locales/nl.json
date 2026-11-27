@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Voice-over opnemen",
   "tray.redo": "Opnieuw ({0})",
   "tray.showMeters": "Niveaumeters tonen",
+  "tray.snapPlayhead": "Afspeelkop uitlijnen",
   "tray.splitAtPlayhead": "Splitsen bij afspeelkop ({0})",
   "tray.splitTool": "Splitsgereedschap ({0})",
   "tray.stopRecording": "Opname stoppen",

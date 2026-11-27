@@ -445,6 +445,7 @@ export component Seat inherits Rectangle {
             key-marks: Editor.key-marks;
             tool: Editor.tool;
             snap: Editor.snap;
+            playhead-snap: Editor.playhead-snap;
             magnetic: Editor.magnetic;
             linkage: Editor.linkage;
             pan-mode: Editor.pan-mode;
@@ -479,6 +480,7 @@ export component Seat inherits Rectangle {
             tab-moved(from, to) => { Editor.tab-moved(from, to); }
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
+            playhead-snap-changed(on) => { Editor.playhead-snap-changed(on); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             linkage-changed(on) => { Editor.linkage-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }

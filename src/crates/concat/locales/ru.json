@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Записать закадровый голос",
   "tray.redo": "Повторить ({0})",
   "tray.showMeters": "Показать индикаторы уровня",
+  "tray.snapPlayhead": "Привязка курсора",
   "tray.splitAtPlayhead": "Разрезать по курсору ({0})",
   "tray.splitTool": "Инструмент разрезания ({0})",
   "tray.stopRecording": "Остановить запись",

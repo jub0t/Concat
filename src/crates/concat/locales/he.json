@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "הקלטת קריינות",
   "tray.redo": "ביצוע מחדש ({0})",
   "tray.showMeters": "הצגת מדי העוצמה",
+  "tray.snapPlayhead": "הצמדת סמן ההפעלה",
   "tray.splitAtPlayhead": "פיצול בסמן ההפעלה ({0})",
   "tray.splitTool": "כלי פיצול ({0})",
   "tray.stopRecording": "עצירת ההקלטה",

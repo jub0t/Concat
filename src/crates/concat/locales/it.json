@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Registra voce fuori campo",
   "tray.redo": "Ripeti ({0})",
   "tray.showMeters": "Mostra gli indicatori di livello",
+  "tray.snapPlayhead": "Aggancia la testina",
   "tray.splitAtPlayhead": "Dividi alla testina ({0})",
   "tray.splitTool": "Strumento taglio ({0})",
   "tray.stopRecording": "Interrompi registrazione",

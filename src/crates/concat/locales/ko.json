@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "내레이션 녹음",
   "tray.redo": "다시 실행 ({0})",
   "tray.showMeters": "레벨 미터 표시",
+  "tray.snapPlayhead": "재생 헤드 스냅",
   "tray.splitAtPlayhead": "재생 헤드에서 나누기 ({0})",
   "tray.splitTool": "자르기 도구 ({0})",
   "tray.stopRecording": "녹음 중지",

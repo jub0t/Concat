@@ -148,6 +148,9 @@ export enum Glyph {
     merge,
     trash,
     magnet,
+    /// the playhead's own snap: a playhead with a tick drawn in to it
+    /// from either side
+    snap-playhead,
     fold,
     link,
     /// the preview axis: a hairline with the pointer beside it
@@ -860,6 +863,14 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/magnet
+    // A playhead - its head and its hairline - with a short tick coming in
+    // to it from each side: the cuts it lands on.
+    if root.glyph == Glyph.snap-playhead: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M9 3h6v3.5l-3 3l-3-3z M12 9.5V21 M3 15h5 M21 15h-5"
+            + " M6 13l2 2l-2 2 M18 13l-2 2l2 2";
+    }
+
     if root.glyph == Glyph.magnet: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M12 15l4 4 M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296"

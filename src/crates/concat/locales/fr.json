@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Enregistrer une voix off",
   "tray.redo": "Rétablir ({0})",
   "tray.showMeters": "Afficher les vumètres",
+  "tray.snapPlayhead": "Aimanter la tête de lecture",
   "tray.splitAtPlayhead": "Couper à la tête de lecture ({0})",
   "tray.splitTool": "Outil de coupe ({0})",
   "tray.stopRecording": "Arrêter l'enregistrement",

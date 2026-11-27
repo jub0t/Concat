@@ -358,6 +358,10 @@ export global Editor {
     in-out property <[ClipData]> clips;
     in-out property <TimelineTool> tool;
     in-out property <bool> snap;
+    /// The playhead snaps as it is scrubbed: to the timeline's start, clip
+    /// edges, shown beats and the selected clip's keys. A remembered
+    /// preference, which Rust owns; the toolbar's button flips it.
+    in-out property <bool> playhead-snap: true;
     /// The magnetic timeline: a delete or a trim closes the gap it would
     /// leave. A remembered preference, which Rust owns; the tray's button
     /// and the Settings switch both show it.
@@ -425,6 +429,7 @@ export global Editor {
     callback tab-added();
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback playhead-snap-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback linkage-changed(on: bool);
     callback pan-changed(on: bool);

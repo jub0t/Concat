@@ -1292,6 +1292,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_meters_shown_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::MetersShownChanged(on)));
     }));
+    editor.on_playhead_snap_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::PlayheadSnapChanged(on)));
+    }));
     editor.on_preview_axis_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)));
     }));

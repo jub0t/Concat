@@ -319,6 +319,13 @@ pub struct Preferences {
     /// the cut and wants the monitor left where it was. Read it through
     /// [`Preferences::click_moves_playhead`].
     pub click_moves_playhead: Option<bool>,
+    /// The playhead snaps as it is scrubbed: within a few pixels of the
+    /// timeline's start, a clip's edge, a beat or a key of the selected
+    /// clip, it lands on it. `None` is on. Its own switch on the timeline's
+    /// toolbar, apart from the one for clips: a hand placing the playhead
+    /// frame by frame beside a cut wants it off while clips still snap.
+    /// Read it through [`Preferences::playhead_snaps`].
+    pub playhead_snap: Option<bool>,
     /// Scrub copies: every video gets a small copy written in the
     /// background, every frame of it a keyframe, which a scrub reads so the
     /// picture keeps up with the hand, and playback at Half and Quarter
@@ -499,6 +506,11 @@ impl Preferences {
     /// the same name.
     pub fn click_moves_playhead(&self) -> bool {
         self.click_moves_playhead.unwrap_or(true)
+    }
+
+    /// Whether a scrubbed playhead snaps; see `playhead_snap`.
+    pub fn playhead_snaps(&self) -> bool {
+        self.playhead_snap.unwrap_or(true)
     }
 
     /// Whether videos get scrub copies; see `scrub_copies`.
@@ -931,6 +943,16 @@ mod tests {
         assert!(text.contains("\"clickMovesPlayhead\":false"), "{text}");
         let back: Preferences = serde_json::from_str(&text).unwrap();
         assert!(!back.click_moves_playhead());
+    }
+
+    /// The playhead snaps as it is scrubbed until its toolbar button says
+    /// otherwise, and the Off is kept.
+    #[test]
+    fn the_playhead_snaps_until_it_is_switched_off() {
+        let untouched: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(untouched.playhead_snaps());
+        let back: Preferences = serde_json::from_str(r#"{"playheadSnap":false}"#).unwrap();
+        assert!(!back.playhead_snaps());
     }
 
     /// A kept look comes back as the title it was kept from, through the

@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Nagraj lektora",
   "tray.redo": "Ponów ({0})",
   "tray.showMeters": "Pokaż wskaźniki poziomu",
+  "tray.snapPlayhead": "Przyciągaj głowicę odtwarzania",
   "tray.splitAtPlayhead": "Podziel na głowicy ({0})",
   "tray.splitTool": "Narzędzie podziału ({0})",
   "tray.stopRecording": "Zatrzymaj nagrywanie",

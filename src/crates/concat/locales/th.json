@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "บันทึกเสียงพากย์",
   "tray.redo": "ทำซ้ำ ({0})",
   "tray.showMeters": "แสดงมิเตอร์ระดับเสียง",
+  "tray.snapPlayhead": "ยึดติดหัวเล่น",
   "tray.splitAtPlayhead": "แยกที่หัวเล่น ({0})",
   "tray.splitTool": "เครื่องมือแยก ({0})",
   "tray.stopRecording": "หยุดบันทึก",

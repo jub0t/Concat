@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "ضبط صداگذاری",
   "tray.redo": "انجام مجدد ({0})",
   "tray.showMeters": "نمایش نمایشگرهای سطح صدا",
+  "tray.snapPlayhead": "چسبیدن نشانگر پخش",
   "tray.splitAtPlayhead": "تقسیم در نشانگر پخش ({0})",
   "tray.splitTool": "ابزار برش ({0})",
   "tray.stopRecording": "توقف ضبط",

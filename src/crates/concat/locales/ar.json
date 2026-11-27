@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "تسجيل تعليق صوتي",
   "tray.redo": "إعادة ({0})",
   "tray.showMeters": "إظهار مقاييس المستوى",
+  "tray.snapPlayhead": "التصاق مؤشر التشغيل",
   "tray.splitAtPlayhead": "تقسيم عند مؤشر التشغيل ({0})",
   "tray.splitTool": "أداة التقسيم ({0})",
   "tray.stopRecording": "إيقاف التسجيل",

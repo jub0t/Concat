@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Seslendirme kaydet",
   "tray.redo": "Yinele ({0})",
   "tray.showMeters": "Seviye göstergelerini göster",
+  "tray.snapPlayhead": "Oynatma imlecini yapıştır",
   "tray.splitAtPlayhead": "Playhead konumunda böl ({0})",
   "tray.splitTool": "Kesme aracı ({0})",
   "tray.stopRecording": "Kaydı durdur",

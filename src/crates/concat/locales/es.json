@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Grabar voz en off",
   "tray.redo": "Rehacer ({0})",
   "tray.showMeters": "Mostrar los medidores de nivel",
+  "tray.snapPlayhead": "Ajustar el cabezal",
   "tray.splitAtPlayhead": "Dividir en el cabezal ({0})",
   "tray.splitTool": "Herramienta de corte ({0})",
   "tray.stopRecording": "Detener grabación",

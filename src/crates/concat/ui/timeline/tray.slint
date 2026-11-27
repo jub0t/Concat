@@ -155,6 +155,8 @@ component AddMenu inherits Rectangle {
 export component TimelineTray inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
+    /// The playhead snaps as it is scrubbed; see `Editor.playhead-snap`.
+    in property <bool> playhead-snap: true;
     in property <bool> magnetic: false;
     in property <bool> linkage: true;
     in property <bool> pan-mode: false;
@@ -190,6 +192,7 @@ export component TimelineTray inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback playhead-snap-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
@@ -388,6 +391,17 @@ export component TimelineTray inherits Rectangle {
             icon-size: 16px;
             checked: root.snap;
             clicked => { root.snap-changed(!root.snap); }
+        }
+        // The playhead's own snap, beside the clips': on, a scrub lands on
+        // a cut, a beat or a key when it comes within a few pixels of one;
+        // off, the playhead goes exactly where the hand puts it while the
+        // clips still snap. Two switches because the two are wanted apart.
+        TrayButton {
+            glyph: Glyph.snap-playhead;
+            label: I18n.t("tray.snapPlayhead");
+            icon-size: 16px;
+            checked: root.playhead-snap;
+            clicked => { root.playhead-snap-changed(!root.playhead-snap); }
         }
         // The magnetic timeline, beside the snap it is so often mistaken
         // for: snap is where a drag lands, magnetic is that a delete or a

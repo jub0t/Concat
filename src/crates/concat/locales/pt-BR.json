@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Gravar narração",
   "tray.redo": "Refazer ({0})",
   "tray.showMeters": "Mostrar os medidores de nível",
+  "tray.snapPlayhead": "Ajustar o cabeçote",
   "tray.splitAtPlayhead": "Dividir no cursor ({0})",
   "tray.splitTool": "Ferramenta de corte ({0})",
   "tray.stopRecording": "Parar gravação",

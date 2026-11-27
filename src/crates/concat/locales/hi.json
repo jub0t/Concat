@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "वॉइसओवर रिकॉर्ड करें",
   "tray.redo": "फिर से करें ({0})",
   "tray.showMeters": "लेवल मीटर दिखाएँ",
+  "tray.snapPlayhead": "प्लेहेड स्नैप करें",
   "tray.splitAtPlayhead": "प्लेहेड पर विभाजित करें ({0})",
   "tray.splitTool": "स्प्लिट टूल ({0})",
   "tray.stopRecording": "रिकॉर्डिंग रोकें",

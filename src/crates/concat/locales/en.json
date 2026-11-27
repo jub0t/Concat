@@ -1012,6 +1012,7 @@
   "tray.recordVoiceover": "Record Voiceover",
   "tray.redo": "Redo ({0})",
   "tray.showMeters": "Show the level meters",
+  "tray.snapPlayhead": "Snap playhead",
   "tray.splitAtPlayhead": "Split at playhead ({0})",
   "tray.splitTool": "Split tool ({0})",
   "tray.stopRecording": "Stop Recording",
