@@ -490,6 +490,37 @@ jobs:
           key: ${{ matrix.target }}
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST GGML ORT
 
+      # Compiling the window's crate takes about 20 GB at its peak - measured,
+      # 14 GB before any code is generated and 20 GB as the units are handed
+      # to LLVM - and the final whole-program pass 15 GB. A Linux runner has
+      # 16: in v0.2.13 (run 45950986572) the arm64 runner was killed
+      # mid-compile and the x86_64 build did not finish either. The swap
+      # file is the margin, without changing anything that is built. A
+      # macOS runner grows its own swap, and Windows its page file.
+      - name: Room for the build's peak memory (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          avail_gb() { echo $(( $(df --output=avail -k "$1" | tail -1) / 1024 / 1024 )); }
+          free -h
+          df -h / /mnt 2>/dev/null || df -h /
+          # On the second disk when the runner has one with more room;
+          # beside the build otherwise, leaving it 16 GB to build in.
+          dir=/
+          reserve=16
+          if [ -d /mnt ] && [ "$(avail_gb /mnt)" -gt "$(avail_gb /)" ]; then dir=/mnt; reserve=2; fi
+          size=$(( $(avail_gb "$dir") - reserve ))
+          if [ "$size" -gt 16 ]; then size=16; fi
+          if [ "$size" -lt 8 ]; then
+            echo "no room for a swap file: $(avail_gb "$dir") GB free on $dir" >&2
+            exit 1
+          fi
+          sudo fallocate -l "${size}G" "$dir/build.swap"
+          sudo chmod 600 "$dir/build.swap"
+          sudo mkswap "$dir/build.swap" >/dev/null
+          sudo swapon "$dir/build.swap"
+          free -h
+
       # The shipping profile: fat LTO, panic=abort, stripped. See the
       # workspace Cargo.toml for what each knob costs.
       #
@@ -497,12 +528,13 @@ jobs:
       # read, but the step summary is public - so on failure the tail of the
       # build goes there, and a red run explains itself to anyone.
       - name: Build
-        # The Mac runners are the slow ones, with three cores and 7 GB for
-        # a window whose generated UI takes more than that to compile: the
-        # Intel build ran past sixty minutes in v0.2.7-rc.1, and the Apple
-        # silicon one took 57 in v0.2.9 and timed out at sixty in v0.2.10
-        # (run 42935189370) while every other bundle was built in 37.
-        timeout-minutes: ${{ matrix.platform == 'macos' && 100 || 60 }}
+        # A hundred minutes everywhere. The Mac runners have three cores
+        # and 7 GB for a window whose generated UI takes far more than that
+        # to compile: the Intel build ran past sixty minutes in v0.2.7-rc.1,
+        # and the Apple silicon one took 57 in v0.2.9 and timed out at sixty
+        # in v0.2.10 (run 42935189370). The Linux ones now compile it partly
+        # out of swap (see the step above).
+        timeout-minutes: 100
         shell: bash
         working-directory: src
         run: |
