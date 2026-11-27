@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## تعارف
 
-Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر ہے، macOS، Windows، Linux، Android اور iOS کے لیے۔ زیادہ تر ایڈٹس کو جو چاہیے وہ سب اس میں ہے: خودکار کیپشن، آواز الگ کرنا، متن سے آواز، پس منظر ہٹانا، اینیمیشنز اور کی فریمز، ایفیکٹس اور ٹائٹل، ملٹی ٹریک کٹنگ، 4K ایکسپورٹ۔ اور کسی چالاکی کے بغیر: نہ واٹر مارک، نہ اکاؤنٹ، نہ سبسکرپشن، نہ اپ لوڈ۔
+Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر ہے، macOS، Windows، Linux اور Android کے لیے۔ زیادہ تر ایڈٹس کو جو چاہیے وہ سب اس میں ہے: خودکار کیپشن، آواز الگ کرنا، متن سے آواز، پس منظر ہٹانا، اینیمیشنز اور کی فریمز، ایفیکٹس اور ٹائٹل، ملٹی ٹریک کٹنگ، 4K ایکسپورٹ۔ اور کسی چالاکی کے بغیر: نہ واٹر مارک، نہ اکاؤنٹ، نہ سبسکرپشن، نہ اپ لوڈ۔
 
 سب کچھ GPU کمپوزیٹر والے نیٹو Rust انجن پر مقامی طور پر چلتا ہے۔ انسٹال کریں، فوٹیج ڈالیں، کاٹیں۔ کیپشن، آوازوں اور کٹ آؤٹ کے AI ماڈل سیٹنگز سے ایک بار ڈاؤن لوڈ ہوتے ہیں اور اس کے بعد آف لائن کام کرتے ہیں۔ آپ کی فوٹیج کبھی آپ کی ڈسک سے باہر نہیں جاتی۔
 
@@ -72,8 +72,8 @@ Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر ہے، macOS، 
 - 📤 **ایکسپورٹ۔** H.264، HEVC، AV1، آپ کے کمپیوٹر کے اپنے انکوڈر پر۔ 4K 60 تک، 10 بٹ رنگ۔
 - ⚡ **تیز۔** پراکسیز اندر ہی ہیں، اس لیے 4K آسانی سے اسکرب ہوتا ہے۔ ٹائٹلز تمام کورز پر بنتے ہیں، اور ونڈو کھلتے ہی ہر ایفیکٹ تیار ملتا ہے۔
 - 🛟 **ہر مشین پر چلتا رہتا ہے۔** جب گرافکس چپ ہار مان لے، پری ویو تب بھی بنتا رہتا ہے۔
-- 🤖 **اسکرپٹ کے قابل۔** بلٹ ان MCP سرور، جس سے Claude اور دوسرے AI ایجنٹس اس سے ایڈٹ کر سکتے ہیں ([ایک لائن میں سیٹ اپ](MCP.md))، اور اسکرپٹس کے لیے ایک JSON-RPC API۔ سورس سے بلڈ کرنے پر gRPC اور ایک کمانڈ لائن ٹول بھی ملتا ہے۔
-- 🖥️ **macOS، Windows، Linux، Android، iOS۔** 27 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
+- 🤖 **اسکرپٹ کے قابل۔** بلٹ ان MCP سرور، جس سے Claude اور دوسرے AI ایجنٹس اس سے ایڈٹ کر سکتے ہیں ([ایک لائن میں سیٹ اپ](MCP.md))، اور اسکرپٹس کے لیے ایک JSON-RPC API۔ سورس سے بلڈ کرنے پر ایک کمانڈ لائن ٹول بھی ملتا ہے۔
+- 🖥️ **macOS، Windows، Linux، Android۔** 27 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
 
 ## ڈاؤن لوڈ
 
@@ -90,7 +90,6 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 - ✅ **macOS** · Intel اور Apple Silicon۔ اگر macOS غیر دستخط شدہ بلڈ کھولنے سے انکار کرے: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 اور ARM۔ ‏`.deb`، `.rpm`، `.AppImage` اور ایک Arch پیکج۔ ساتھ ہی **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** پر ایک Flatpak، جو ایک کمیونٹی Flatpak ریموٹ ہے اور ہر ریلیز کی x86_64 ‏`.deb` کو لپیٹ کر اس کے ساتھ اپ ڈیٹ ہوتا ہے
 - ✅ **Android** · فون اور ٹیبلٹ
-- ✅ **iOS / iPadOS** · iPhone اور iPad، سائیڈ لوڈ کے ذریعے
 
 ✅ معاون · 🚧 کام جاری · 🧪 آزمائش باقی
 
@@ -103,7 +102,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 > [!IMPORTANT]
 > حصہ ڈالنے کا بہترین طریقہ یہ ہے کہ [Releases](https://github.com/jub0t/Concat/releases) صفحے سے ایک بلڈ لیں اور اسے استعمال کریں: معلوم کریں کہاں ٹوٹتا ہے، اور بتائیں کہاں بہتر ہو سکتا ہے۔
 >
-> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concat.standalones.org/docs) میں Concat API اور اس کے ٹرانسپورٹس ہیں: JSON-RPC اور gRPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
+> کوڈ لکھنے کو تیار ہیں؟ [CONTRIBUTING.md](../CONTRIBUTING.md) میں سیٹ اپ، ٹری کی ترتیب، چلائی جانے والی جانچیں اور شراکتوں کے لائسنس کی تفصیل ہے۔ کسی اسکرپٹ، سروس یا ایجنٹ سے Concat چلا رہے ہیں؟ [ڈویلپر دستاویزات](https://concat.standalones.org/docs) میں Concat API اور اس کا ٹرانسپورٹ ہے: JSON-RPC۔ پراجیکٹ کا اعلان [اس Discussion](https://github.com/jub0t/Concat/discussions/3) میں ہوا تھا۔
 > 
 > شراکت دار Discord سرور پر `@Contributor` رول لے سکتے ہیں: بس مانگ لیں۔
 

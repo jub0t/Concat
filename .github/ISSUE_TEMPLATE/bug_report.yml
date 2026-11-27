@@ -40,7 +40,6 @@ body:
         - Android
         - macOS
         - Linux
-        - iPhone or iPad
     validations:
       required: true
   - type: textarea
@@ -58,7 +57,7 @@ body:
     id: system
     attributes:
       label: Your device
-      description: Settings › About › Copy system information, pasted here. On a phone, the model and Android or iOS version.
+      description: Settings › About › Copy system information, pasted here. On a phone, the model and Android version.
     validations:
       required: false
   - type: textarea

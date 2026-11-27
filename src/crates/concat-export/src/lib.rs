@@ -25,8 +25,11 @@ pub mod chains;
 pub mod flatten;
 pub mod parts;
 mod resolve;
+pub mod rgba;
 #[cfg(test)]
 mod speed_curve_tests;
+#[cfg(test)]
+mod test_doc;
 
 use resolve::{
     BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
@@ -39,21 +42,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::Halt;
 use concat_core::SpeedCurve;
+use concat_core::animate::RidingMask;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
 use concat_core::frame::{Frame, Signal};
 use concat_core::shader::{RevealMap, ShaderPass};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
+use concat_doc::model::{Cutout, VoiceKind};
+use concat_effects::AppliedFilter;
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
-use concat_project::model::{AppliedFilter, ColorSpace, Cutout, Mask};
 use concat_render::{
     Compositor, CpuCompositor, Drawn, FramePlan, PlannedLayer, PlannedTreatment, Transition,
     WgpuCompositor, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
+
+/// What a timeline's picture is output in: standard range, or one of the
+/// two HDR transfers.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorSpace {
+    /// Standard dynamic range, BT.709.
+    #[default]
+    Sdr,
+    /// Hybrid log-gamma, BT.2100.
+    Hlg,
+    /// Perceptual quantiser, SMPTE ST 2084.
+    Pq,
+}
+
+impl ColorSpace {
+    /// The output space of a document's colour space; one this build
+    /// cannot read is SDR.
+    pub fn of(space: &concat_doc::model::ColorSpace) -> ColorSpace {
+        match space {
+            concat_doc::model::ColorSpace::Hlg => ColorSpace::Hlg,
+            concat_doc::model::ColorSpace::Pq => ColorSpace::Pq,
+            concat_doc::model::ColorSpace::Sdr | concat_doc::model::ColorSpace::Unknown(_) => {
+                ColorSpace::Sdr
+            }
+        }
+    }
+}
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
 /// seen cannot exist - the document says "video"/"audio"/"image".
@@ -115,7 +148,7 @@ pub fn voice_stems_dir(
     project: &Path,
     media_path: &str,
     stream: Option<u32>,
-    kind: concat_project::model::VoiceKind,
+    kind: &VoiceKind,
 ) -> PathBuf {
     // FNV-1a, as concat-vision names its folders.
     let hash = media_path
@@ -127,8 +160,8 @@ pub fn voice_stems_dir(
     project.join("cache").join("voice").join(format!(
         "{hash:016x}-{stream}-{}",
         match kind {
-            concat_project::model::VoiceKind::Vocals => "spleeter2",
-            concat_project::model::VoiceKind::Speech => "dfn3",
+            VoiceKind::Vocals | VoiceKind::Unknown(_) => "spleeter2",
+            VoiceKind::Speech => "dfn3",
         }
     ))
 }
@@ -146,8 +179,8 @@ pub struct ExportClip {
     pub audio_stream: Option<u32>,
     /// The levels the file is read as, over its own tag; absent reads the
     /// tag. See the document's `MediaItem::color_range`.
-    #[serde(default)]
-    pub color_range: Option<concat_project::model::ColorRange>,
+    #[serde(skip)]
+    pub color_range: Option<concat_media::ColorRange>,
     /// Whether the clip is footage, sound or a still.
     pub kind: ClipKind,
     /// Seconds into the timeline where the clip begins.
@@ -208,7 +241,7 @@ pub struct ExportClip {
     pub crop: Option<[f64; 4]>,
     /// The clip's applied effects, as the document holds them: each one's
     /// shader runs on the GPU. A link no package answers to draws nothing.
-    #[serde(default)]
+    #[serde(skip)]
     pub effects: Vec<AppliedFilter>,
     /// The fades to a colour and the wipes transition resolution gives the
     /// clip, which the frame plan draws; see [`TransitionShape`].
@@ -289,16 +322,16 @@ pub struct ExportClip {
     /// The background taken away by a mask, as the document holds it.
     /// Rendered only with `mask_dir`: a cutout whose masks are nowhere yet
     /// leaves the picture whole.
-    #[serde(default)]
+    #[serde(skip)]
     pub cutout: Option<Cutout>,
     /// The shapes that keep part of the picture, top first, as the
     /// document holds them, each with its own keys.
-    #[serde(default)]
-    pub masks: Vec<Mask>,
+    #[serde(skip)]
+    pub masks: Vec<RidingMask>,
     /// The clip's entrance, exit and loop; see the document's
     /// `Clip::motion`.
-    #[serde(default)]
-    pub motion: Option<concat_project::model::ClipMotion>,
+    #[serde(skip)]
+    pub motion: Option<concat_core::motion::Motion>,
     /// A moment of the clip this one stands in for, held: `(seconds into
     /// it, its length)`. Set on a transition's stand-ins, never read from
     /// a request; see `concat_core::timeline::Clip::frozen`.
@@ -315,8 +348,8 @@ pub struct ExportClip {
     /// The camera's shake taken out, as the document holds it. Rendered
     /// only with `motion_dir`: a clip whose movement is not measured yet
     /// shows as shot.
-    #[serde(default)]
-    pub stabilize: Option<concat_project::model::Stabilize>,
+    #[serde(skip)]
+    pub stabilize: Option<concat_vision::stabilize::Settings>,
     /// Where this clip's media has its measured movement - see
     /// `concat_vision::stabilize::motion_dir` - or empty when the
     /// flattener had no project folder to name it by.
@@ -563,10 +596,7 @@ pub struct ExportRequest {
     /// What shows where no picture covers the frame, straight
     /// `[r, g, b, a]`; opaque black when a request does not say. See
     /// `VideoSettings::canvas`.
-    #[serde(
-        default = "opaque_black",
-        deserialize_with = "concat_project::model::rgba_array"
-    )]
+    #[serde(default = "opaque_black", deserialize_with = "crate::rgba::array")]
     pub canvas: [u8; 4],
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
@@ -579,11 +609,13 @@ pub struct ExportRequest {
 
 /// The engine's word for a document's colour range: the two enums are one
 /// idea kept in two crates, since the document knows nothing of FFmpeg
-/// and the engine nothing of documents.
-pub fn engine_range(range: concat_project::model::ColorRange) -> concat_media::ColorRange {
+/// and the engine nothing of documents. `None` for a range this build
+/// cannot read, which reads the file's own tag.
+pub fn engine_range(range: &concat_doc::model::ColorRange) -> Option<concat_media::ColorRange> {
     match range {
-        concat_project::model::ColorRange::Limited => concat_media::ColorRange::Limited,
-        concat_project::model::ColorRange::Full => concat_media::ColorRange::Full,
+        concat_doc::model::ColorRange::Limited => Some(concat_media::ColorRange::Limited),
+        concat_doc::model::ColorRange::Full => Some(concat_media::ColorRange::Full),
+        concat_doc::model::ColorRange::Unknown(_) => None,
     }
 }
 
@@ -1060,7 +1092,8 @@ pub fn render_on(
         request
     };
     if !request.effect_time_offset.is_finite()
-        || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
+        || request.effect_time_offset.abs()
+            > (concat_doc::model::TICK_LIMIT / concat_doc::TICKS_PER_SECOND) as f64
     {
         return Err("the effect timeline offset is not a valid time".into());
     }
@@ -1737,12 +1770,12 @@ const NO_RENDERER: &str = "no GPU or software renderer is available to draw with
 
 /// On a phone there is nothing to install: the one GPU it has would not
 /// open, and the log says which and why (#312).
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 const NO_RENDERER: &str = "this device's GPU could not be used to draw with";
 
 /// Elsewhere the platform's own software renderer is always there, so
 /// this is a machine whose GPU and fallback both refused.
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with";
 
 /// How many times an export's device may die under it before the export
@@ -3248,10 +3281,7 @@ pub struct PreviewFrameRequest {
     pub color_space: ColorSpace,
     /// What shows where no picture covers the frame; opaque black when a
     /// request does not say.
-    #[serde(
-        default = "opaque_black",
-        deserialize_with = "concat_project::model::rgba_array"
-    )]
+    #[serde(default = "opaque_black", deserialize_with = "crate::rgba::array")]
     pub canvas: [u8; 4],
 }
 
@@ -3265,7 +3295,7 @@ fn over_black([r, g, b, a]: [u8; 4]) -> [u8; 4] {
 /// The canvas of a request that does not name one: what every frame had
 /// before there was a choice. Not `[u8; 4]`'s default, which is clear.
 fn opaque_black() -> [u8; 4] {
-    concat_project::model::OPAQUE_BLACK
+    crate::rgba::OPAQUE_BLACK
 }
 
 /// The signal a timeline of `space` is drawn for (`FramePlan::output`).
@@ -3720,63 +3750,35 @@ mod tests {
     /// and the export both plan through.
     #[test]
     fn an_animate_pick_moves_the_planned_picture() {
-        use concat_project::commands::{ClipPatch, NewMedia};
-        use concat_project::model::{ClipMotion, ClipMove, MediaKind};
-        use concat_project::{Command, Editor};
-        let mut editor = Editor::new();
-        let media_id = editor
-            .apply(Command::AddMedia {
-                item: NewMedia {
-                    path: "/nowhere/clip.mp4".into(),
-                    name: "clip.mp4".into(),
-                    duration: Some(4.0),
-                    kind: MediaKind::Video,
-                    width: Some(64),
-                    height: Some(36),
-                    frame_rate: None,
-                    frame_rate_fraction: None,
-                    video_codec: None,
-                    audio_codec: None,
-                    has_audio: false,
-                    audio_tracks: Vec::new(),
-                    origin: None,
-                    color_space: Default::default(),
-                },
-            })
-            .expect("adds media")
-            .created_id
-            .expect("an id");
-        let track_id = editor.project().timelines[0].tracks[0].id.clone();
-        let clip_id = editor
-            .apply(Command::AddClip {
-                media_id,
-                track_id,
-                start: 0.0,
-                ripple: false,
-            })
-            .expect("adds the clip")
-            .created_id
-            .expect("an id");
-        editor
-            .apply(Command::UpdateClip {
-                clip_id,
-                patch: ClipPatch {
-                    motion: Some(Some(ClipMotion {
-                        enter: Some(ClipMove {
-                            kind: "slide-left".into(),
-                            seconds: 1.0,
-                        }),
-                        exit: Some(ClipMove {
-                            kind: "fade".into(),
-                            seconds: 1.0,
-                        }),
-                        ..ClipMotion::default()
-                    })),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("animates the clip");
-        let clips = flatten::flatten_timeline(editor.project(), None);
+        use crate::test_doc::{Doc, at, long, video};
+        use concat_doc::commands::{Command, ItemPatch};
+        use concat_doc::model::{Motion, Move};
+        let mut doc = Doc::new();
+        let media = doc.media(video("/nowhere/clip.mp4", 4.0, (64, 36), false));
+        let item = doc.item(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        doc.apply(Command::UpdateClip {
+            item,
+            patch: ItemPatch {
+                motion: Some(Motion {
+                    enter: Some(Move {
+                        name: "slide-left".into(),
+                        len: long(1.0),
+                    }),
+                    exit: Some(Move {
+                        name: "fade".into(),
+                        len: long(1.0),
+                    }),
+                    repeat: None,
+                }),
+                ..ItemPatch::default()
+            },
+        });
+        let clips = doc.flat();
         assert!(
             clips[0].motion.is_some(),
             "the motion reaches the flattened clip"
@@ -4111,10 +4113,10 @@ mod tests {
     /// them again from the cut (audit 2026-11-15, E3).
     #[test]
     fn a_transitions_stand_ins_hold_their_clips_moves_and_keys_at_the_cut() {
-        use concat_project::model::{ClipMotion, ClipMove};
+        use concat_core::motion::{Motion as ClipMotion, Move, Moving};
         let moving = |kind: &str| {
-            Some(ClipMove {
-                kind: kind.into(),
+            Some(Moving {
+                kind: Move::parse(kind).expect("a move"),
                 seconds: 0.5,
             })
         };
@@ -4258,29 +4260,33 @@ mod tests {
     /// as one, its package, knobs and length intact, on its own lane.
     #[test]
     fn a_documents_transition_clip_is_flattened_with_its_package() {
-        use concat_project::{Command, Editor};
-        let mut editor = Editor::new();
-        let id = editor
-            .apply(Command::AddTransitionClip {
-                track_id: None,
-                start: 3.0,
-                duration: Some(0.8),
-                transition_id: "concat.push".into(),
-                name: "Push".into(),
-            })
-            .expect("placed")
-            .created_id
-            .expect("an id");
-        let lane = {
-            let timeline = editor.project().active();
-            let clip = timeline.clip(&id).expect("exists");
-            timeline
-                .tracks
-                .iter()
-                .position(|track| track.id == clip.track_id)
-                .expect("its lane")
-        };
-        let flat = flatten::flatten_timeline(editor.project(), None);
+        use crate::test_doc::{Doc, at, long, video};
+        use concat_doc::commands::Command;
+        let mut doc = Doc::new();
+        let media = doc.media(video("/a.mp4", 10.0, (64, 36), false));
+        doc.apply(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        let id = doc.item(Command::AddTransitionClip {
+            start: at(3.0),
+            len: Some(long(0.8)),
+            package: "concat.push".into(),
+            name: "Push".into(),
+            lane: None,
+        });
+        let showing = doc.0.view.showing.expect("a timeline");
+        let lane_of = doc.0.items.get(id).expect("exists").lane;
+        let lane = doc
+            .0
+            .lanes
+            .index()
+            .of(showing)
+            .position(|(lane, _)| lane == lane_of)
+            .expect("its lane");
+        let flat = doc.flat();
         let transition = flat
             .iter()
             .find(|clip| clip.kind == ClipKind::Transition)
@@ -4358,7 +4364,7 @@ mod tests {
                 rate_num: 30,
                 rate_den: 1,
                 clips: vec![first, second],
-                color_space: concat_project::model::ColorSpace::Sdr,
+                color_space: crate::ColorSpace::Sdr,
             };
             let bytes = preview_frame(&pool, &request).expect("previews");
             let (px, py) = ((f64::from(width) * x) as u32, height / 2);
@@ -4479,7 +4485,7 @@ mod tests {
                 rate_num: 30,
                 rate_den: 1,
                 clips: clips.to_vec(),
-                color_space: concat_project::model::ColorSpace::Sdr,
+                color_space: crate::ColorSpace::Sdr,
             };
             let bytes = preview_frame(&pool, &request).expect("previews");
             let i = ((y * width + x) * 4) as usize;
@@ -4577,7 +4583,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
         let bytes = preview_frame(&pool, &request).expect("previews");
@@ -4643,7 +4649,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
@@ -4669,7 +4675,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![outliving],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &late).expect("previews past the media's end");
         assert!(
@@ -4694,7 +4700,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![effected],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &filtered).expect("previews with an effect");
         assert!(
@@ -4714,11 +4720,10 @@ mod tests {
     /// GPU.
     #[test]
     fn a_fresh_adjustment_layer_changes_nothing_on_the_monitor_or_in_the_export() {
+        use crate::test_doc::{Doc, at, long, video};
         use concat_core::frame::Frame;
+        use concat_doc::commands::{Command, ItemPatch};
         use concat_media::{EncodeOptions, Encoder, FrameSink};
-        use concat_project::commands::{ClipPatch, NewMedia};
-        use concat_project::model::MediaKind;
-        use concat_project::{Command, Editor};
 
         let (width, height) = (64_u32, 64_u32);
         let path = std::env::temp_dir().join(format!(
@@ -4754,52 +4759,24 @@ mod tests {
             return; // no renderer here
         };
 
-        let mut editor = Editor::new();
-        let media_id = editor
-            .apply(Command::AddMedia {
-                item: NewMedia {
-                    path: path.to_string_lossy().into_owned(),
-                    name: "gradient.mp4".into(),
-                    duration: Some(2.0),
-                    kind: MediaKind::Video,
-                    width: Some(width),
-                    height: Some(height),
-                    frame_rate: None,
-                    frame_rate_fraction: None,
-                    video_codec: None,
-                    audio_codec: None,
-                    has_audio: false,
-                    audio_tracks: Vec::new(),
-                    origin: None,
-                    color_space: Default::default(),
-                },
-            })
-            .expect("adds media")
-            .created_id
-            .expect("an id");
-        let track_id = editor.project().timelines[0].tracks[0].id.clone();
-        editor
-            .apply(Command::AddClip {
-                media_id,
-                track_id,
-                start: 0.0,
-                ripple: false,
-            })
-            .expect("adds the footage");
-        let plain = flatten::flatten_timeline(editor.project(), None);
-        let layer_id = editor
-            .apply(Command::AddLayerClip {
-                track_id: None,
-                start: 0.0,
-                duration: Some(2.0),
-                effect_id: "concat.adjust".into(),
-                name: "Adjustment".into(),
-                sound: false,
-            })
-            .expect("adds the layer")
-            .created_id
-            .expect("an id");
-        let fresh = flatten::flatten_timeline(editor.project(), None);
+        let mut doc = Doc::new();
+        let media = doc.media(video(&path.to_string_lossy(), 2.0, (width, height), false));
+        doc.apply(Command::AddClip {
+            media,
+            lane: doc.main_lane(),
+            start: at(0.0),
+            ripple: false,
+        });
+        let plain = doc.flat();
+        let layer_id = doc.item(Command::AddLayerClip {
+            start: at(0.0),
+            len: Some(long(2.0)),
+            package: "concat.adjust".into(),
+            name: "Adjustment".into(),
+            sound: false,
+            lane: None,
+        });
+        let fresh = doc.flat();
         assert!(
             fresh
                 .iter()
@@ -4816,7 +4793,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips,
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
         // The window draws the plan with every live treatment folded in;
         // the export draws through `composite_treated`.
@@ -4850,18 +4827,34 @@ mod tests {
         );
 
         // A stop up: the picture changes, the same on both.
-        let mut graded = AppliedFilter::new("concat.adjust");
-        graded.params.insert("exposure".into(), 1.0);
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: layer_id,
-                patch: ClipPatch {
-                    video_effects: Some(vec![graded]),
-                    ..ClipPatch::default()
-                },
-            })
-            .expect("grades the layer");
-        let (monitor, export) = both(flatten::flatten_timeline(editor.project(), None));
+        let mut effects: Vec<concat_doc::model::Effect> = doc
+            .0
+            .items
+            .get(layer_id)
+            .expect("the layer")
+            .effects
+            .iter()
+            .filter_map(concat_doc::model::Entry::known)
+            .cloned()
+            .collect();
+        if effects.is_empty() {
+            effects.push(concat_doc::model::Effect::new(
+                concat_doc::commands::placeholder(),
+                "concat.adjust",
+            ));
+        }
+        effects[0].params.insert(
+            "exposure".into(),
+            concat_doc::model::Param::fixed(Some(1.0)),
+        );
+        doc.apply(Command::UpdateClip {
+            item: layer_id,
+            patch: ItemPatch {
+                effects: Some(effects),
+                ..ItemPatch::default()
+            },
+        });
+        let (monitor, export) = both(doc.flat());
         eprintln!(
             "a stop up moves the picture by {} at most; monitor and export differ by {}",
             furthest(&before, &monitor),
@@ -4906,7 +4899,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![still],
-            color_space: concat_project::model::ColorSpace::Sdr,
+            color_space: crate::ColorSpace::Sdr,
         };
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
@@ -5727,7 +5720,7 @@ mod tests {
             cfg!(target_os = "linux"),
             "{NO_RENDERER}"
         );
-        if cfg!(any(target_os = "android", target_os = "ios")) {
+        if cfg!(target_os = "android") {
             assert!(NO_RENDERER.contains("GPU could not be used"));
         }
     }

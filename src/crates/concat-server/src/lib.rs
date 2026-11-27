@@ -7,14 +7,10 @@
 //! One [`Hub`] owns the one [`Api`] on a thread of its own and serialises
 //! every caller through it, the way the window's event loop does; the
 //! transports are threads that read a call, hand it to the hub, and write
-//! the response back. Two transports speak the same API:
-//!
-//! - **JSON-RPC lines** over TCP or a Unix socket: the stdin transport's
-//!   protocol, one JSON object a line, so what works in a pipe works on a
-//!   socket unchanged. [`json`] is the whole of it.
-//! - **gRPC** over HTTP/2, behind the `grpc` feature: the same methods and
-//!   the same JSON payloads inside a thin protobuf envelope, for a caller
-//!   that wants generated clients and a streamed reply. [`grpc`] says how.
+//! the response back. The transport is **JSON-RPC lines** over TCP or a
+//! Unix socket: the stdin transport's protocol, one JSON object a line, so
+//! what works in a pipe works on a socket unchanged. [`json`] is the whole
+//! of it.
 //!
 //! Events - an export's progress, how it ended - go to every connected
 //! caller; each names its job and its project, so a caller keeps the ones
@@ -28,8 +24,10 @@
 //! started it knows; [`Server::token`] is how that process passes it on,
 //! to a page or a terminal. A token that is given must pass
 //! [`check_token`]: twenty characters at least, and not a repeated
-//! pattern. It is compared in constant time, whichever transport carries
-//! it, and an address that keeps presenting wrong ones waits longer each
+//! pattern. It can be changed while the server runs ([`Server::set_token`]):
+//! the next caller presents the new one, and a caller already in, with a
+//! job of its own running, stays in. It is compared in constant time,
+//! and an address that keeps presenting wrong ones waits longer each
 //! time ([`throttle`]). The API writes only under the roots the server is
 //! given - the user's home unless told otherwise ([`Config::roots`]) - and
 //! a frame or an export is bounded in size. The JSON transport reads a
@@ -47,14 +45,11 @@ pub mod json;
 pub mod throttle;
 mod token;
 
-#[cfg(feature = "grpc")]
-pub mod grpc;
-
 use std::collections::BTreeMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::thread::JoinHandle;
 
 use concat_api::{Api, EventSink, Stopper};
@@ -107,8 +102,6 @@ pub struct Config {
     /// A Unix socket path for JSON-RPC lines. Unix only; a file already
     /// there is replaced.
     pub socket: Option<PathBuf>,
-    /// A TCP address for gRPC. Needs the `grpc` feature.
-    pub grpc: Option<SocketAddr>,
     /// What every connection presents before its first call. `None` or
     /// empty means the server mints one at start, which only the process
     /// that started it can learn, through [`Server::token`]; that is the
@@ -144,17 +137,21 @@ impl Config {
         if self.socket.is_some() {
             return Err("a Unix socket needs a Unix".to_owned());
         }
-        #[cfg(not(feature = "grpc"))]
-        if self.grpc.is_some() {
-            return Err(
-                "this build has no gRPC: build concat-server with --features grpc".to_owned(),
-            );
-        }
         if let Some(token) = self.token.as_deref().filter(|token| !token.is_empty()) {
             check_token(token)?;
         }
         Ok(())
     }
+}
+
+/// The token every door checks, shared by the doors and the server so
+/// it can change while they stay open.
+pub(crate) type Key = Arc<RwLock<String>>;
+
+/// What `key` holds now. A poisoned lock still holds the last token
+/// written: a writer that panicked was never halfway through a string.
+pub(crate) fn current(key: &Key) -> String {
+    key.read().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
 /// A running server: its listeners and the hub behind them.
@@ -164,8 +161,7 @@ pub struct Server {
     stopper: Stopper,
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
-    grpc: Option<SocketAddr>,
-    token: String,
+    token: Key,
     roots: Vec<PathBuf>,
     stop: Arc<AtomicBool>,
     listeners: Vec<JoinHandle<()>>,
@@ -200,7 +196,6 @@ impl Server {
         let transports: Vec<&str> = [
             config.json.map(|_| "json-rpc"),
             config.socket.as_ref().map(|_| "unix-socket"),
-            config.grpc.map(|_| "grpc"),
         ]
         .into_iter()
         .flatten()
@@ -221,15 +216,15 @@ impl Server {
         })?;
         let stop = Arc::new(AtomicBool::new(false));
         let connections: Connections = Arc::new(Mutex::new(BTreeMap::new()));
-        let throttle = Arc::new(throttle::Throttle::default());
+        let token: Key = Arc::new(RwLock::new(token));
         let door = json::Door {
             hub: hub.clone(),
-            token: token.clone(),
+            token: Arc::clone(&token),
             stop: Arc::clone(&stop),
             connections: Arc::clone(&connections),
             seats: Arc::new(AtomicUsize::new(0)),
             pending: Arc::new(AtomicUsize::new(0)),
-            throttle: Arc::clone(&throttle),
+            throttle: Arc::new(throttle::Throttle::default()),
             next_id: Arc::new(AtomicU64::new(1)),
         };
         // Built before the first bind, so a bind that fails drops a server
@@ -240,7 +235,6 @@ impl Server {
             stopper,
             json: None,
             socket: None,
-            grpc: None,
             token,
             roots,
             stop: Arc::clone(&stop),
@@ -281,24 +275,10 @@ impl Server {
             );
         }
 
-        #[cfg(feature = "grpc")]
-        if let Some(address) = config.grpc {
-            let (bound, thread) = grpc::serve(
-                address,
-                server.hub.clone(),
-                server.token.clone(),
-                Arc::clone(&stop),
-                Arc::clone(&throttle),
-            )?;
-            server.grpc = Some(bound);
-            server.listeners.push(thread);
-        }
-        let _ = throttle;
-
         // Last, so nothing is listed that is not yet listening. A listing
         // that cannot be written costs the agent a way in, not the server.
         if let (Some(path), Some(address)) = (config.discovery, server.json)
-            && discovery::write(&path, &discovery::Listing::new(address, &server.token)).is_ok()
+            && discovery::write(&path, &discovery::Listing::new(address, &server.token())).is_ok()
         {
             server.listing = Some(path);
         }
@@ -321,16 +301,42 @@ impl Server {
         self.socket.as_ref()
     }
 
-    /// The gRPC address bound, port resolved.
-    pub fn grpc_addr(&self) -> Option<SocketAddr> {
-        self.grpc
-    }
-
     /// The token every connection presents: the one configured, or the
     /// one minted because none was. Whoever started the server shows or
     /// prints this so a caller can present it.
-    pub fn token(&self) -> &str {
-        &self.token
+    pub fn token(&self) -> String {
+        current(&self.token)
+    }
+
+    /// Changes the token while the server runs, with nothing stopped:
+    /// every connection from now on presents `token`, or a minted one for
+    /// `None` or empty, and the listing says the new one. A token that is
+    /// given must pass [`check_token`]; one that does not changes nothing.
+    ///
+    /// Callers already in stay in, and their jobs run on: the token is
+    /// what gets a caller through the door, and changing it is not
+    /// hanging up on whoever is through. A stop is that.
+    pub fn set_token(&self, token: Option<&str>) -> Result<(), String> {
+        let token = match token.filter(|token| !token.is_empty()) {
+            Some(token) => {
+                check_token(token)?;
+                token.to_owned()
+            }
+            None => token::mint()?,
+        };
+        token.clone_into(&mut self.token.write().unwrap_or_else(PoisonError::into_inner));
+        // As at the start: a listing that cannot be written costs the
+        // agent a way in, not the server.
+        if let (Some(path), Some(address)) = (&self.listing, self.json) {
+            let _ = discovery::write(path, &discovery::Listing::new(address, &token));
+        }
+        Ok(())
+    }
+
+    /// How many jobs callers started are running: what a stop would
+    /// cancel. A front end asks the person before it stops any.
+    pub fn running_jobs(&self) -> usize {
+        self.stopper.running()
     }
 
     /// The folders the API writes under; empty when it may write anywhere.
@@ -417,10 +423,6 @@ impl Server {
         #[cfg(unix)]
         if let Some(path) = &self.socket {
             let _ = std::os::unix::net::UnixStream::connect(path);
-        }
-        #[cfg(feature = "grpc")]
-        if let Some(address) = self.grpc {
-            let _ = TcpStream::connect_timeout(&loopback(address), WAKE_PATIENCE);
         }
         for thread in self.listeners.drain(..) {
             let _ = thread.join();
@@ -577,6 +579,57 @@ pub(crate) mod tests {
         assert_eq!(listing.token, server.token());
         server.stop_detached();
         assert!(!path.exists(), "unlisted at the stop");
+    }
+
+    /// A token changed while the server runs holds from the next caller
+    /// on; the caller already in keeps calling, and the listing follows.
+    #[test]
+    fn a_token_changes_live_and_the_caller_already_in_stays_in() {
+        use crate::client::Client;
+        use std::time::Duration;
+
+        let scratch = tempfile::tempdir().expect("scratch");
+        let dirs = AppDirs {
+            config: scratch.path().join("config"),
+            data: scratch.path().join("data"),
+        };
+        let path = discovery::path_in(&dirs.config);
+        let config = Config {
+            json: Some("127.0.0.1:0".parse().expect("an address")),
+            token: Some(TOKEN.to_owned()),
+            roots: vec![scratch.path().to_path_buf()],
+            discovery: Some(path.clone()),
+            ..Config::default()
+        };
+        let server =
+            Server::start(config, move |events| Ok(Api::with_dirs(dirs, events))).expect("starts");
+        let address = server.json_addr().expect("listening");
+        let patience = Duration::from_secs(5);
+        let mut early = Client::connect(address, TOKEN, patience).expect("in");
+
+        assert!(server.set_token(Some("open sesame")).is_err(), "weak");
+        assert_eq!(server.token(), TOKEN, "a refused token changes nothing");
+
+        let next = "another test token, longer still 9kR";
+        server.set_token(Some(next)).expect("taken");
+        assert_eq!(server.token(), next);
+        assert!(
+            early.call(&concat_api::Request::Version).is_ok(),
+            "the caller already in is not hung up"
+        );
+        assert!(
+            Client::connect(address, TOKEN, patience).is_err(),
+            "the old token no longer opens the door"
+        );
+        Client::connect(address, next, patience).expect("the new one does");
+        let listing = discovery::read(&path).expect("reads").expect("listed");
+        assert_eq!(listing.token, next);
+
+        server.set_token(None).expect("minted");
+        assert_eq!(server.token().len(), 32);
+        assert_ne!(server.token(), next);
+        assert_eq!(server.running_jobs(), 0);
+        server.stop();
     }
 
     #[test]

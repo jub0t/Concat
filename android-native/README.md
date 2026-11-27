@@ -64,7 +64,8 @@ instead of running on the in-memory stand-in.
 ## Design
 
 The look follows the design notes (MOBILE_DESIGN.md): the desktop's dark theme with
-the lime accent, CapCut's editor layout.
+the lime accent, and a phone editor's layout: preview on top, timeline
+below, tools along the bottom.
 
 - `ui/theme/Theme.kt`: the tokens from `src/crates/concat/ui/theme/dark.slint`
   (surfaces, text, accent, status and clip-kind colours), Inter (bundled in

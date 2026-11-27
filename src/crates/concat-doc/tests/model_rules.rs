@@ -12,11 +12,11 @@ use std::collections::BTreeMap;
 
 use concat_doc::model::{
     Animated, Background, BrushTool, CaptionLook, Color, Content, Cover, Crop, Cutout, CutoutMode,
-    Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link, LinkKind,
-    Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey, Param, Raw,
-    Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, Stabilize, Stroke,
-    Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap, TimePoint, Title, Violation, VoiceKind,
-    VoiceMix,
+    Derived, Ease, Effect, EffectId, Enhanced, Entry, Font, Item, ItemId, Key, Lane, LaneId, Link,
+    LinkKind, Loop, Marker, MarkerId, Mask, MaskId, MediaCut, MediaId, Model, Nest, OrderKey,
+    Param, Raw, Residual, Rule, Sequence, SequenceId, ShapeStyle, SoundStream, Speed, SpeedGraph,
+    SpeedPoint, Stabilize, Stroke, Subject, TICK_LIMIT, Take, TextRun, TimeCurve, TimeMap,
+    TimePoint, Title, Violation, VoiceKind, VoiceMix,
 };
 use concat_doc::{
     ChangeSet, Document, Entry as HistoryEntry, History, Origin, Recorded, Rejected, Tick, TickDur,
@@ -39,6 +39,17 @@ fn an_empty_document_is_valid() {
         fx.doc.revision(),
     );
     assert!(again.is_ok());
+}
+
+#[test]
+fn a_sequence_ends_where_its_last_item_does() {
+    let mut fx = fixture();
+    assert_eq!(fx.doc.end_of(fx.seq), Tick::ZERO, "nothing placed");
+    place(&mut fx.doc, cut(fx.low, 0.0, 4.0, fx.video));
+    place(&mut fx.doc, cut(fx.high, 2.0, 5.0, fx.song));
+    place(&mut fx.doc, cut(fx.low, 4.0, 1.0, fx.video));
+    assert_eq!(fx.doc.end_of(fx.seq), at(7.0), "the upper lane's is last");
+    assert_eq!(fx.doc.showing_end(), at(7.0), "it is the one showing");
 }
 
 #[test]
@@ -406,13 +417,68 @@ fn a_background_that_is_not_a_still_is_refused() {
             to: missing.unwrap().any()
         }
     }));
-    // Of a still, it stands.
-    apply(&fx.doc, |draft| {
+    // The cover's picture, of a video and of nothing.
+    let cover = |broken: Vec<Violation>, rule: Rule| {
+        let wanted = Violation { id: None, rule };
+        assert!(broken.contains(&wanted), "wanted {wanted} in {broken:?}");
+    };
+    cover(
+        refused(&fx.doc, |draft| {
+            draft.cover = Some(Cover::Picture { media: fx.video });
+        }),
+        Rule::WrongKind {
+            what: "cover",
+            to: fx.video.any(),
+        },
+    );
+    let mut missing = None;
+    let broken = refused(&fx.doc, |draft| {
+        let gone: MediaId = draft.mint().unwrap();
+        draft.cover = Some(Cover::Picture { media: gone });
+        missing = Some(gone);
+    });
+    cover(
+        broken,
+        Rule::Dangling {
+            what: "cover",
+            to: missing.unwrap().any(),
+        },
+    );
+    // Of a still, each stands.
+    fx.doc = apply(&fx.doc, |draft| {
         draft
             .sequences
             .update(fx.seq, |s| s.background = Background::Image(fx.still))
             .unwrap();
+        draft.cover = Some(Cover::Picture { media: fx.still });
     });
+    // And a still found on a second look to be a video is no longer one,
+    // behind a sequence or as the cover.
+    let broken = refused(&fx.doc, |draft| {
+        draft
+            .media
+            .update(fx.still, |file| {
+                file.kind = concat_doc::model::MediaKind::Video
+            })
+            .unwrap();
+    });
+    assert!(
+        broken.contains(&Violation {
+            id: Some(fx.seq.any()),
+            rule: Rule::WrongKind {
+                what: "background",
+                to: fx.still.any()
+            }
+        }),
+        "{broken:?}"
+    );
+    cover(
+        broken,
+        Rule::WrongKind {
+            what: "cover",
+            to: fx.still.any(),
+        },
+    );
 }
 
 /// A picture and its detached sound, on the two lanes.
@@ -566,6 +632,31 @@ fn removing_a_file_in_use_is_refused() {
             "{id} in {broken:?}"
         );
     }
+    // Shown as the cover.
+    let covered = apply(&fx.doc, |draft| {
+        draft.cover = Some(Cover::Picture { media: fx.still });
+        draft
+            .sequences
+            .update(fx.seq, |s| s.background = Background::None)
+            .unwrap();
+        draft
+            .items
+            .update(clip, |item| item.picture.background = None)
+            .unwrap();
+    });
+    let broken = refused(&covered, |draft| {
+        draft.media.remove(fx.still).unwrap();
+    });
+    assert_eq!(
+        broken,
+        [Violation {
+            id: None,
+            rule: Rule::Dangling {
+                what: "cover",
+                to: fx.still.any()
+            }
+        }]
+    );
     // With its items, the file may go.
     apply(&fx.doc, |draft| {
         draft.items.remove(clip).unwrap();
@@ -967,6 +1058,7 @@ fn keyed(points: &[(f64, f64)], curve: TimeCurve) -> TimeMap {
     TimeMap::Keyed {
         first,
         rest: points.map(|point| (curve.clone(), point)).collect(),
+        drawn: None,
     }
 }
 
@@ -2362,6 +2454,94 @@ fn a_caption_look_with_words_is_refused() {
     assert!(doc.lanes.get(fx.high).unwrap().captions.is_some());
 }
 
+// --- 50. Speed graphs ---------------------------------------------------------
+
+#[test]
+fn a_broken_speed_graph_is_refused() {
+    let mut fx = fixture();
+    let clip = place(&mut fx.doc, cut(fx.low, 0.0, 1.0, fx.video));
+    let point = |at: f64, speed: f64, slope: Option<f64>| SpeedPoint { at, speed, slope };
+    let graph = |points: Vec<SpeedPoint>| SpeedGraph {
+        from: Tick::ZERO,
+        len: len(1.0),
+        points,
+    };
+    let with = |fx: &Fixture, graph: SpeedGraph| {
+        let TimeMap::Keyed { first, rest, .. } =
+            keyed(&[(0.0, 0.0), (1.0, 1.0)], TimeCurve::Linear)
+        else {
+            unreachable!("keyed")
+        };
+        with_time(
+            fx,
+            TimeMap::Keyed {
+                first,
+                rest,
+                drawn: Some(graph),
+            },
+        )
+    };
+    let what = "content.time.drawn";
+    let far = SpeedGraph {
+        from: Tick::new(TICK_LIMIT),
+        ..graph(vec![point(0.0, 1.0, None)])
+    };
+    let broken = [
+        (graph(vec![]), Rule::SpeedGraphEmpty),
+        (
+            graph(vec![point(0.0, f64::NAN, None)]),
+            Rule::NotFinite { what },
+        ),
+        (
+            graph(vec![point(0.0, 1.0, Some(f64::INFINITY))]),
+            Rule::NotFinite { what },
+        ),
+        (
+            graph(vec![point(1.5, 1.0, None)]),
+            Rule::OutOfBounds { what },
+        ),
+        (
+            graph(vec![point(0.5, 1.0, None), point(0.25, 1.0, None)]),
+            Rule::KeysOutOfOrder { what },
+        ),
+        (
+            graph(vec![point(0.0, 17.0, None)]),
+            Rule::SpeedNotAllowed { what },
+        ),
+        (
+            graph(vec![point(0.0, 0.05, None)]),
+            Rule::SpeedNotAllowed { what },
+        ),
+        (far, Rule::OutOfRange { what }),
+    ];
+    for (graph, rule) in broken {
+        let content = with(&fx, graph);
+        assert_refused(&fx.doc, clip, rule, |draft| {
+            draft
+                .items
+                .update(clip, |item| item.content = content)
+                .unwrap();
+        });
+    }
+    // One point, a step of two at one share, and the limits themselves
+    // all stand.
+    let content = with(
+        &fx,
+        graph(vec![
+            point(0.0, 1.0 / 16.0, Some(-3.0)),
+            point(0.5, 16.0, None),
+            point(0.5, 1.0, None),
+            point(1.0, 1.0, None),
+        ]),
+    );
+    apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(clip, |item| item.content = content)
+            .unwrap();
+    });
+}
+
 /// A caption lane's captions in the look given: ordinary titles, each
 /// with its own words, placed one after another.
 fn captions_in(fx: &mut Fixture, look: &CaptionLook, words: &[&str]) -> Vec<ItemId> {
@@ -2490,13 +2670,8 @@ fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
         history.record(commit, HistoryEntry::new(vec![], (), ())),
         Ok(Recorded::Step)
     );
-    // A picture of its own instead, then none: each a step.
-    for cover in [
-        Some(Cover::Picture {
-            path: "/covers/a.png".into(),
-        }),
-        None,
-    ] {
+    // A still of the bin instead, then none: each a step.
+    for cover in [Some(Cover::Picture { media: fx.still }), None] {
         let mut draft = history.current().begin("Set cover", Origin(0));
         draft.cover = cover;
         let commit = draft.commit().unwrap();
@@ -2534,9 +2709,7 @@ fn a_cover_is_a_step_of_undo_and_the_sequence_showing_is_not() {
     let undone = history.undo().unwrap();
     assert_eq!(
         undone.document.cover,
-        Some(Cover::Picture {
-            path: "/covers/a.png".into()
-        })
+        Some(Cover::Picture { media: fx.still })
     );
     let undone = history.undo().unwrap();
     assert_eq!(undone.document.cover, Some(Cover::Frame { into: dur(2.0) }));
@@ -2592,6 +2765,31 @@ fn clip_holding_everything(fx: &mut Fixture) -> ItemId {
 fn a_copy_of_an_item_holds_ids_of_its_own() {
     let mut fx = fixture();
     let clip = clip_holding_everything(&mut fx);
+    // With what a newer build wrote: an effect this build could not read,
+    // fields it does not know, and what was derived from the clip and
+    // from its effect.
+    let derived = || {
+        Some(Derived {
+            raw: Raw::from("{\"thumb\":\"c99\"}"),
+            seal: 7,
+        })
+    };
+    fx.doc = apply(&fx.doc, |draft| {
+        draft
+            .items
+            .update(clip, |item| {
+                item.effects.push(Entry::Unread(Raw::from(
+                    "{\"id\":\"fx98\",\"needs\":[\"x\"]}",
+                )));
+                item.residual.fields.push(("glow".into(), Raw::from("1")));
+                item.residual.derived = derived();
+                if let Entry::Known(effect) = &mut item.effects[0] {
+                    effect.residual.derived = derived();
+                    effect.residual.fields.push(("tilt".into(), Raw::from("2")));
+                }
+            })
+            .unwrap();
+    });
     let source = Item::clone(fx.doc.items.get(clip).unwrap());
     let laid_after = |mut copy: Item| {
         copy.start = at(2.0);
@@ -2628,6 +2826,14 @@ fn a_copy_of_an_item_holds_ids_of_its_own() {
     }
     let mask = copy.masks[0].known().unwrap().id;
     assert_eq!(copy.effects[0].known().unwrap().mask, Some(mask));
+    // What it cannot make new ids for or work out again is left behind;
+    // the fields it does not know go with it.
+    assert_eq!(copy.effects.len(), 1, "the unread effect stays behind");
+    assert_eq!(copy.residual.derived, None);
+    assert_eq!(copy.residual.fields, source.residual.fields);
+    let effect = copy.effects[0].known().unwrap();
+    assert_eq!(effect.residual.derived, None);
+    assert_eq!(effect.residual.fields, [("tilt".into(), Raw::from("2"))]);
     // Everything else is the clip's.
     let mut same = Item::clone(copy);
     same.start = source.start;

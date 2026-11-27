@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -46,7 +46,7 @@
 
 ## About
 
-Concat is a free, open-source video editor for macOS, Windows, Linux, Android and iOS. It covers what most edits need: auto-captions, voice isolation, text-to-speech, background removal, animations and keyframes, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
+Concat is a free, open-source video editor for macOS, Windows, Linux and Android. It covers what most edits need: auto-captions, voice isolation, text-to-speech, background removal, animations and keyframes, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
 
 Everything runs on your machine. Install it, drop in footage, cut. The AI models for captions, voices and cutout download once from Settings and work offline after that. Your footage never leaves your disk.
 
@@ -74,8 +74,8 @@ Everything runs on your machine. Install it, drop in footage, cut. The AI models
 - 📤 **Export.** H.264, HEVC, AV1, on your computer's own encoder. Up to 4K 60, 10-bit colour.
 - ⚡ **Fast.** Proxies built in, so 4K scrubs smoothly. Titles paint on every core, and every effect is ready the moment the window opens.
 - 🛟 **Keeps going on any machine.** When the graphics chip gives up, the preview keeps drawing.
-- 🤖 **Scriptable.** An MCP server built in, so Claude and other AI agents can edit with it ([one line to set up](docs/MCP.md)), and a JSON-RPC API for scripts. A build from source adds gRPC and a command-line tool.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 languages. Same app, same project files.
+- 🤖 **Scriptable.** An MCP server built in, so Claude and other AI agents can edit with it ([one line to set up](docs/MCP.md)), and a JSON-RPC API for scripts. A build from source adds a command-line tool.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 languages. Same app, same project files.
 
 ## Download
 
@@ -92,7 +92,6 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 - ✅ **macOS** · Intel and Apple silicon. If macOS refuses to open an unsigned build: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 and ARM. `.deb`, `.rpm`, `.AppImage` and an Arch package. Also a Flatpak on **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, a community Flatpak remote that wraps the x86_64 `.deb` of each release and updates with it
 - ✅ **Android** · phones and tablets
-- ✅ **iOS / iPadOS** · iPhone and iPad, sideloaded
 
 ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
@@ -130,7 +129,7 @@ If you change text the interface shows, run `python3 scripts/locales.py` from th
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
 >
-> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concat.standalones.org/docs) cover the Concat API and its transports: JSON-RPC and gRPC; [docs/MCP.md](docs/MCP.md) connects an AI agent over MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concat.standalones.org/docs) cover the Concat API over JSON-RPC; [docs/MCP.md](docs/MCP.md) connects an AI agent over MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
 > 
 > Contributors can claim a `@Contributor` role in the Discord server: just ask.
 

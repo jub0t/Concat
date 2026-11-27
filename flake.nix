@@ -118,7 +118,7 @@
         default = concat;
         concat = pkgs.rustPlatform.buildRustPackage {
           pname = "concat";
-          version = "0.2.12";
+          version = "0.2.13";
           src = self;
 
           cargoRoot = "src";

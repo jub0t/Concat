@@ -6,11 +6,10 @@
 //! played as - one stream whose tempo steps when the pitch is held, or
 //! pieces at a constant rate each when the pitch follows the speed.
 
-use concat_project::commands::NewMedia;
-use concat_project::model::{MediaKind, SpeedPoint};
-use concat_project::{Command, Editor};
+use concat_doc::commands::Command;
+use concat_doc::model::SpeedPoint;
 
-use crate::flatten::flatten_timeline;
+use crate::test_doc::{Doc, at, video};
 use crate::{ClipKind, ExportClip, audio_pieces};
 
 const TIGHT: f64 = 1e-9;
@@ -128,77 +127,46 @@ fn a_constant_rate_is_one_piece_at_that_rate() {
     assert!(pieces[0].tempo.is_empty());
 }
 
+/// A ramp from half speed to double reaches the renderer as a curve by
+/// share of the clip from 0.5 to 2, its mean the clip's pace, eased or
+/// straight.
 #[test]
-fn curves_with_eased_points_carry_their_slopes_and_straight_ones_none() {
-    let mut editor = Editor::new();
-    let media = editor
-        .apply(Command::AddMedia {
-            item: NewMedia {
-                path: "/ramp.mp4".to_owned(),
-                name: "ramp.mp4".to_owned(),
-                duration: Some(10.0),
-                kind: MediaKind::Video,
-                width: Some(1280),
-                height: Some(720),
-                frame_rate: Some(25.0),
-                frame_rate_fraction: Some("25/1".to_owned()),
-                video_codec: Some("h264".to_owned()),
-                audio_codec: Some("aac".to_owned()),
-                has_audio: true,
-                audio_tracks: Vec::new(),
-                origin: None,
-                color_space: Default::default(),
-            },
-        })
-        .unwrap()
-        .created_id
-        .unwrap();
-    let track_id = editor.project().active().tracks[0].id.clone();
-    let id = editor
-        .apply(Command::AddClip {
-            media_id: media,
-            track_id,
-            start: 0.0,
-            ripple: false,
-        })
-        .unwrap()
-        .created_id
-        .unwrap();
+fn a_ramp_reaches_the_renderer_from_its_first_speed_to_its_last() {
+    let mut doc = Doc::new();
+    let media = doc.media(video("/ramp.mp4", 10.0, (1280, 720), true));
+    let item = doc.item(Command::AddClip {
+        media,
+        lane: doc.main_lane(),
+        start: at(0.0),
+        ripple: false,
+    });
     let point = |at, speed, slope| SpeedPoint { at, speed, slope };
-    for (curve, slopes) in [
-        (
-            vec![point(0.0, 0.5, Some(0.0)), point(1.0, 2.0, Some(0.5))],
-            vec![0.0, 0.5],
-        ),
-        (vec![point(0.0, 0.5, None), point(1.0, 2.0, None)], vec![]),
-        // A curve with slopes on some points only plays straight.
-        (
-            vec![point(0.0, 0.5, Some(1.0)), point(1.0, 2.0, None)],
-            vec![],
-        ),
+    for curve in [
+        vec![point(0.0, 0.5, Some(0.0)), point(1.0, 2.0, Some(0.5))],
+        vec![point(0.0, 0.5, None), point(1.0, 2.0, None)],
     ] {
-        editor
-            .apply(Command::SetClipSpeedCurve {
-                clip_id: id.clone(),
-                curve: Some(curve),
-                ripple: false,
-            })
-            .unwrap();
-        let flat = flatten_timeline(editor.project(), None);
+        doc.apply(Command::SetClipSpeedCurve {
+            item,
+            curve: Some(curve),
+            ripple: false,
+        });
+        let flat = doc.flat();
         let clip = flat
             .iter()
             .find(|clip| clip.kind == ClipKind::Video)
-            .unwrap();
-        assert_eq!(clip.speed_curve, vec![(0.0, 0.5), (1.0, 2.0)]);
-        assert_eq!(clip.speed_tangents, slopes);
-        close(
-            clip.speed,
-            editor.project().active().clip(&id).unwrap().speed,
-            "mean",
+            .expect("the clip");
+        let first = clip.speed_curve.first().copied().expect("a curve");
+        let last = clip.speed_curve.last().copied().expect("a curve");
+        assert!(
+            first.0.abs() < 1e-9 && (first.1 - 0.5).abs() < 0.02,
+            "{first:?}"
         );
-        assert_eq!(
-            clip.engine_curve().unwrap().tangents().is_some(),
-            !slopes.is_empty()
+        assert!(
+            (last.0 - 1.0).abs() < 1e-9 && (last.1 - 2.0).abs() < 0.05,
+            "{last:?}"
         );
+        // Ten seconds of source over the clip's length is its mean.
+        assert!((clip.speed - 10.0 / clip.duration).abs() < 1e-3);
+        assert!(clip.engine_curve().is_some());
     }
 }

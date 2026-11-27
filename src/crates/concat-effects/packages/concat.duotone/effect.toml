@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.duotone"
+name = "Duotone"
+kind = "effect"
+category = "Stylize"
+shelves = ["Color"]
+order = 30
+intensity = "amount"
+description = "The picture printed in two colours: one for the shadows and one for the highlights, blended through the tones between."
+
+[[param]]
+key = "shadows"
+label = "Shadows"
+type = "color"
+min = 0
+max = 4294967295
+default = 706436863
+
+[[param]]
+key = "highlights"
+label = "Highlights"
+type = "color"
+min = 0
+max = 4294967295
+default = 4289948671
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 100
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"

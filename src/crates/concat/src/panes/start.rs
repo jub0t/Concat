@@ -96,6 +96,8 @@ pub fn shown<'a>(
 
 /// The official site, which the guides and the developer docs are pages of.
 const SITE: &str = "https://concat.standalones.org";
+/// Concat's home on the web: its library and its forum.
+const HOME: &str = "https://concatapp.com/";
 /// The repository: the code, the issues, the releases.
 pub const REPOSITORY: &str = "https://github.com/jub0t/Concat";
 
@@ -109,12 +111,8 @@ pub fn link(name: &str) -> Option<String> {
         "guides" => format!("{SITE}/guides/"),
         "report" => format!("{SITE}/guides/report-a-problem/"),
         "github" => REPOSITORY.to_owned(),
-        // The gradient card: this version's "What's new" post on the
-        // website's blog, the polished telling of its release notes.
-        "news" => format!(
-            "{SITE}/blog/whats-new-in-{}/",
-            env!("CARGO_PKG_VERSION").replace('.', "-")
-        ),
+        // The gradient card: Concat's home on the web.
+        "website" => HOME.to_owned(),
         // The invite the README carries.
         "discord" => "https://discord.gg/DVuPfpXfqP".to_owned(),
         // The notes for the release this build is, under the tag the
@@ -182,39 +180,17 @@ impl Default for StartPane {
 }
 
 /// Where a new project goes unless told otherwise; see [`location_on`].
-/// On an iPhone the folder is made here, so that the Files app shows it
-/// from the first launch and not only from the first project.
 fn default_location() -> String {
-    #[cfg(not(target_os = "ios"))]
-    let desktop = dirs::desktop_dir();
-    #[cfg(target_os = "ios")]
-    let desktop = None;
-    let location = location_on(std::env::consts::OS, desktop, home_folder);
-    if cfg!(target_os = "ios")
-        && !location.is_empty()
-        && let Err(error) = std::fs::create_dir_all(&location)
-    {
-        log::warn!(
-            "project: wanted the new-project folder {location} and could not make it: {error}; the first project makes it"
-        );
-    }
-    location
+    location_on(dirs::desktop_dir(), home_folder)
 }
 
-/// Where a new project goes on `os`: a Concat folder on the desktop. The
-/// desktop the system names, not `~/Desktop`: on Windows OneDrive often
-/// moves it, and on Linux it is called what the desktop's language calls
-/// it. A phone has no desk: an iPhone's live in the
-/// app's Documents, the one folder of its sandbox the Files app can show:
-/// `~/Desktop` there is a folder the app is not allowed to make, and every
-/// new project failed with EPERM. https://github.com/jub0t/Concat/issues/299
-fn location_on(os: &str, desktop: Option<PathBuf>, home: impl Fn(&str) -> String) -> String {
-    match os {
-        "ios" => home("Documents/Concat"),
-        _ => desktop
-            .map(|desktop| desktop.join("Concat").to_string_lossy().into_owned())
-            .unwrap_or_else(|| home("Desktop/Concat")),
-    }
+/// Where a new project goes: a Concat folder on the desktop. The desktop
+/// the system names, not `~/Desktop`: on Windows OneDrive often moves it,
+/// and on Linux it is called what the desktop's language calls it.
+fn location_on(desktop: Option<PathBuf>, home: impl Fn(&str) -> String) -> String {
+    desktop
+        .map(|desktop| desktop.join("Concat").to_string_lossy().into_owned())
+        .unwrap_or_else(|| home("Desktop/Concat"))
 }
 
 /// What an unnamed project is called, in the interface's language: the name
@@ -618,22 +594,16 @@ impl StartPane {
 mod tests {
     use super::*;
 
-    /// An iPhone's projects go in its Documents, whatever a desktop would
-    /// have said; a desktop's go on the desktop the system names.
+    /// New projects go on the desktop the system names, or under the home
+    /// folder's Desktop when it names none.
     #[test]
-    fn each_platform_has_a_place_for_new_projects() {
+    fn new_projects_go_on_the_desktop() {
         let home = |name: &str| format!("/home/{name}");
-        let desktop = || Some(PathBuf::from("/desk"));
         assert_eq!(
-            location_on("ios", desktop(), home),
-            "/home/Documents/Concat"
-        );
-        assert_eq!(location_on("ios", None, home), "/home/Documents/Concat");
-        assert_eq!(
-            PathBuf::from(location_on("macos", desktop(), home)),
+            PathBuf::from(location_on(Some(PathBuf::from("/desk")), home)),
             Path::new("/desk").join("Concat")
         );
-        assert_eq!(location_on("linux", None, home), "/home/Desktop/Concat");
+        assert_eq!(location_on(None, home), "/home/Desktop/Concat");
     }
 
     /// The next untitled name skips every folder already there, and starts
@@ -707,7 +677,7 @@ mod tests {
             "report",
             "github",
             "discord",
-            "news",
+            "website",
             "release-notes",
         ] {
             assert!(

@@ -2,7 +2,380 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 //! Edits from the menus and the tray.
 
+use concat_doc::commands::MIN_LEN;
+use concat_doc::model::TimeMap;
+
 use super::*;
+
+/// Which side of the playhead Delete Left and Delete Right take away.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PlayheadSide {
+    /// Everything before it.
+    Left,
+    /// Everything after it.
+    Right,
+}
+
+/// Whether `at` is inside an item, at least the shortest clip from either
+/// end: where a cut can be made.
+fn cuts(item: &Item, at: Tick) -> bool {
+    item.start + MIN_LEN < at && at + MIN_LEN < doc_view::end(item)
+}
+
+/// The cut Delete Left or Delete Right makes of each item `at` runs
+/// through: a head trim up to it, or a tail trim back to it, closing the
+/// lane behind with `ripple`. Later items first, so a ripple of one never
+/// moves another still to be cut. `None` when `at` runs through none.
+pub(super) fn delete_to_playhead(
+    doc: &Doc,
+    ids: &[ItemId],
+    at: Tick,
+    side: PlayheadSide,
+    ripple: bool,
+) -> Option<Command> {
+    let mut cut: Vec<(ItemId, &Item)> = ids
+        .iter()
+        .filter_map(|id| Some((*id, doc_view::item(doc, *id)?)))
+        .filter(|(_, item)| cuts(item, at))
+        .collect();
+    if cut.is_empty() {
+        return None;
+    }
+    cut.sort_by_key(|(id, item)| std::cmp::Reverse((item.start, *id)));
+    let commands: Vec<Command> = cut
+        .into_iter()
+        .map(|(id, item)| match side {
+            PlayheadSide::Left => Command::TrimClip {
+                item: id,
+                edge: TrimEdge::Head,
+                delta: at - item.start,
+                ripple,
+            },
+            PlayheadSide::Right => Command::TrimClip {
+                item: id,
+                edge: TrimEdge::Tail,
+                delta: at - doc_view::end(item),
+                ripple,
+            },
+        })
+        .collect();
+    Some(match commands.len() {
+        1 => commands.into_iter().next()?,
+        _ => Command::Batch { commands },
+    })
+}
+
+/// An effect as a copy holds it: its keys moved by `shift` onto the
+/// copy's content time. It is given a new id by the edit it goes in, so
+/// a tie to one of the source's masks cannot follow it and is let go.
+fn shifted_effect(effect: &model::Effect, shift: TickDur) -> model::Effect {
+    let mut effect = effect.clone();
+    effect.mask = None;
+    for param in effect.params.values_mut() {
+        for key in &mut param.keys {
+            key.at += shift;
+        }
+    }
+    effect
+}
+
+/// A mask as a copy holds it, its keys moved by `shift`.
+fn shifted_mask(mask: &model::Mask, shift: TickDur) -> model::Mask {
+    let mut mask = mask.clone();
+    let each = |number: &mut model::Animated<f64>| {
+        for key in &mut number.keys {
+            key.at += shift;
+        }
+    };
+    for number in [
+        &mut mask.x,
+        &mut mask.y,
+        &mut mask.scale,
+        &mut mask.rotation,
+        &mut mask.feather,
+        &mut mask.expand,
+        &mut mask.opacity,
+    ] {
+        each(number);
+    }
+    if let model::MaskSource::Shape {
+        width,
+        height,
+        roundness,
+        ..
+    } = &mut mask.source
+    {
+        for number in [width, height, roundness] {
+            each(number);
+        }
+    }
+    mask
+}
+
+/// The edit that puts down the first piece of a copy of `source` on
+/// `lane`, where nothing on it lies after: the whole of its file for a
+/// cut, the title, figure, layer or transition for the rest. `None` for
+/// what cannot be copied.
+pub(super) fn lay_copy(doc: &Doc, source: &Item, lane: LaneId) -> Option<Command> {
+    let start = doc_view::lane_end(doc, lane);
+    Some(match &source.content {
+        Content::Media(cut) => Command::AddClip {
+            media: cut.media,
+            lane,
+            start,
+            ripple: false,
+        },
+        Content::Title(title) => Command::AddTextClip {
+            start,
+            len: Some(source.len),
+            lane: Some(lane),
+            above: false,
+            offset_y: Some(source.picture.offset_y.value),
+            title: Some(title.clone()),
+        },
+        Content::Shape(style) => Command::AddShapeClip {
+            start,
+            len: Some(source.len),
+            name: source.name.clone(),
+            style: Some(style.clone()),
+            lane: Some(lane),
+            above: false,
+        },
+        Content::Layer | Content::SoundLayer => {
+            let sound = matches!(source.content, Content::SoundLayer);
+            let chain = if sound {
+                &source.filters
+            } else {
+                &source.effects
+            };
+            Command::AddLayerClip {
+                start,
+                len: Some(source.len),
+                package: doc_view::chain(chain).first()?.package.clone(),
+                name: source.name.clone(),
+                sound,
+                lane: Some(lane),
+            }
+        }
+        Content::Transition(effect) => Command::AddTransitionClip {
+            start,
+            len: Some(source.len),
+            package: effect.package.clone(),
+            name: source.name.clone(),
+            lane: Some(lane),
+        },
+        Content::Nest(_) | Content::Unknown { .. } => return None,
+    })
+}
+
+/// The edits, made in order as one batch, that make `laid` - just put
+/// down by [`lay_copy`] with nothing after it on its lane - into a copy of
+/// `source` on `lane` at `at`: its footage and its pace, its place, and
+/// then everything else it has.
+///
+/// The footage is cut at the laid clip's own pace, the tail before the
+/// head so the head never meets the shortest-clip limit; then the clip is
+/// retimed, which works the length out from the footage; and then it is
+/// moved, to the free start on the lane nearest `at`, so no other clip
+/// moves or is cut. Every edit is plain, never magnetic. The keys follow
+/// onto the copy's own content time.
+pub(super) fn shape_copy(
+    doc: &Doc,
+    source: &Item,
+    laid_id: ItemId,
+    lane: LaneId,
+    at: Tick,
+) -> Vec<Command> {
+    let Some(laid) = doc_view::item(doc, laid_id) else {
+        return Vec::new();
+    };
+    let mut edits = Vec::new();
+    let trim = |edge: TrimEdge, delta: TickDur| Command::TrimClip {
+        item: laid_id,
+        edge,
+        delta,
+        ripple: false,
+    };
+    // Where the copy's content time will start: what its window's offset
+    // comes to once the head is cut.
+    let mut offset = laid.offset;
+    let still = doc_view::kind(doc, source) == Kind::Image;
+    match (&source.content, still) {
+        (Content::Media(_), false) => {
+            if let (Some((from, span)), Some((laid_from, laid_span))) =
+                (doc_view::covered(source), doc_view::covered(laid))
+            {
+                let off_the_tail = (from + span) - (laid_from + laid_span);
+                if off_the_tail != TickDur::ZERO {
+                    edits.push(trim(TrimEdge::Tail, off_the_tail));
+                }
+                let off_the_head = from - laid_from;
+                if off_the_head != TickDur::ZERO {
+                    edits.push(trim(TrimEdge::Head, off_the_head));
+                    offset += off_the_head;
+                }
+            }
+            match doc_view::time_map(source) {
+                Some(TimeMap::Keyed { .. }) => {
+                    if let Some(curve) = concat_doc::commands::speed_graph(source) {
+                        edits.push(Command::SetClipSpeedCurve {
+                            item: laid_id,
+                            curve: Some(curve),
+                            ripple: false,
+                        });
+                    }
+                }
+                Some(TimeMap::Linear { speed, .. }) if *speed != model::Speed::NORMAL => {
+                    edits.push(Command::SetClipSpeed {
+                        item: laid_id,
+                        speed: *speed,
+                        ripple: false,
+                    });
+                }
+                _ => {}
+            }
+        }
+        // A still has no footage to cut: it is held exactly as long.
+        _ => {
+            let longer = source.len.dur() - laid.len.dur();
+            if longer != TickDur::ZERO {
+                edits.push(trim(TrimEdge::Tail, longer));
+            }
+        }
+    }
+    let start = doc_view::nearest_free_start(doc, lane, at, source.len, &[laid_id]);
+    edits.push(Command::MoveClips {
+        moves: vec![ClipMove {
+            item: laid_id,
+            start,
+            lane: Some(lane),
+        }],
+    });
+    edits.extend(match_commands(source, laid_id, offset - source.offset));
+    edits
+}
+
+/// The edits that take `copy` - a whole copy of `source` the document
+/// made beside it - to `lane` at the free start nearest `at`, named as a
+/// copy unless it is a title, whose name follows its words.
+pub(super) fn move_copy(
+    doc: &Doc,
+    source: &Item,
+    copy: ItemId,
+    lane: LaneId,
+    at: Tick,
+) -> Vec<Command> {
+    let start = doc_view::nearest_free_start(doc, lane, at, source.len, &[copy]);
+    let mut edits = vec![Command::MoveClips {
+        moves: vec![ClipMove {
+            item: copy,
+            start,
+            lane: Some(lane),
+        }],
+    }];
+    if doc_view::title(source).is_none() {
+        edits.push(Command::UpdateClip {
+            item: copy,
+            patch: ItemPatch {
+                name: Some(format!("{} copy", source.name)),
+                ..ItemPatch::default()
+            },
+        });
+    }
+    edits
+}
+
+/// The edits that make `copy` like `source` in everything but its place
+/// and its footage, its keys moved by `shift` onto its own content time.
+/// The whole of it goes, not a list of fields: masks, cutouts,
+/// stabilizing, voices, backgrounds and keys included. A title's name
+/// follows its words; anything else says it is a copy. Two things stay
+/// behind: the transition on the cut into the source, and a tie to what
+/// its sound was detached from.
+pub(super) fn match_commands(source: &Item, copy: ItemId, shift: TickDur) -> Vec<Command> {
+    let picture = &source.picture;
+    let mut edits = vec![Command::SetClipTransform {
+        item: copy,
+        offset_x: Some(picture.offset_x.value),
+        offset_y: Some(picture.offset_y.value),
+        rotation: Some(picture.rotation.value),
+        scale: Some(picture.scale.value),
+        stretch_x: Some(picture.stretch_x.value),
+        stretch_y: Some(picture.stretch_y.value),
+    }];
+    let title = doc_view::title(source).cloned();
+    let patch = ItemPatch {
+        stream: match &source.content {
+            Content::Media(cut) => Some(cut.stream),
+            _ => None,
+        },
+        background: Some(picture.background.clone()),
+        blend: Some(picture.blend.clone()),
+        crop: Some(picture.crop),
+        fade_in: Some(source.sound.fade_in),
+        fade_out: Some(source.sound.fade_out),
+        filters: Some(
+            doc_view::chain(&source.filters)
+                .into_iter()
+                .map(|effect| shifted_effect(effect, shift))
+                .collect(),
+        ),
+        effects: Some(
+            doc_view::chain(&source.effects)
+                .into_iter()
+                .map(|effect| shifted_effect(effect, shift))
+                .collect(),
+        ),
+        flip_h: Some(picture.flip_h),
+        flip_v: Some(picture.flip_v),
+        masks: Some(
+            doc_view::masks(&source.masks)
+                .into_iter()
+                .map(|mask| shifted_mask(mask, shift))
+                .collect(),
+        ),
+        motion: Some(picture.motion.clone()),
+        muted: Some(source.sound.muted),
+        name: title.is_none().then(|| format!("{} copy", source.name)),
+        opacity: Some(picture.opacity.value),
+        keep_pitch: Some(source.sound.keep_pitch),
+        shape: doc_view::shape(source).cloned(),
+        title,
+        cut_in: Some(None),
+        volume: Some(source.sound.volume.value),
+    };
+    edits.push(Command::UpdateClip { item: copy, patch });
+    if picture.cutout.is_some() {
+        edits.push(Command::SetClipCutout {
+            item: copy,
+            cutout: picture.cutout.clone(),
+        });
+    }
+    if picture.stabilize.is_some() {
+        edits.push(Command::SetClipStabilize {
+            item: copy,
+            stabilize: picture.stabilize.clone(),
+        });
+    }
+    if source.sound.voice.is_some() {
+        edits.push(Command::SetClipVoice {
+            item: copy,
+            voice: source.sound.voice.clone(),
+        });
+    }
+    for property in doc_view::KEY_PROPERTIES {
+        for key in &doc_view::animated(source, property).keys {
+            edits.push(Command::SetClipKey {
+                item: copy,
+                property,
+                at: key.at + shift,
+                value: key.value,
+                ease: key.ease.clone(),
+            });
+        }
+    }
+    edits
+}
 
 impl Studio {
     // ── edits from menus and the tray ──
@@ -10,25 +383,20 @@ impl Studio {
     /// Split at `at`: every selected clip the instant runs through, or every
     /// clip at all when nothing is selected.
     pub fn split_at(&mut self, at: f32, only_selected: bool) {
-        let selection = self.selection.clone();
-        let at = f64::from(at);
-        let victims: Vec<String> = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| {
-                clip.start + f64::from(MIN_DURATION) < at
-                    && at < clip.start + clip.duration - f64::from(MIN_DURATION)
-                    && (!only_selected || selection.is_empty() || selection.contains(&clip.id))
-                    && !self.locked(&clip.track_id)
+        let at = doc_view::tick(f64::from(at));
+        let victims: Vec<ItemId> = doc_view::items(self.doc())
+            .into_iter()
+            .filter(|(id, item)| {
+                cuts(item, at)
+                    && (!only_selected
+                        || self.selection.is_empty()
+                        || self.selection.contains(&id.to_string()))
+                    && !self.lane_locked(item.lane)
             })
-            .map(|clip| clip.id.clone())
+            .map(|(id, _)| id)
             .collect();
         if !victims.is_empty() {
-            self.apply(Command::SplitClips {
-                clip_ids: victims,
-                time: at,
-            });
+            self.apply(Command::SplitClips { items: victims, at });
         }
     }
 
@@ -41,18 +409,11 @@ impl Studio {
     /// behind the cut only on a magnetic timeline, as any trim's does.
     /// https://github.com/jub0t/Concat/issues/400
     pub fn delete_to_playhead(&mut self, side: PlayheadSide) {
-        let at = f64::from(self.playhead);
-        let edge = f64::from(MIN_DURATION);
-        let under: Vec<String> = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| {
-                clip.start + edge < at
-                    && at < clip.start + clip.duration - edge
-                    && !self.locked(&clip.track_id)
-            })
-            .map(|clip| clip.id.clone())
+        let at = doc_view::tick(f64::from(self.playhead));
+        let under: Vec<String> = doc_view::items(self.doc())
+            .into_iter()
+            .filter(|(_, item)| cuts(item, at) && !self.lane_locked(item.lane))
+            .map(|(id, _)| id.to_string())
             .collect();
         let targets: Vec<String> = if self.selection.is_empty() {
             if under.len() > 1 {
@@ -73,35 +434,34 @@ impl Studio {
     /// A Delete Left ends with the playhead on the frame it was showing,
     /// which a magnetic cut has moved back to the clip's start.
     pub(super) fn delete_clips_to_playhead(&mut self, ids: &[String], side: PlayheadSide) {
-        let at = f64::from(self.playhead);
+        let at = doc_view::tick(f64::from(self.playhead));
         let ids: Vec<String> = ids
             .iter()
             .filter(|id| {
                 self.clip(id)
-                    .is_some_and(|clip| !self.locked(&clip.track_id))
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
             })
             .cloned()
             .collect();
-        let Some(command) = concat_project::delete_to_playhead(
-            self.timeline(),
-            &ids,
-            at,
-            side,
-            self.closes_gap(&ids),
-        ) else {
+        let typed: Vec<ItemId> = ids.iter().filter_map(|id| doc_view::parse(id)).collect();
+        let Some(command) = delete_to_playhead(self.doc(), &typed, at, side, self.closes_gap(&ids))
+        else {
             self.notify(&t("studio.parkPlayheadInsideClip"), true);
             return;
         };
         self.flush_commit();
+        let command = doc_view::sweep_strays(&self.document, command, &typed);
         self.apply(command);
         if side == PlayheadSide::Left {
             let start = ids
                 .iter()
                 .filter_map(|id| self.clip(id))
                 .map(|clip| clip.start)
-                .fold(f64::INFINITY, f64::min);
-            if start.is_finite() && start < at {
-                self.seek(start as f32);
+                .min();
+            if let Some(start) = start
+                && start < at
+            {
+                self.seek(doc_view::secs(start) as f32);
             }
         }
     }
@@ -128,14 +488,22 @@ impl Studio {
             return;
         };
         let (width, height) = self.output_size();
+        let frame = doc_view::sequence(self.doc()).map(|sequence| sequence.frame.clone());
+        let (color_space, canvas) =
+            frame.map_or((concat_export::ColorSpace::Sdr, [0, 0, 0, 255]), |f| {
+                (
+                    concat_export::ColorSpace::of(&f.color),
+                    [f.canvas.r, f.canvas.g, f.canvas.b, f.canvas.a],
+                )
+            });
         let spec = concat_host::preview::FrameSpec {
             time: f64::from(self.playhead),
             width,
             height,
             moving: false,
             proxy: false,
-            color_space: self.project().active().video.color_space,
-            canvas: self.project().active().video.canvas,
+            color_space,
+            canvas,
             nearest: false,
         };
         let monitor = self.host.monitor.clone();
@@ -149,9 +517,6 @@ impl Studio {
         // With the studio unborrowed too; see `host::after_dialog`.
         crate::host::after_dialog(
             move || {
-                if cfg!(target_os = "ios") {
-                    return Some(out_dir.join(&suggested));
-                }
                 let chosen = crate::platform::save_file(
                     &title,
                     &out_dir,
@@ -187,16 +552,13 @@ impl Studio {
                     },
                     move |studio, _, _, result| match result {
                         Ok(summary) => {
-                            let item = summary.to_new_media();
-                            let path = item.path.clone();
-                            let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
-                                studio
-                                    .project()
-                                    .media
-                                    .iter()
-                                    .find(|item| item.path == path)
-                                    .map(|item| item.id.clone())
-                            });
+                            let media = summary.to_new_media();
+                            let path = media.path.clone();
+                            let minted = studio
+                                .apply(Command::AddMedia { media })
+                                .and_then(|id| id.typed::<MediaId>())
+                                .or_else(|| studio.media_at_path(&path))
+                                .map(|id| id.to_string());
                             studio.media.filter = MediaFilter::All;
                             studio.media.selected.clear();
                             if let Some(id) = minted {
@@ -217,6 +579,13 @@ impl Studio {
         );
     }
 
+    /// The file of the bin at a path, if the bin has it.
+    pub(super) fn media_at_path(&self, path: &str) -> Option<MediaId> {
+        doc_view::bin(self.doc())
+            .find(|(_, media)| media.path == path)
+            .map(|(id, _)| id)
+    }
+
     /// The volume line on clip `id` dragged to `gain`: written the way the
     /// inspector's knob writes it - the constant, or a key at the playhead
     /// once the volume rides - and committed as the knob's moves are, one
@@ -225,10 +594,10 @@ impl Studio {
         let Some(clip) = self.clip(id) else {
             return;
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
-        let at = place_in(clip, self.playhead);
+        let at = doc_view::content_at(clip, doc_view::tick(f64::from(self.playhead)));
         // An edit still waiting to land on other clips - words typed into a
         // title a moment ago - lands first; otherwise this drag took over
         // its echo and its targets, and the words went with them (audit
@@ -238,14 +607,13 @@ impl Studio {
         }
         self.commit_targets = vec![id.to_owned()];
         self.begin_echo();
-        if let Some(clip) = self.echo_clip_mut(id) {
-            write_keyable(
-                clip,
-                model::KeyProperty::Volume,
+        self.echo_edit(id, |clip| {
+            doc_view::write_at(
+                doc_view::animated_mut(clip, KeyProperty::Volume),
                 f64::from(gain).clamp(0.0, 2.0),
                 at,
             );
-        }
+        });
         self.clip_commit();
     }
 
@@ -256,7 +624,7 @@ impl Studio {
         let Some(clip) = self.clip(id) else {
             return;
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
         if self.commit_pending && self.commit_targets != [id] {
@@ -264,14 +632,15 @@ impl Studio {
         }
         self.commit_targets = vec![id.to_owned()];
         self.begin_echo();
-        if let Some(clip) = self.echo_clip_mut(id) {
-            let seconds = f64::from(seconds).clamp(0.0, clip.duration / 2.0);
+        self.echo_edit(id, |clip| {
+            let half = TickDur::new(clip.len.get() / 2);
+            let fade = doc_view::dur(f64::from(seconds)).clamp(TickDur::ZERO, half);
             if out {
-                clip.fade_out = seconds;
+                clip.sound.fade_out = fade;
             } else {
-                clip.fade_in = seconds;
+                clip.sound.fade_in = fade;
             }
-        }
+        });
         self.clip_commit();
     }
 
@@ -280,22 +649,23 @@ impl Studio {
     /// or the lane is locked.
     /// https://github.com/jub0t/Concat/issues/241
     pub fn split_clip_at(&mut self, id: &str, seconds: f32) {
-        let Some(clip) = self.clip(id).cloned() else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id)) else {
             return;
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
-        let fps = f64::from(self.frame_rate().max(1.0));
-        let at = (f64::from(seconds) * fps).round() / fps;
-        let edge = f64::from(MIN_DURATION);
-        if at <= clip.start + edge || at >= clip.start + clip.duration - edge {
+        let pressed = doc_view::tick(f64::from(seconds));
+        let at = doc_view::sequence(self.doc())
+            .and_then(|sequence| sequence.frame.rate.snap(pressed, concat_doc::Snap::Nearest))
+            .unwrap_or(pressed);
+        if !cuts(clip, at) {
             return;
         }
         self.flush_commit();
         self.apply(Command::SplitClips {
-            clip_ids: vec![id.to_owned()],
-            time: at,
+            items: vec![item],
+            at,
         });
     }
 
@@ -324,12 +694,11 @@ impl Studio {
         if !self.prefs.magnetic() {
             return false;
         }
-        let main = self.timeline().background_lane();
+        let main = doc_view::picture_lane(self.doc());
         !ids.is_empty()
-            && ids.iter().all(|id| {
-                self.clip(id)
-                    .is_some_and(|clip| main == Some(clip.track_id.as_str()))
-            })
+            && ids
+                .iter()
+                .all(|id| self.clip(id).is_some_and(|clip| main == Some(clip.lane)))
     }
 
     /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
@@ -344,18 +713,18 @@ impl Studio {
     }
 
     pub(super) fn remove_selected(&mut self, ripple: bool) {
-        let doomed: Vec<String> = self
+        let doomed: Vec<ItemId> = self
             .selection
             .iter()
             .filter(|id| {
                 self.clip(id)
-                    .is_some_and(|clip| !self.locked(&clip.track_id))
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
             })
-            .cloned()
+            .filter_map(|id| doc_view::parse(id))
             .collect();
         if !doomed.is_empty() {
             self.apply(Command::RemoveClips {
-                clip_ids: doomed,
+                items: doomed,
                 ripple,
             });
         }
@@ -368,38 +737,35 @@ impl Studio {
     /// media. The engine command splits the clip, inserts the hold, and
     /// ripples the rest of the lane.
     pub fn freeze_at_playhead(&mut self) {
-        let at = f64::from(self.playhead);
-        let edge = f64::from(MIN_DURATION);
+        let at = doc_view::tick(f64::from(self.playhead));
         let target = self
             .menu_target
             .clone()
             .or_else(|| self.sole_selection())
-            .and_then(|id| self.clip(&id).cloned())
-            .filter(|clip| {
-                (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image)
-                    && !self.locked(&clip.track_id)
-                    && at > clip.start + edge
-                    && at < clip.start + clip.duration - edge
+            .filter(|id| {
+                self.clip(id).is_some_and(|clip| {
+                    matches!(self.kind(clip), Kind::Video | Kind::Image)
+                        && !self.lane_locked(clip.lane)
+                        && cuts(clip, at)
+                })
             });
-        let Some(clip) = target else {
+        let Some((id, clip)) = target.and_then(|id| {
+            let clip = self.clip(&id)?.clone();
+            Some((doc_view::parse::<ItemId>(&id)?, clip))
+        }) else {
             self.notify(&t("studio.parkPlayheadToFreeze"), true);
             return;
         };
 
-        let still = if clip.kind == model::ClipKind::Video {
-            let Some(media) = self
-                .project()
-                .media
-                .iter()
-                .find(|item| item.id == clip.media_id)
-            else {
+        let still = if self.kind(&clip) == Kind::Video {
+            let (Some(media), Some(session)) = (
+                doc_view::media_of(self.doc(), &clip).cloned(),
+                self.session.as_ref(),
+            ) else {
                 return;
             };
-            let Some(session) = self.session.as_ref() else {
-                return;
-            };
-            let source_time = clip.source_start + (at - clip.start) * clip.speed;
-            match media::freeze_still(session.path(), &media.path, &clip.id, source_time) {
+            let source_time = doc_view::source_second(&clip, doc_view::secs(at));
+            match media::freeze_still(session.path(), &media.path, &id.to_string(), source_time) {
                 Ok(still) => Some(still),
                 Err(error) => {
                     self.notify(&error, true);
@@ -410,10 +776,10 @@ impl Studio {
             None
         };
 
-        let created = self.apply(Command::FreezeFrame {
-            clip_id: clip.id,
-            time: at,
-            duration: Some(1.0),
+        let created = self.apply_making(Command::FreezeFrame {
+            item: id,
+            at,
+            len: Some(doc_view::len(1.0)),
             still,
         });
         if let Some(id) = created {
@@ -423,46 +789,74 @@ impl Studio {
 
     /// Duplicate: a copy of every selected clip on an unlocked lane - or of
     /// the clip the menu was opened on, when nothing is selected - laid
-    /// right after its own end on its own lane. The latest goes first, so a
-    /// copy never lands on a source still waiting its turn. The lot is one
-    /// undo step, and the copy of the earliest source is left selected; when
-    /// no copy could be made the selection stays as it was.
+    /// right after its own end on its own lane, or in the first gap from
+    /// there, the latest first, so a copy never lands on a source still
+    /// waiting its turn. Each says it is a copy by its name. The lot is one
+    /// undo step, and the copy of the earliest source is left selected;
+    /// when no copy could be made the selection stays as it was.
     pub fn duplicate_selected(&mut self) {
-        let mut sources: Vec<Clip> = self
+        let mut sources: Vec<String> = self
             .selection
             .iter()
-            .filter_map(|id| self.clip(id).cloned())
-            .filter(|clip| !self.locked(&clip.track_id))
+            .filter(|id| {
+                self.clip(id)
+                    .is_some_and(|clip| !self.lane_locked(clip.lane))
+            })
+            .cloned()
             .collect();
-        #[allow(clippy::collapsible_if)]
-        if sources.is_empty() {
-            if let Some(id) = self.menu_target.clone() {
-                if let Some(clip) = self.clip(&id).cloned() {
-                    if !self.locked(&clip.track_id) {
-                        sources.push(clip);
-                    }
-                }
-            }
+        if sources.is_empty()
+            && let Some(id) = self.menu_target.clone()
+            && self
+                .clip(&id)
+                .is_some_and(|clip| !self.lane_locked(clip.lane))
+        {
+            sources.push(id);
         }
-        if sources.is_empty() {
+        let items: Vec<ItemId> = sources
+            .iter()
+            .filter_map(|id| doc_view::parse(id))
+            .collect();
+        if items.is_empty() {
             return;
         }
-        sources.sort_by(|left, right| right.start.total_cmp(&left.start));
         self.flush_commit();
-        let mut earliest = None;
-        for source in &sources {
-            let end = source.start + source.duration;
-            if let Some(id) = self.place_copy(source, &source.track_id, end, Some("duplicate")) {
-                earliest = Some(id);
+        let before = self.selection.clone();
+        if self
+            .apply_within("duplicate", Command::DuplicateClips { items })
+            .is_none()
+        {
+            self.selection = before;
+            if let Some(session) = self.session.as_mut() {
+                session.end_gesture();
             }
+            return;
+        }
+        // The copies, earliest first, as the edit selects them.
+        let copies = self.selection.clone();
+        let renames: Vec<Command> = copies
+            .iter()
+            .filter_map(|id| {
+                let copy = self.clip(id)?;
+                if doc_view::title(copy).is_some() {
+                    return None;
+                }
+                Some(Command::UpdateClip {
+                    item: doc_view::parse(id)?,
+                    patch: ItemPatch {
+                        name: Some(format!("{} copy", copy.name)),
+                        ..ItemPatch::default()
+                    },
+                })
+            })
+            .collect();
+        if !renames.is_empty() {
+            self.apply_within("duplicate", Command::Batch { commands: renames });
         }
         // One step for the lot, and the next Duplicate a step of its own.
         if let Some(session) = self.session.as_mut() {
             session.end_gesture();
         }
-        if let Some(id) = earliest {
-            self.selection = vec![id];
-        }
+        self.selection = copies.into_iter().take(1).collect();
     }
 
     /// Copy: the selected clips, or `anchor` alone when it is not among
@@ -477,18 +871,13 @@ impl Studio {
         {
             ids = vec![anchor.to_owned()];
         }
-        let tracks = &self.timeline().tracks;
+        let lanes = doc_view::lanes(self.doc());
         let mut held: Vec<Held> = ids
             .iter()
             .filter_map(|id| {
                 let clip = self.clip(id)?.clone();
-                let row = tracks.iter().position(|track| track.id == clip.track_id)?;
-                let media = self
-                    .project()
-                    .media
-                    .iter()
-                    .find(|item| item.id == clip.media_id)
-                    .cloned();
+                let row = lanes.iter().position(|lane| *lane == clip.lane)?;
+                let media = doc_view::media_of(self.doc(), &clip).cloned();
                 Some(Held { row, clip, media })
             })
             .collect();
@@ -498,7 +887,7 @@ impl Studio {
         held.sort_by(|left, right| {
             left.clip
                 .start
-                .total_cmp(&right.clip.start)
+                .cmp(&right.clip.start)
                 .then(left.row.cmp(&right.row))
         });
         self.clipboard = held;
@@ -509,35 +898,28 @@ impl Studio {
     /// the one selected - with the rest of the group on the rows around it
     /// as they were copied; or, with nothing to follow, at the playhead on
     /// the rows they were copied from. In another timeline the rows are
-    /// matched by number, which is what a paste between timelines wanted
-    /// and never got: the held lane's id was the other timeline's, and the
-    /// add was refused without a word (#290). The new clips are selected.
+    /// matched by number (#290). The new clips are selected.
     pub fn paste_clips(&mut self, after: Option<&str>) {
         if self.clipboard.is_empty() {
             return;
         }
         let held = self.clipboard.clone();
         let first_row = held[0].row;
-        let tracks: Vec<String> = self
-            .timeline()
-            .tracks
-            .iter()
-            .map(|track| track.id.clone())
-            .collect();
+        let lanes = doc_view::lanes(self.doc());
         let (base, shift) = match after.and_then(|id| self.clip(id).cloned()) {
             Some(anchor) => {
-                let row = tracks
+                let row = lanes
                     .iter()
-                    .position(|id| *id == anchor.track_id)
+                    .position(|lane| *lane == anchor.lane)
                     .unwrap_or(first_row);
                 let shift =
                     isize::try_from(row).unwrap_or(0) - isize::try_from(first_row).unwrap_or(0);
-                (anchor.start + anchor.duration, shift)
+                (doc_view::end(&anchor), shift)
             }
-            None => (f64::from(self.playhead), 0),
+            None => (doc_view::tick(f64::from(self.playhead)), 0),
         };
-        let plan = paste_plan(&held, base, shift, tracks.len(), &|row| {
-            tracks.get(row).is_some_and(|id| self.locked(id))
+        let plan = paste_plan(&held, base, shift, lanes.len(), &|row| {
+            lanes.get(row).is_some_and(|lane| self.lane_locked(*lane))
         });
         self.flush_commit();
         let mut created = Vec::new();
@@ -548,7 +930,7 @@ impl Studio {
             let Some(source) = self.held_here(held) else {
                 continue;
             };
-            if let Some(id) = self.place_copy(&source, &tracks[row], start, Some("paste")) {
+            if let Some(id) = self.place_copy(&source, lanes[row], start, Some("paste")) {
                 created.push(id);
             }
         }
@@ -561,129 +943,89 @@ impl Studio {
         }
     }
 
-    /// The held clip as this project knows it: playing this project's
-    /// media item for its file - the same one when it was copied here, the
-    /// one with the same path when it was copied elsewhere, or the file
-    /// added to the bin when this project has not got it.
-    fn held_here(&mut self, held: &Held) -> Option<Clip> {
+    /// The held clip as this project knows it: cut from this project's
+    /// file for its path - the same one when it was copied here, the one
+    /// with the same path when it was copied elsewhere, or the file added
+    /// to the bin when this project has not got it. What it names that the
+    /// project has not got - an enhanced copy, a background still - is let
+    /// go.
+    fn held_here(&mut self, held: &Held) -> Option<Item> {
         let mut clip = held.clip.clone();
-        let Some(item) = &held.media else {
-            return Some(clip);
-        };
-        let here = self
-            .project()
-            .media
-            .iter()
-            .find(|mine| mine.path == item.path)
-            .map(|mine| mine.id.clone());
-        clip.media_id = match here {
-            Some(id) => id,
-            None => self.apply_in(
-                Some("paste"),
-                Command::AddMedia {
-                    item: concat_project::commands::NewMedia {
-                        path: item.path.clone(),
-                        name: item.name.clone(),
-                        duration: item.duration,
-                        kind: item.kind,
-                        width: item.width,
-                        height: item.height,
-                        frame_rate: item.frame_rate,
-                        frame_rate_fraction: item.frame_rate_fraction.clone(),
-                        video_codec: item.video_codec.clone(),
-                        audio_codec: item.audio_codec.clone(),
-                        has_audio: item.has_audio,
-                        audio_tracks: item.audio_tracks.clone(),
-                        origin: item.origin,
-                        color_space: item.color_space,
-                    },
-                },
-            )?,
-        };
+        if let Some(file) = &held.media {
+            let here = match self.media_at_path(&file.path) {
+                Some(id) => id,
+                None => self
+                    .apply_in(
+                        Some("paste"),
+                        Command::AddMedia {
+                            media: file.clone(),
+                        },
+                    )?
+                    .typed::<MediaId>()?,
+            };
+            if let Content::Media(cut) = &mut clip.content {
+                cut.media = here;
+            }
+        }
+        let doc = self.doc();
+        if let Content::Media(cut) = &mut clip.content
+            && cut
+                .enhanced
+                .as_ref()
+                .is_some_and(|enhanced| doc_view::media(doc, enhanced.copy).is_none())
+        {
+            cut.enhanced = None;
+        }
+        if clip
+            .picture
+            .background
+            .as_ref()
+            .and_then(model::Background::media)
+            .is_some_and(|still| doc_view::media(doc, still).is_none())
+        {
+            clip.picture.background = None;
+        }
         Some(clip)
     }
 
-    /// Lays a copy of `source` on `track_id` starting at `start` - its
-    /// trims, mix, placement, speed, keys and effects with it - and says
-    /// the new clip's id. A copy of a file shows the same stretch of it at
-    /// the same pace; a start that would cover a clip becomes the nearest
-    /// one where the whole copy fits, and no other clip moves. `gesture`
-    /// folds the commands into one undo step with whatever else names it;
-    /// `None` leaves them steps of their own. A refused add or shaping
-    /// shows the editor's reason, leaves no clip behind and says `None`.
+    /// Lays a copy of `source` on `lane` starting at `start` - its trims,
+    /// mix, placement, speed, keys and effects with it - and says the new
+    /// clip's id. A copy shows the same stretch of its file at the same
+    /// pace; a start that would cover a clip becomes the nearest one on the
+    /// lane where the whole copy fits, and no other clip moves.
+    ///
+    /// A source that is on this timeline as it was held is copied whole by
+    /// the document, keys, curve and all, then moved into place; anything
+    /// else is laid and shaped (see [`lay_copy`] and [`shape_copy`]).
+    /// `gesture` folds the edits into one undo step with whatever else
+    /// names it; `None` leaves them steps of their own. A refused edit
+    /// shows the reason, leaves no clip behind and says `None`.
     fn place_copy(
         &mut self,
-        source: &Clip,
-        track_id: &str,
-        start: f64,
+        source: &Item,
+        lane: LaneId,
+        start: Tick,
         gesture: Option<&str>,
     ) -> Option<String> {
-        let drawn = match source.kind {
-            model::ClipKind::Text => Some(Command::AddTextClip {
-                above: false,
-                track_id: Some(track_id.to_owned()),
-                start,
-                style: source.text.clone(),
-                duration: Some(source.duration),
-                offset_y: Some(source.offset_y),
-            }),
-            model::ClipKind::Shape => Some(Command::AddShapeClip {
-                above: false,
-                track_id: Some(track_id.to_owned()),
-                start,
-                style: source.shape.clone(),
-                duration: Some(source.duration),
-                name: source.name.clone(),
-            }),
-            // A layer has no file to lay: it is laid as a layer, and the
-            // match then gives it the source's whole chain. It went down
-            // the file's path and was refused, so a layer could be neither
-            // copied nor duplicated.
-            model::ClipKind::Layer | model::ClipKind::SoundLayer => {
-                let sound = source.kind == model::ClipKind::SoundLayer;
-                let chain = if sound {
-                    &source.filters
-                } else {
-                    &source.video_effects
-                };
-                Some(Command::AddLayerClip {
-                    track_id: Some(track_id.to_owned()),
-                    start,
-                    duration: Some(source.duration),
-                    effect_id: chain
-                        .first()
-                        .map(|link| link.id.clone())
-                        .unwrap_or_default(),
-                    name: source.name.clone(),
-                    sound,
-                })
-            }
-            // A transition clip is laid as one, its package first; the
-            // match then gives it the source's knobs.
-            model::ClipKind::Transition => Some(Command::AddTransitionClip {
-                track_id: Some(track_id.to_owned()),
-                start,
-                duration: Some(source.duration),
-                transition_id: source
-                    .video_effects
-                    .first()
-                    .map(|link| link.id.clone())
-                    .unwrap_or_default(),
-                name: source.name.clone(),
-            }),
-            _ => None,
-        };
-        if let Some(add) = drawn {
-            let created = self.apply_in(gesture, add)?;
-            self.apply_in(gesture, match_command(source, &created));
-            return Some(created);
+        let same_sequence = doc_view::sequence_of(self.doc(), source)
+            == doc_view::lane(self.doc(), lane).map(|lane| lane.sequence);
+        let whole = doc_view::id_of(self.doc(), source).filter(|_| same_sequence);
+        if let Some(original) = whole {
+            let copy = made_item(self.apply_in(
+                gesture,
+                Command::DuplicateClips {
+                    items: vec![original],
+                },
+            ))?;
+            let copy_id = doc_view::parse::<ItemId>(&copy)?;
+            let edits = move_copy(self.doc(), source, copy_id, lane, start);
+            self.apply_in(gesture, Command::Batch { commands: edits });
+            return Some(copy);
         }
-        // A clip that plays a file: the whole file is laid where nothing
-        // lies after it, then cut, retimed, moved and matched in one batch.
-        let lay = lay_command(self.timeline(), source, track_id);
-        let created = self.apply_in(gesture, lay)?;
-        let placed = self.clip(&created).cloned()?;
-        let shaping = shape_copy(source, &placed, track_id, start);
+        let lay = lay_copy(self.doc(), source, lane)?;
+        let created = made_item(self.apply_in(gesture, lay))?;
+        let laid = doc_view::parse::<ItemId>(&created)?;
+        let shaping = shape_copy(self.doc(), source, laid, lane, start);
         let before = self.revision;
         self.apply_in(gesture, Command::Batch { commands: shaping });
         if self.revision == before {
@@ -693,7 +1035,7 @@ impl Studio {
             self.apply_in(
                 gesture,
                 Command::RemoveClips {
-                    clip_ids: vec![created],
+                    items: vec![laid],
                     ripple: false,
                 },
             );
@@ -709,10 +1051,7 @@ impl Studio {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return (false, false);
         };
-        (
-            self.clip_has_sound(clip),
-            clip.kind == model::ClipKind::Text,
-        )
+        (self.clip_has_sound(clip), self.kind(clip) == Kind::Text)
     }
 
     /// What the selection offers the tray's picture verbs: a picture on an
@@ -720,32 +1059,25 @@ impl Studio {
     /// a still the playhead is inside of, to freeze there; and one video
     /// or sound clip to reverse, while no reverse is running.
     pub(super) fn transform_tools(&self) -> (bool, bool, bool) {
-        let at = f64::from(self.playhead);
-        let edge = f64::from(MIN_DURATION);
+        let at = doc_view::tick(f64::from(self.playhead));
         let sole = self.selection.len() == 1;
         let mut picture = false;
         let mut freezable = false;
         let mut reversible = false;
         for clip in self.selection.iter().filter_map(|id| self.clip(id)) {
-            if self.locked(&clip.track_id) {
+            if self.lane_locked(clip.lane) {
                 continue;
             }
-            let video = clip.kind == model::ClipKind::Video;
-            if sole
-                && self.reverse_jobs.is_empty()
-                && (video || clip.kind == model::ClipKind::Audio)
-            {
+            let kind = self.kind(clip);
+            let video = kind == Kind::Video;
+            if sole && self.reverse_jobs.is_empty() && (video || kind == Kind::Audio) {
                 reversible = true;
             }
-            if clip.kind == model::ClipKind::Audio {
+            if kind == Kind::Audio {
                 continue;
             }
             picture = true;
-            if sole
-                && (video || clip.kind == model::ClipKind::Image)
-                && at > clip.start + edge
-                && at < clip.start + clip.duration - edge
-            {
+            if sole && (video || kind == Kind::Image) && cuts(clip, at) {
                 freezable = true;
             }
         }
@@ -755,31 +1087,116 @@ impl Studio {
     /// Where a clip's sound is: whether it is a video clip whose sound is
     /// still on its picture, to take off, and whether it is a picture whose
     /// sound is off it - or that sound itself - to put back.
-    pub(super) fn sound_placement(&self, clip: &Clip) -> (bool, bool) {
-        let detached = self
-            .timeline()
-            .clips
-            .iter()
-            .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
-        let video = clip.kind == model::ClipKind::Video;
+    pub(super) fn sound_placement(&self, clip: &Item) -> (bool, bool) {
+        let detached =
+            doc_view::id_of(self.doc(), clip).is_some_and(|id| !self.detached_from(id).is_empty());
+        let kind = self.kind(clip);
+        let video = kind == Kind::Video;
+        let tied = clip
+            .link
+            .as_ref()
+            .is_some_and(|link| link.kind == model::LinkKind::SoundOf);
         (
             video && !detached,
-            (video && detached)
-                || (clip.kind == model::ClipKind::Audio && clip.detached_from.is_some()),
+            (video && detached) || (kind == Kind::Audio && tied),
         )
     }
 
     /// Whether the clip has sound to transcribe: an audio clip, or a video
     /// clip whose file carries an audio stream. A silent video is not a
     /// sound source, however much it looks like one.
-    pub(crate) fn clip_has_sound(&self, clip: &Clip) -> bool {
-        match clip.kind {
-            model::ClipKind::Audio => true,
-            model::ClipKind::Video => self
-                .project()
-                .media_by_id(&clip.media_id)
-                .is_some_and(|media| media.has_audio),
+    pub(crate) fn clip_has_sound(&self, clip: &Item) -> bool {
+        match self.kind(clip) {
+            Kind::Audio => true,
+            Kind::Video => doc_view::has_sound(self.doc(), clip),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doc_view::bench::Bench;
+    use concat_doc::model::MediaKind;
+
+    #[test]
+    fn delete_left_trims_each_head_up_to_the_playhead_latest_first() {
+        let mut bench = Bench::new();
+        let lane = bench.main_lane();
+        let media = bench.add_media("a.mov", MediaKind::Video, 4.0);
+        let first = bench.add_clip(media, lane, 0.0);
+        let second = bench.add_clip(media, lane, 4.0);
+        let at = doc_view::tick(2.0);
+        let command =
+            delete_to_playhead(bench.doc(), &[first, second], at, PlayheadSide::Left, false);
+        // Only the first runs through the playhead.
+        match command {
+            Some(Command::TrimClip {
+                item, edge, delta, ..
+            }) => {
+                assert_eq!(item, first);
+                assert_eq!(edge, TrimEdge::Head);
+                assert_eq!(delta, at - Tick::ZERO);
+            }
+            other => panic!("cut as {other:?}"),
+        }
+        bench.apply(&command_or_panic(delete_to_playhead(
+            bench.doc(),
+            &[first],
+            at,
+            PlayheadSide::Right,
+            true,
+        )));
+        assert_eq!(
+            bench.doc().items.get(first).unwrap().len,
+            doc_view::len(2.0)
+        );
+        // Off the ends, nothing is cut: the second clip closed up behind
+        // the first, and the playhead is at its head.
+        let head = bench.doc().items.get(second).unwrap().start;
+        assert_eq!(head, at);
+        assert!(
+            delete_to_playhead(bench.doc(), &[second], head, PlayheadSide::Left, false).is_none()
+        );
+    }
+
+    fn command_or_panic(command: Option<Command>) -> Command {
+        command.expect("a cut")
+    }
+
+    #[test]
+    fn a_stranded_transition_is_swept_with_the_move_that_strands_it() {
+        let mut bench = Bench::new();
+        let lane = bench.main_lane();
+        let media = bench.add_media("a.mov", MediaKind::Video, 4.0);
+        let clip = bench.add_clip(media, lane, 0.0);
+        let over = bench.lane(0);
+        let transition = bench
+            .apply(&Command::AddTransitionClip {
+                start: doc_view::tick(1.0),
+                len: Some(doc_view::len(1.0)),
+                package: "concat.cross-fade".to_owned(),
+                name: "Fade".to_owned(),
+                lane: Some(over),
+            })
+            .created
+            .and_then(|id| id.typed::<ItemId>())
+            .expect("a transition");
+        let away = Command::MoveClips {
+            moves: vec![ClipMove {
+                item: clip,
+                start: doc_view::tick(10.0),
+                lane: None,
+            }],
+        };
+        assert!(bench.try_apply(&away).is_err(), "the move alone is refused");
+        let swept = doc_view::sweep_strays(&bench.document, away, &[clip]);
+        bench.apply(&swept);
+        assert!(bench.doc().items.get(transition).is_none());
+        assert_eq!(
+            bench.doc().items.get(clip).unwrap().start,
+            doc_view::tick(10.0)
+        );
     }
 }

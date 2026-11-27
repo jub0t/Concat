@@ -30,14 +30,17 @@ use std::sync::atomic::AtomicBool;
 
 use concat_core::frame::Frame;
 use concat_core::time::FrameRate;
+use concat_doc::commands::{Command, Edge, ItemPatch, placeholder};
+use concat_doc::model::{
+    Background, CutIn, Effect, ItemId, Loop, MediaId, Motion, Move, SpeedPoint, Title,
+};
+use concat_doc::{AnyId, Tick, TickDur, TickLen};
 use concat_host::dirs::AppDirs;
 use concat_host::export::{self, ExportSpec};
 use concat_host::session::Session;
 use concat_host::titles::Titles;
 use concat_host::{media, projects};
 use concat_media::{EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
-use concat_project::commands::{ClipPatch, Command, TrimEdge};
-use concat_project::model::{ClipLoop, ClipMotion, ClipMove, TextStyle};
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
@@ -118,64 +121,60 @@ struct Studio {
     session: Session,
 }
 
+fn at(seconds: f64) -> Tick {
+    Tick::from_display_seconds(seconds).expect("a place")
+}
+
+fn long(seconds: f64) -> TickLen {
+    TickLen::try_from(at(seconds).get()).expect("a length")
+}
+
 impl Studio {
-    fn apply(&mut self, command: Command) -> Option<String> {
+    fn apply(&mut self, command: Command) -> Option<AnyId> {
         let what = format!("{command:?}");
         self.session
-            .apply(command)
+            .apply(&command)
             .unwrap_or_else(|error| panic!("{what}: {error}"))
-            .created_id
+            .applied
+            .created
     }
 
-    fn import(&mut self, path: &Path) -> String {
+    fn import(&mut self, path: &Path) -> MediaId {
         let summary = media::probe(path.to_str().expect("utf-8"))
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         self.apply(Command::AddMedia {
-            item: summary.to_new_media(),
+            media: summary.to_new_media(),
         })
+        .and_then(|id| id.typed())
         .expect("an imported file has an id")
     }
 
     /// `media` at `start`, `length` long, on the first free lane.
-    fn clip(&mut self, media: &str, start: f64, length: f64) -> String {
-        let before: Vec<String> = self.ids();
-        self.apply(Command::AddClipAtFirstFree {
-            media_id: media.to_owned(),
-            start,
-        });
-        let id = self
-            .ids()
-            .into_iter()
-            .find(|id| !before.contains(id))
+    fn clip(&mut self, media: &MediaId, start: f64, length: f64) -> ItemId {
+        let id: ItemId = self
+            .apply(Command::AddClipAtFirstFree {
+                media: *media,
+                start: at(start),
+            })
+            .and_then(|id| id.typed())
             .expect("a clip was added");
-        let clip = self
+        let item = self
             .session
-            .project()
-            .active()
-            .clips
-            .iter()
-            .find(|c| c.id == id)
-            .unwrap();
-        let trim = clip.duration - length;
+            .document()
+            .items
+            .get(id)
+            .cloned()
+            .expect("there");
+        let trim = TickDur::from(item.len).display_seconds() - length;
         if trim > 0.0 {
             self.apply(Command::TrimClip {
-                clip_id: id.clone(),
-                edge: TrimEdge::End,
-                delta: -trim,
+                item: id,
+                edge: Edge::Tail,
+                delta: TickDur::from_display_seconds(-trim).expect("a distance"),
                 ripple: false,
             });
         }
         id
-    }
-
-    fn ids(&self) -> Vec<String> {
-        self.session
-            .project()
-            .active()
-            .clips
-            .iter()
-            .map(|clip| clip.id.clone())
-            .collect()
     }
 }
 
@@ -279,28 +278,20 @@ fn an_ordinary_project_exports_at_speed() {
         let length = cut.min(seconds - at);
         let id = studio.clip(&footage[which % footage.len()], at, length);
         clips += 1;
-        let mut patch = ClipPatch::default();
+        let mut patch = ItemPatch::default();
         if adds("transitions") && which > 0 {
-            patch.transition_in = Some(Some(concat_project::model::Transition {
-                id: "cross-fade".into(),
-                duration: 0.5,
-                params: Default::default(),
+            patch.cut_in = Some(Some(CutIn {
+                effect: Effect::new(placeholder(), "cross-fade"),
+                len: long(0.5),
             }));
         }
         if adds("effects") && which % 2 == 0 {
-            patch.video_effects = Some(vec![concat_project::model::AppliedFilter {
-                id: "concat.glow".into(),
-                params: Default::default(),
-                enabled: true,
-                keys: Default::default(),
-            }]);
+            patch.effects = Some(vec![Effect::new(placeholder(), "concat.glow")]);
         }
         if adds("blur") && which % 2 == 1 {
-            patch.background = Some(Some(concat_project::model::Background::Blur {
-                amount: 0.5,
-            }));
+            patch.background = Some(Some(Background::Blur { amount: 0.5 }));
             studio.apply(Command::SetClipTransform {
-                clip_id: id.clone(),
+                item: id,
                 scale: Some(0.7),
                 offset_x: None,
                 offset_y: None,
@@ -309,27 +300,24 @@ fn an_ordinary_project_exports_at_speed() {
                 stretch_y: None,
             });
         }
-        if patch != ClipPatch::default() {
-            studio.apply(Command::UpdateClip {
-                clip_id: id.clone(),
-                patch,
-            });
+        if patch != ItemPatch::default() {
+            studio.apply(Command::UpdateClip { item: id, patch });
         }
         if adds("curves") && which % 3 == 2 {
             studio.apply(Command::SetClipSpeedCurve {
-                clip_id: id.clone(),
+                item: id,
                 curve: Some(vec![
-                    concat_project::model::SpeedPoint {
+                    SpeedPoint {
                         at: 0.0,
                         speed: 1.0,
                         slope: None,
                     },
-                    concat_project::model::SpeedPoint {
+                    SpeedPoint {
                         at: 0.5,
                         speed: 0.5,
                         slope: None,
                     },
-                    concat_project::model::SpeedPoint {
+                    SpeedPoint {
                         at: 1.0,
                         speed: 1.0,
                         slope: None,
@@ -353,41 +341,42 @@ fn an_ordinary_project_exports_at_speed() {
         let mut at = 0.5;
         let mut index = 0;
         while at + 3.5 <= seconds {
-            let id = studio
+            let id: ItemId = studio
                 .apply(Command::AddTextClip {
-                    track_id: None,
+                    lane: None,
                     above: true,
-                    start: at,
-                    style: Some(TextStyle {
+                    start: self::at(at),
+                    title: Some(Title {
                         content: format!("Title number {index}\nwith a second line"),
-                        ..TextStyle::default()
+                        ..Title::default()
                     }),
-                    duration: Some(3.5),
+                    len: Some(long(3.5)),
                     offset_y: Some(if index % 2 == 0 { 0.3 } else { -0.3 }),
                 })
+                .and_then(|id| id.typed())
                 .expect("a title has an id");
             titles += 1;
             // Half of them move: in, out, and every fourth a loop.
             if !leaves("motion") && index % 2 == 0 {
                 studio.apply(Command::UpdateClip {
-                    clip_id: id,
-                    patch: ClipPatch {
-                        motion: Some(Some(ClipMotion {
-                            enter: Some(ClipMove {
-                                kind: "pop".into(),
-                                seconds: 0.5,
+                    item: id,
+                    patch: ItemPatch {
+                        motion: Some(Motion {
+                            enter: Some(Move {
+                                name: "pop".into(),
+                                len: long(0.5),
                             }),
-                            exit: Some(ClipMove {
-                                kind: "fade".into(),
-                                seconds: 0.5,
+                            exit: Some(Move {
+                                name: "fade".into(),
+                                len: long(0.5),
                             }),
-                            cycle: (index % 4 == 0).then(|| ClipLoop {
-                                kind: "pulse".into(),
-                                seconds: 1.0,
+                            repeat: (index % 4 == 0).then(|| Loop {
+                                name: "pulse".into(),
+                                lap: long(1.0),
                                 amount: 1.0,
                             }),
-                        })),
-                        ..ClipPatch::default()
+                        }),
+                        ..ItemPatch::default()
                     },
                 });
             }
@@ -400,7 +389,7 @@ fn an_ordinary_project_exports_at_speed() {
     let painter = Titles::new(&AppDirs::under(&root.join("app")));
     let painting = std::time::Instant::now();
     let title_clips = painter
-        .clips(studio.session.project(), WIDTH, HEIGHT)
+        .clips(&studio.session.document(), WIDTH, HEIGHT)
         .into_iter()
         .map(|title| title.clip)
         .collect();

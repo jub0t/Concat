@@ -446,12 +446,12 @@ export global Editor {
     in-out property <bool> recording;
     /// Which of the tray's panels are up, so their buttons read as on.
     in-out property <bool> captions-open;
-    /// Captions as the Library's Text & Captions page shows them on a desk:
+    /// Captions as the Library's Captions page shows them on a desk:
     /// the same data and answers as the phone's sheet (see CaptionsForm).
     in-out property <CaptionsSheetData> captions-sheet;
     in-out property <[string]> caption-models;
     in-out property <[string]> caption-languages;
-    /// Bumped when the library should turn to Text & Captions > Captions:
+    /// Bumped when the library should turn to the Captions page:
     /// the tray's Captions button, or Generate captions on a clip's menu.
     in-out property <int> captions-jump-token;
     /// The library's Captions page came into view, or went out of it.

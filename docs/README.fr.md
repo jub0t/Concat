@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## À propos
 
-Concat est un éditeur vidéo gratuit et open source pour macOS, Windows, Linux, Android et iOS. Il couvre ce dont la plupart des montages ont besoin : sous-titres automatiques, isolation de la voix, synthèse vocale, suppression d’arrière-plan, animations et images clés, effets et titres, montage multipiste, export 4K. Sans aucun piège : pas de filigrane, pas de compte, pas d’abonnement, pas d’envoi.
+Concat est un éditeur vidéo gratuit et open source pour macOS, Windows, Linux et Android. Il couvre ce dont la plupart des montages ont besoin : sous-titres automatiques, isolation de la voix, synthèse vocale, suppression d’arrière-plan, animations et images clés, effets et titres, montage multipiste, export 4K. Sans aucun piège : pas de filigrane, pas de compte, pas d’abonnement, pas d’envoi.
 
 Tout tourne en local sur un moteur natif en Rust avec un compositeur GPU. Installez, déposez vos rushes, montez. Les modèles d’IA pour les sous-titres, les voix et le détourage se téléchargent une fois depuis les Réglages et fonctionnent ensuite hors ligne. Vos rushes ne quittent jamais votre disque.
 
@@ -72,8 +72,8 @@ Tout tourne en local sur un moteur natif en Rust avec un compositeur GPU. Instal
 - 📤 **Export.** H.264, HEVC, AV1, avec l’encodeur propre à votre ordinateur. Jusqu’à la 4K 60, couleur 10 bits.
 - ⚡ **Rapide.** Proxys intégrés, pour que la 4K défile sans à-coups. Les titres se dessinent sur tous les cœurs, et chaque effet est prêt dès l’ouverture de la fenêtre.
 - 🛟 **Continue sur n’importe quelle machine.** Quand la puce graphique lâche, l’aperçu continue de s’afficher.
-- 🤖 **Scriptable.** Une API JSON-RPC avec laquelle les scripts et les agents IA peuvent monter de la vidéo. Une compilation depuis les sources ajoute gRPC et un outil en ligne de commande.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 langues. Même app, mêmes fichiers de projet.
+- 🤖 **Scriptable.** Une API JSON-RPC avec laquelle les scripts et les agents IA peuvent monter de la vidéo. Une compilation depuis les sources ajoute un outil en ligne de commande.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 langues. Même app, mêmes fichiers de projet.
 
 ## Téléchargement
 
@@ -90,7 +90,6 @@ Concat est en **bêta** : ça marche, et il reste des angles. [Dites-le](https:/
 - ✅ **macOS** · Intel et Apple Silicon. Si macOS refuse d’ouvrir une version non signée : `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 et ARM. `.deb`, `.rpm`, `.AppImage` et un paquet Arch. Aussi un Flatpak sur **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, un dépôt Flatpak communautaire qui empaquette le `.deb` x86_64 de chaque version et se met à jour avec elle
 - ✅ **Android** · téléphones et tablettes
-- ✅ **iOS / iPadOS** · iPhone et iPad, en sideload
 
 ✅ Pris en charge · 🚧 En cours · 🧪 À tester
 
@@ -103,7 +102,7 @@ La **configuration requise** et la taille des modèles optionnels sont sur [le s
 > [!IMPORTANT]
 > La meilleure façon de contribuer est de prendre une version sur la page [Releases](https://github.com/jub0t/Concat/releases) et de s’en servir : trouvez où ça casse, et dites où ça pourrait être mieux.
 >
-> Prêt à écrire du code ? [CONTRIBUTING.md](../CONTRIBUTING.md) couvre l’installation, l’organisation de l’arborescence, les vérifications à lancer et la licence des contributions. Vous pilotez Concat depuis un script, un service ou un agent ? [La documentation développeur](https://concat.standalones.org/docs) couvre l’API Concat et ses transports : JSON-RPC et gRPC. [Cette Discussion](https://github.com/jub0t/Concat/discussions/3) est celle où le projet a été annoncé.
+> Prêt à écrire du code ? [CONTRIBUTING.md](../CONTRIBUTING.md) couvre l’installation, l’organisation de l’arborescence, les vérifications à lancer et la licence des contributions. Vous pilotez Concat depuis un script, un service ou un agent ? [La documentation développeur](https://concat.standalones.org/docs) couvre l’API Concat et son transport : JSON-RPC. [Cette Discussion](https://github.com/jub0t/Concat/discussions/3) est celle où le projet a été annoncé.
 > 
 > Les contributeurs peuvent obtenir un rôle `@Contributor` sur le serveur Discord : il suffit de le demander.
 

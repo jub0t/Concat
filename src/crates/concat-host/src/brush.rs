@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 use concat_core::Halt;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
+use concat_doc::model::{Stroke, Subject};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
-use concat_project::model::{Stroke, Subject};
 use concat_vision::{
     Brush, Embedding, MASK_RATE, Mask, MaskStore, ModelId, mask_dir, models, region_dir,
 };
@@ -61,14 +61,14 @@ impl RegionRequest {
     /// Where the regions go.
     pub fn dir(&self) -> PathBuf {
         region_dir(
-            &mask_dir(&self.project, &self.media_path, self.subject),
+            &mask_dir(&self.project, &self.media_path, &self.subject),
             &self.stroke,
         )
     }
 
     /// Whether any instant the clip shows still wants a region.
     pub fn outstanding(&self) -> bool {
-        if !self.stroke.is_smart() || self.stroke.at.is_none() {
+        if !concat_vision::strokes::is_smart(&self.stroke) || self.stroke.at.is_none() {
             return false;
         }
         let store = MaskStore::open(&self.dir());
@@ -192,7 +192,7 @@ impl Brushes {
     ) -> Result<(), Halt> {
         let job = self.gate.begin("brush reading")?;
         let cancel = job.cancel_handle();
-        let Some(at) = request.stroke.at else {
+        let Some(at) = request.stroke.at.map(concat_doc::Tick::display_seconds) else {
             return Err("the stroke has no instant".into());
         };
         let _wire = Tripwire::arm(&request.dir());

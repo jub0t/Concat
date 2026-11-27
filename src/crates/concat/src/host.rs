@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use concat_doc::model::MediaKind;
 use concat_host::export::Exporter;
 use concat_host::jobs::sched;
 pub use concat_host::media::{strip_window, window_span, window_start};
@@ -663,36 +664,21 @@ pub fn after_dialog<T: Send + 'static>(
     });
 }
 
-/// [`after_dialog`] for files, on every platform. The desktop's dialog is
-/// asked on a turn of its own with the studio unborrowed. A phone's picker
-/// is another screen, which answers later from whichever thread it likes,
-/// so it is asked the same way and answered through [`on_ui`]. `then` is
-/// not called for a picker dismissed with nothing chosen. `filter` names a
-/// family and its extensions, for the desktop's dialog; a phone's offers
-/// every kind of media on its own.
+/// [`after_dialog`] for files: the dialog is asked on a turn of its own
+/// with the studio unborrowed. `then` is not called for a dialog dismissed
+/// with nothing chosen. `filter` names a family and its extensions.
 pub fn pick_files_then(
     title: String,
     filter: Option<(String, &'static [&'static str])>,
     then: impl FnOnce(&mut Studio, &App, &Models, Vec<std::path::PathBuf>) + Send + 'static,
 ) {
-    if cfg!(target_os = "ios") {
-        let _ = slint::invoke_from_event_loop(move || {
+    after_dialog(
+        move || {
             let filter = filter.as_ref().map(|(name, list)| (name.as_str(), *list));
-            crate::platform::pick_files_async(&title, filter, move |paths| {
-                if !paths.is_empty() {
-                    on_ui(move |studio, app, models| then(studio, app, models, paths));
-                }
-            });
-        });
-    } else {
-        after_dialog(
-            move || {
-                let filter = filter.as_ref().map(|(name, list)| (name.as_str(), *list));
-                crate::platform::pick_files(&title, filter)
-            },
-            then,
-        );
-    }
+            crate::platform::pick_files(&title, filter)
+        },
+        then,
+    );
 }
 
 fn on_ui_gated(epoch: Option<u64>, body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
@@ -756,14 +742,7 @@ pub struct CachedMediaArt {
 /// The cache key includes the media id plus the source file's size and mtime,
 /// so replacing a file with the same project media id naturally misses and
 /// regenerates fresh artwork.
-pub fn cached_media_art(
-    project: &str,
-    id: &str,
-    path: &str,
-    kind: concat_project::model::MediaKind,
-) -> CachedMediaArt {
-    use concat_project::model::MediaKind;
-
+pub fn cached_media_art(project: &str, id: &str, path: &str, kind: MediaKind) -> CachedMediaArt {
     if kind == MediaKind::Audio {
         return CachedMediaArt {
             thumbnail: None,
@@ -1032,8 +1011,8 @@ const POSTER_WIDTH: u32 = 160;
 /// in, and no further than two seconds - past the black leader so many
 /// files open on, and near enough the top to be quick to reach. A
 /// still's only picture is its first.
-fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>) -> f64 {
-    if kind == concat_project::model::MediaKind::Image {
+fn poster_instant(kind: &MediaKind, duration: Option<f64>) -> f64 {
+    if *kind == MediaKind::Image {
         return 0.0;
     }
     duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0))
@@ -1050,16 +1029,15 @@ fn poster_instant(kind: concat_project::model::MediaKind, duration: Option<f64>)
 pub fn media_poster(
     id: String,
     path: String,
-    kind: concat_project::model::MediaKind,
+    kind: MediaKind,
     duration: Option<f64>,
     project: String,
 ) -> MediaPoster {
-    use concat_project::model::MediaKind;
     let thumbnail = match kind {
         MediaKind::Video | MediaKind::Image => {
-            media::card_still(&path, poster_instant(kind, duration), POSTER_WIDTH).ok()
+            media::card_still(&path, poster_instant(&kind, duration), POSTER_WIDTH).ok()
         }
-        MediaKind::Audio => None,
+        MediaKind::Audio | MediaKind::Unknown(_) => None,
     };
     let strip = (kind == MediaKind::Image)
         .then(|| thumbnail.clone().map(|frame| (frame, 1)))

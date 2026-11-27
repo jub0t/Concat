@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
+use concat_doc::model::{Color, TextAlign, TextCase, TextRun, Title};
 use concat_host::AppDirs;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -62,6 +63,188 @@ const BY_ENTRY: [&str; 3] = ["voiceover", "server", "keybinds"];
 /// for a 1x desk where 100 reads small and 125 is a size too far.
 /// https://github.com/jub0t/Concat/issues/320
 pub const UI_SCALES: [u32; 6] = [100, 110, 125, 150, 175, 200];
+
+/// A title's look as the settings file keeps it: every field of a title,
+/// colours as `#rrggbb` or `#rrggbbaa`. A field missing from the file is
+/// the default title's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TitleLook {
+    pub content: String,
+    pub font_family: String,
+    pub font_size: f64,
+    pub font_weight: f64,
+    pub italic: bool,
+    pub underline: bool,
+    pub strikethrough: bool,
+    pub color: String,
+    pub opacity: f64,
+    /// `left`, `center` or `right`.
+    pub align: String,
+    /// `upper`, `lower`, `sentence` or `original`.
+    pub case: String,
+    pub line_height: f64,
+    pub tracking: f64,
+    pub max_width: f64,
+    pub max_height: f64,
+    pub stroke_color: String,
+    pub stroke_width: f64,
+    pub shadow: bool,
+    /// The plate behind the words; none for none.
+    pub plate: Option<String>,
+    pub plate_padding_x: f64,
+    pub plate_padding_y: f64,
+    pub plate_radius: f64,
+    pub runs: Vec<TitleLookRun>,
+}
+
+/// Some of a kept look's words in a look of their own.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TitleLookRun {
+    pub start: u32,
+    pub end: u32,
+    pub color: Option<String>,
+    pub font_scale: Option<f64>,
+    pub font_weight: Option<f64>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    pub strikethrough: Option<bool>,
+    pub stroke_color: Option<String>,
+}
+
+impl Default for TitleLook {
+    fn default() -> TitleLook {
+        TitleLook::from_title(&Title::default())
+    }
+}
+
+impl TitleLook {
+    /// A title's look, to keep.
+    pub fn from_title(title: &Title) -> TitleLook {
+        let hex = crate::doc_view::hex;
+        TitleLook {
+            content: title.content.clone(),
+            font_family: title.font_family.clone(),
+            font_size: title.font_size,
+            font_weight: title.font_weight,
+            italic: title.italic,
+            underline: title.underline,
+            strikethrough: title.strikethrough,
+            color: hex(title.color),
+            opacity: title.opacity,
+            align: match title.align {
+                TextAlign::Left => "left",
+                TextAlign::Right => "right",
+                TextAlign::Center | TextAlign::Unknown(_) => "center",
+            }
+            .to_owned(),
+            case: match title.case {
+                TextCase::Upper => "upper",
+                TextCase::Lower => "lower",
+                TextCase::Sentence => "sentence",
+                TextCase::Original | TextCase::Unknown(_) => "original",
+            }
+            .to_owned(),
+            line_height: title.line_height,
+            tracking: title.tracking,
+            max_width: title.max_width,
+            max_height: title.max_height,
+            stroke_color: hex(title.stroke_color),
+            stroke_width: title.stroke_width,
+            shadow: title.shadow,
+            plate: title.plate.map(hex),
+            plate_padding_x: title.plate_padding_x,
+            plate_padding_y: title.plate_padding_y,
+            plate_radius: title.plate_radius,
+            runs: title
+                .runs
+                .iter()
+                .map(|run| TitleLookRun {
+                    start: run.start,
+                    end: run.end,
+                    color: run.color.map(hex),
+                    font_scale: run.font_scale,
+                    font_weight: run.font_weight,
+                    italic: run.italic,
+                    underline: run.underline,
+                    strikethrough: run.strikethrough,
+                    stroke_color: run.stroke_color.map(hex),
+                })
+                .collect(),
+        }
+    }
+
+    /// The title the kept look makes. Numbers a hand-edited file put out of
+    /// their range are held to it, and a colour that does not read is the
+    /// default title's.
+    pub fn to_title(&self) -> Title {
+        let base = Title::default();
+        let colour =
+            |text: &str, fallback: Color| crate::doc_view::parse_hex(text).unwrap_or(fallback);
+        let finite = |value: f64, fallback: f64| if value.is_finite() { value } else { fallback };
+        let runs = self
+            .runs
+            .iter()
+            .map(|run| TextRun {
+                start: run.start,
+                end: run.end,
+                color: run.color.as_deref().and_then(crate::doc_view::parse_hex),
+                font_scale: run
+                    .font_scale
+                    .map(|scale| finite(scale, 1.0).clamp(0.1, 10.0)),
+                font_weight: run
+                    .font_weight
+                    .map(|weight| finite(weight, 400.0).clamp(100.0, 900.0)),
+                italic: run.italic,
+                underline: run.underline,
+                strikethrough: run.strikethrough,
+                stroke_color: run
+                    .stroke_color
+                    .as_deref()
+                    .and_then(crate::doc_view::parse_hex),
+            })
+            .collect();
+        Title {
+            runs: crate::presets::tidy_runs(runs, &self.content),
+            content: self.content.clone(),
+            font_family: if self.font_family.trim().is_empty() {
+                base.font_family.clone()
+            } else {
+                self.font_family.clone()
+            },
+            font_size: finite(self.font_size, base.font_size).clamp(0.005, 1.0),
+            font_weight: finite(self.font_weight, base.font_weight).clamp(100.0, 900.0),
+            italic: self.italic,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            color: colour(&self.color, base.color),
+            opacity: finite(self.opacity, 1.0).clamp(0.0, 1.0),
+            align: match self.align.as_str() {
+                "left" => TextAlign::Left,
+                "right" => TextAlign::Right,
+                _ => TextAlign::Center,
+            },
+            case: match self.case.as_str() {
+                "upper" => TextCase::Upper,
+                "lower" => TextCase::Lower,
+                "sentence" => TextCase::Sentence,
+                _ => TextCase::Original,
+            },
+            line_height: finite(self.line_height, base.line_height).max(0.5),
+            tracking: finite(self.tracking, 0.0),
+            max_width: finite(self.max_width, 0.0).max(0.0),
+            max_height: finite(self.max_height, 0.0).max(0.0),
+            stroke_color: colour(&self.stroke_color, base.stroke_color),
+            stroke_width: finite(self.stroke_width, 0.0).max(0.0),
+            shadow: self.shadow,
+            plate: self.plate.as_deref().and_then(crate::doc_view::parse_hex),
+            plate_padding_x: finite(self.plate_padding_x, base.plate_padding_x).max(0.0),
+            plate_padding_y: finite(self.plate_padding_y, base.plate_padding_y).max(0.0),
+            plate_radius: finite(self.plate_radius, base.plate_radius).max(0.0),
+        }
+    }
+}
 
 /// The workspace as the last session left it: each dock, and the window.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -132,10 +315,8 @@ pub struct Preferences {
     /// Scrub copies: every video gets a small copy written in the
     /// background, every frame of it a keyframe, which a scrub reads so the
     /// picture keeps up with the hand, and playback at Half and Quarter
-    /// too; see concat_host::proxy. `None` is the platform's default -
-    /// on for a desktop, where the copy is a 540p software encode of about
-    /// 48 MB a minute; off for a phone, whose copies go through its chip
-    /// and are not every frame a keyframe yet.
+    /// too; see concat_host::proxy. `None` is on: the copy is a 540p
+    /// software encode of about 48 MB a minute.
     ///
     /// Stored as `scrubCopies`. It was `proxies`, off by default when a
     /// proxy was a full re-encode of every file larger than HD and helped
@@ -198,7 +379,7 @@ pub struct Preferences {
     /// The look new titles start from and generated captions are set in,
     /// kept from a title by the Text panel's "Use for new titles"; its
     /// words are empty. None starts titles in the bundled face.
-    pub title_style: Option<concat_project::model::TextStyle>,
+    pub title_look: Option<TitleLook>,
     /// What the log records, by the name concat_host::logs reads: `info`
     /// unless the Settings sheet was asked for more or less. CONCAT_LOG in
     /// the environment overrides it for one run.
@@ -309,7 +490,7 @@ impl Preferences {
 
     /// Whether videos get scrub copies; see `scrub_copies`.
     pub fn scrub_copies(&self) -> bool {
-        self.scrub_copies.unwrap_or(!cfg!(target_os = "ios"))
+        self.scrub_copies.unwrap_or(true)
     }
 
     /// Which of `names` — the theme's accents, in its order — the remembered
@@ -378,8 +559,9 @@ pub struct ServerPrefs {
     pub enabled: bool,
     /// The TCP address JSON-RPC lines are served on.
     pub listen: String,
-    /// What a connection presents first. Empty means none, which the
-    /// server only allows on loopback.
+    /// What a connection presents first. Empty means none chosen: the
+    /// server makes one up each time it starts. Only ever a token that
+    /// passed the check, since Apply refuses one that does not.
     pub token: String,
 }
 
@@ -719,6 +901,47 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A kept look comes back as the title it was kept from, through the
+    /// settings file's own text; a file without one is no look.
+    #[test]
+    fn a_kept_title_look_comes_back_whole() {
+        let title = Title {
+            content: String::new(),
+            color: Color::rgb(255, 0, 0),
+            plate: Some(Color {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 128,
+            }),
+            case: TextCase::Upper,
+            align: TextAlign::Left,
+            runs: vec![TextRun {
+                start: 0,
+                end: 0,
+                ..TextRun::default()
+            }],
+            ..Title::default()
+        };
+        let prefs = Preferences {
+            title_look: Some(TitleLook::from_title(&title)),
+            ..Preferences::default()
+        };
+        let text = serde_json::to_string(&prefs).unwrap();
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        let kept = back.title_look.expect("kept").to_title();
+        // The empty run is tidied away; the rest is as it was.
+        assert_eq!(
+            kept,
+            Title {
+                runs: Vec::new(),
+                ..title
+            }
+        );
+        let none: Preferences = serde_json::from_str(r#"{"titleStyle": {"fontSize": 3}}"#).unwrap();
+        assert!(none.title_look.is_none());
+    }
 
     /// A choice made is kept, whatever the platform's default: a phone
     /// that turned the magnet off stays off, and a desk that turned it on

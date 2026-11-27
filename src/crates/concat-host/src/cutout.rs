@@ -29,8 +29,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use concat_core::Halt;
 use concat_core::time::{FrameRate, Rational};
+use concat_doc::model::{Model, Subject};
+use concat_export::ClipKind;
 use concat_media::{DecodeOptions, Decoder, FrameSource};
-use concat_project::model::{MediaKind, Project, Subject};
 use concat_vision::segment::Kind;
 use concat_vision::{MASK_RATE, MaskStore, ModelId, Segmenter, mask_dir, models};
 
@@ -156,20 +157,20 @@ impl Cutouts {
     /// media and subject, since two clips of one file that keep different
     /// things need different masks, each covering the stretches of source
     /// its clips show. Paired with the media's id, for a caller that keys
-    /// its bookkeeping by it. The window asks after every change and the
-    /// API asks before an export; both get the same list.
-    pub fn requests(project: &Project, project_dir: &Path) -> Vec<(String, AnalyseRequest)> {
+    /// its bookkeeping by it: the file's path. The window asks after every
+    /// change and the API asks before an export; both get the same list.
+    pub fn requests(project: &Model, project_dir: &Path) -> Vec<(String, AnalyseRequest)> {
         let mut wanted: Vec<(String, AnalyseRequest)> = Vec::new();
-        for clip in &project.active().clips {
+        let Some(sequence) = project.view.showing else {
+            return wanted;
+        };
+        for clip in concat_export::flatten::clips(project, sequence, None) {
             let Some(cutout) = clip.cutout.as_ref() else {
                 continue;
             };
-            if !clip.kind.is_visual() {
+            if !matches!(clip.kind, ClipKind::Video | ClipKind::Image) {
                 continue;
             }
-            let Some(media) = project.media_by_id(&clip.media_id) else {
-                continue;
-            };
             // The source the clip shows: its in-point, for as long as it
             // runs at its speed. A curve's mean is its speed, so this
             // covers a curved clip too.
@@ -179,17 +180,20 @@ impl Cutouts {
             );
             match wanted
                 .iter_mut()
-                .find(|(id, request)| *id == media.id && request.subject == cutout.subject)
+                .find(|(path, request)| *path == clip.path && request.subject == cutout.subject)
             {
                 Some((_, request)) => request.ranges.push(range),
                 None => wanted.push((
-                    media.id.clone(),
+                    clip.path.clone(),
                     AnalyseRequest {
                         project: project_dir.to_path_buf(),
-                        media_path: media.path.clone(),
-                        media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
-                        still: media.kind == MediaKind::Image,
-                        subject: cutout.subject,
+                        media_path: clip.path.clone(),
+                        media_size: (
+                            clip.media_width.unwrap_or(0),
+                            clip.media_height.unwrap_or(0),
+                        ),
+                        still: clip.kind == ClipKind::Image,
+                        subject: cutout.subject.clone(),
                         ranges: vec![range],
                     },
                 )),
@@ -200,7 +204,7 @@ impl Cutouts {
 
     /// Where `request`'s masks are kept.
     fn dir(request: &AnalyseRequest) -> PathBuf {
-        mask_dir(&request.project, &request.media_path, request.subject)
+        mask_dir(&request.project, &request.media_path, &request.subject)
     }
 
     /// Whether the app died analysing `request` last time, so it is not to
@@ -216,13 +220,13 @@ impl Cutouts {
         let store = MaskStore::open(&mask_dir(
             &request.project,
             &request.media_path,
-            request.subject,
+            &request.subject,
         ));
-        let stale = match (request.subject, store.model()) {
+        let stale = match (&request.subject, store.model()) {
             (_, None) => false,
             (Subject::Person, Some(model)) => model == ModelId::Object.name(),
             (Subject::Object, Some(model)) => model != ModelId::Object.name(),
-            (Subject::Auto, _) => false,
+            (Subject::Auto | Subject::Unknown(_), _) => false,
         };
         if stale {
             return usize::MAX;
@@ -246,7 +250,7 @@ impl Cutouts {
         let mut store = MaskStore::open(&mask_dir(
             &request.project,
             &request.media_path,
-            request.subject,
+            &request.subject,
         ));
         if Self::outstanding(request) == usize::MAX {
             store.clear();
@@ -255,10 +259,10 @@ impl Cutouts {
 
         // The model the subject names, or for automatic the one the
         // store already records; the first frame decides otherwise.
-        let mut segmenter = match request.subject {
+        let mut segmenter = match &request.subject {
             Subject::Person => Some(self.person_or_selfie(&cancel, progress)?),
             Subject::Object => Some(self.downloaded(ModelId::Object, &cancel, progress)?),
-            Subject::Auto => match store.model() {
+            Subject::Auto | Subject::Unknown(_) => match store.model() {
                 Some(model) if model == ModelId::Object.name() => {
                     Some(self.downloaded(ModelId::Object, &cancel, progress)?)
                 }

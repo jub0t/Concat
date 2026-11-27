@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.blur-frame"
+name = "Blur Frame"
+kind = "effect"
+category = "Blur"
+shelves = ["Featured"]
+order = 10
+intensity = "blur"
+description = "The picture shrunk in the middle of the frame over a blurred, enlarged copy of itself, with a soft shadow round its edge."
+
+[[param]]
+key = "size"
+label = "Picture Size"
+unit = "%"
+min = 40
+max = 95
+step = 1
+default = 78
+
+[[param]]
+key = "blur"
+label = "Blur"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "shade"
+label = "Darken Background"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 25
+
+[wgsl]
+entry = "effect.wgsl"
+
+# The background is drawn small and blurred there: an eighth of the
+# layer's size each way, a box of sixteen fetches into it, then a
+# Gaussian across and down at that size.
+[[wgsl.pass]]
+target = "small"
+shrink = ["8", "8"]
+
+[[wgsl.pass]]
+target = "across"
+shrink = ["8", "8"]
+
+[[wgsl.pass]]
+target = "down"
+shrink = ["8", "8"]

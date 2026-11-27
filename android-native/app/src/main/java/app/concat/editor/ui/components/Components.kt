@@ -184,7 +184,7 @@ fun ValueSlider(
 }
 
 /**
- * A tool's options, CapCut's way: a panel over the bottom of the timeline,
+ * A tool's options: a panel over the bottom of the timeline,
  * above the toolbar, so the preview stays in sight. A title row with a
  * close mark and (when it confirms) a check; the body scrolls when tall.
  */

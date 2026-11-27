@@ -6,8 +6,7 @@
 //!
 //! Two directories, named by the app identifier and following each
 //! platform's convention for configuration and data. On macOS they are the
-//! same folder. On an iPhone the settings are in the sandbox's
-//! `Application Support` and the rest in its `Caches`. On Windows the
+//! same folder. On Windows the
 //! settings roam (`%APPDATA%`) and the models and caches stay on the
 //! machine (`%LOCALAPPDATA%`), since gigabytes of model have no business
 //! following a domain profile to every PC it logs into. On Linux they
@@ -51,7 +50,7 @@ impl AppDirs {
         }
         let convention = convention(std::env::consts::OS);
         if convention == Convention::Apple {
-            let dirs = apple(&home()?, cfg!(target_os = "ios"));
+            let dirs = apple(&home()?);
             adopt(&dirs.config);
             adopt(&dirs.data);
             Ok(dirs)
@@ -111,16 +110,9 @@ impl AppDirs {
     }
 
     /// Where what the user made and cannot download again is kept - the
-    /// Audio page's own sounds, the voices they cloned: `data` everywhere
-    /// but an iPhone, whose `data` is `Caches`, which the phone may empty
-    /// when it runs short of space and does not back up. There it is
-    /// `config`, `Application Support`, which it keeps.
+    /// Audio page's own sounds, the voices they cloned: in `data`.
     pub fn library(&self) -> PathBuf {
-        if cfg!(target_os = "ios") {
-            self.config.clone()
-        } else {
-            self.data.clone()
-        }
+        self.data.clone()
     }
 }
 
@@ -237,34 +229,25 @@ enum Convention {
 }
 
 /// The convention for `os`, as `std::env::consts::OS` names it.
-///
-/// An iPhone is Apple's, as a Mac is: its `HOME` is the app's sandbox,
-/// where `Library` is the app's own and the top of the container is not a
-/// place the app may make folders. It used to fall through to the XDG branch, and the
-/// settings, the recents and the log went to `~/.config` and
-/// `~/.local/share`. https://github.com/jub0t/Concat/issues/299
 fn convention(os: &str) -> Convention {
     match os {
-        "macos" | "ios" => Convention::Apple,
+        "macos" => Convention::Apple,
         "windows" => Convention::Windows,
         _ => Convention::Xdg,
     }
 }
 
-/// Apple's directories under `home`. A Mac keeps both in one folder in
-/// `Application Support`. An iPhone keeps the settings there and the rest -
-/// models, caches, logs, every one of them made again or downloaded again
-/// when missing - in `Caches`, which the phone does not back up to iCloud
-/// and may empty when it runs short of space.
-fn apple(home: &Path, phone: bool) -> AppDirs {
-    let library = home.join("Library");
-    let config = library.join("Application Support").join(IDENTIFIER);
-    let data = if phone {
-        library.join("Caches").join(IDENTIFIER)
-    } else {
-        config.clone()
-    };
-    AppDirs { config, data }
+/// Apple's directories under `home`: a Mac keeps both in one folder in
+/// `Application Support`.
+fn apple(home: &Path) -> AppDirs {
+    let config = home
+        .join("Library")
+        .join("Application Support")
+        .join(IDENTIFIER);
+    AppDirs {
+        data: config.clone(),
+        config,
+    }
 }
 
 /// The `portable` folder beside the executable, when someone has made one.
@@ -297,11 +280,10 @@ mod tests {
         assert!(dirs.config.is_absolute());
     }
 
-    /// A Mac and an iPhone keep their directories where Apple says to;
-    /// Android and Linux take the XDG bases.
+    /// A Mac keeps its directories where Apple says to; Android and Linux
+    /// take the XDG bases.
     #[test]
-    fn an_iphone_follows_apples_convention() {
-        assert_eq!(convention("ios"), Convention::Apple);
+    fn each_platform_follows_its_convention() {
         assert_eq!(convention("macos"), Convention::Apple);
         assert_eq!(convention("windows"), Convention::Windows);
         assert_eq!(convention("android"), Convention::Xdg);
@@ -309,20 +291,14 @@ mod tests {
     }
 
     #[test]
-    fn a_mac_keeps_one_folder_and_an_iphone_caches_the_rest() {
+    fn a_mac_keeps_one_folder() {
         let home = Path::new("/home");
-        let mac = apple(home, false);
+        let mac = apple(home);
         let support = home
             .join("Library")
             .join("Application Support")
             .join(IDENTIFIER);
         assert_eq!((&mac.config, &mac.data), (&support, &support));
-        let phone = apple(home, true);
-        assert_eq!(phone.config, support);
-        assert_eq!(
-            phone.data,
-            home.join("Library").join("Caches").join(IDENTIFIER)
-        );
     }
 
     /// A folder under the former identifier moves to the new name with

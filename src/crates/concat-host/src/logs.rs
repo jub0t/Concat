@@ -142,7 +142,7 @@ pub fn previous() -> Option<&'static concat_log::PreviousRun> {
 /// The person's home folder, which the log writes as `~`. A phone has none
 /// worth the name: its paths are the app's own sandbox.
 fn home() -> Option<PathBuf> {
-    if cfg!(any(target_os = "android", target_os = "ios")) {
+    if cfg!(target_os = "android") {
         return None;
     }
     let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };

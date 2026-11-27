@@ -15,7 +15,7 @@ gpu = []
 concat-core.workspace = true
 concat-media.workspace = true
 concat-render.workspace = true
-concat-project = { path = "../concat-project" }
+concat-doc.workspace = true
 concat-effects.workspace = true
 # Masks for cutouts: read from the project's cache and applied to a decoded
 # frame before it is placed. Reading only; the host finds them.
@@ -27,3 +27,6 @@ concat-log.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

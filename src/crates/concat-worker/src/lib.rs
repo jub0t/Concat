@@ -22,7 +22,8 @@
 //! - **One supervisor.** [`run`] starts the worker, reads it, cancels it,
 //!   kills one that will not stop or has gone quiet past what its job
 //!   allows, and tries again as the job's [`Policy`] says - by default once
-//!   more with drawing on the CPU, where no driver is in the way.
+//!   more with drawing on the CPU, where no driver is in the way, when the
+//!   worker died in the graphics driver or hung.
 //! - **The same job in-process.** Where no process can be started - a
 //!   phone, a sandbox - [`run_here`] runs the job on the calling thread
 //!   with the same context, so a job is written once.
@@ -252,14 +253,19 @@ pub struct Policy {
     pub stop_grace: Duration,
 }
 
-/// One try of a job: what it is called in the log, and the environment
-/// variables its worker is started with.
+/// One try of a job: what it is called in the log, the environment
+/// variables its worker is started with, and which deaths of the try
+/// before it it is made after.
 #[derive(Clone, Debug)]
 pub struct Try {
     /// Said in the log and to the caller: "on the GPU", "on the CPU".
     pub label: &'static str,
     /// Set for this worker alone.
     pub env: Vec<(&'static str, &'static str)>,
+    /// Whether this try is worth making after the last worker died so: a
+    /// try that changes what the job draws on only helps a death in what
+    /// it draws on. Not asked of the first try.
+    pub after: fn(&Death) -> bool,
 }
 
 impl Default for Policy {
@@ -269,17 +275,131 @@ impl Default for Policy {
                 Try {
                     label: "as the machine is",
                     env: Vec::new(),
+                    after: |_| true,
                 },
                 // A safe start's setting: the compositor draws on the
                 // software adapter, and no graphics driver is in the way.
+                // Made only after a death in the graphics driver: any
+                // other crash - in the job's own code, FFmpeg's, the
+                // heap's - is in the CPU's drawing too, and a second try
+                // was minutes more of the same export before the same
+                // crash (#762).
                 Try {
                     label: "drawing on the CPU",
                     env: vec![("CONCAT_GPU", "software")],
+                    after: Death::in_graphics,
                 },
             ],
             stop_grace: Duration::from_secs(15),
         }
     }
+}
+
+/// How a worker died, for choosing whether to try again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Death {
+    /// Its exit status or the watchdog's reason, and where it had got.
+    pub why: String,
+    /// The crash line its crash handler wrote last, when it wrote one:
+    /// `FATAL [thread] crash: 0xC0000005 ... in nvwgf2umx.dll+0x1a2b`. A
+    /// fail-fast - the heap's own corruption check, an abort - writes none.
+    pub crash: Option<String>,
+    /// It was killed for going quiet: frozen, or making no progress.
+    pub hung: bool,
+}
+
+impl Death {
+    /// Whether the death was the graphics driver's, as far as can be
+    /// told: the crash line names one of its modules, or the worker hung,
+    /// which a driver waiting on a GPU that stopped answering does.
+    pub fn in_graphics(&self) -> bool {
+        self.hung || self.crash.as_deref().is_some_and(names_graphics_module)
+    }
+}
+
+/// The start of every module name the graphics stack is made of, lower
+/// case: the Direct3D runtime and its shader compilers, each vendor's
+/// user-mode drivers on Windows, the Vulkan and GL loaders and drivers on
+/// Linux and Android, and Metal's on Apple's systems. A crash in one is
+/// what drawing on the CPU gets past.
+const GRAPHICS_MODULES: &[&str] = &[
+    "d3d12",
+    "d3d11",
+    "d3d10warp",
+    "dxgi",
+    "dxcore",
+    "d3dcompiler",
+    "dxcompiler",
+    "dxil",
+    // NVIDIA
+    "nvwgf2um",
+    "nvd3dum",
+    "nvoglv",
+    "nvldumd",
+    "nvgpucomp",
+    "libnvidia-glcore",
+    "libnvidia-eglcore",
+    "libnvidia-gpucomp",
+    // AMD
+    "amdxx",
+    "amdxc",
+    "amdxn",
+    "atidxx",
+    "atiumd",
+    "amdvlk",
+    "amdgpu",
+    "radeonsi",
+    // Intel
+    "igd10",
+    "igd11",
+    "igd12",
+    "igdumd",
+    "igdgmm",
+    "igdml",
+    "igc",
+    "igvk",
+    "iris_dri",
+    // loaders and the rest
+    "vulkan-1",
+    "libvulkan",
+    "opengl32",
+    "libgl",
+    "libegl",
+    "libgles",
+    "libmali",
+    "libgsl",
+    "libllvm-qcom",
+    "vulkan.",
+    "libdrm",
+    "agxmetal",
+    "metal",
+    "iogpu",
+    "geforcemtldriver",
+    "amdradeonx",
+    "intelmtl",
+];
+
+/// Whether `crash`, a crash handler's line, names a module of the
+/// graphics stack as the one it happened in.
+fn names_graphics_module(crash: &str) -> bool {
+    let Some((_, place)) = crash.rsplit_once(" in ") else {
+        return false;
+    };
+    let module = place
+        .split('+')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    GRAPHICS_MODULES
+        .iter()
+        .any(|start| module.starts_with(start))
+}
+
+/// Whether `line`, one the worker wrote to standard error, is its crash
+/// handler's (see `concat_host::crash`).
+fn is_crash_line(line: &str) -> bool {
+    line.starts_with("FATAL [") && line.contains("] crash")
 }
 
 impl Policy {
@@ -312,11 +432,11 @@ pub enum Event<P> {
 pub enum Ended<P, O> {
     /// It said how the job went.
     Said(Result<O, Halt>),
-    /// It stopped without saying: crashed, killed, frozen or hung. Why, and
+    /// It stopped without saying: crashed, killed, frozen or hung. How, and
     /// the last progress it reported.
     Died {
-        /// Exit status or the watchdog's reason, and where it had got.
-        why: String,
+        /// How it died.
+        death: Death,
         /// The last progress it reported.
         last: Option<P>,
     },
@@ -367,9 +487,21 @@ fn run_with<J: Job>(
         }
     };
     let mut deaths: Vec<String> = Vec::new();
+    let mut last_death: Option<Death> = None;
     for (index, attempt) in policy.tries.iter().enumerate() {
         if index > 0 {
             let why = deaths.last().cloned().unwrap_or_default();
+            if let Some(death) = &last_death
+                && !(attempt.after)(death)
+            {
+                log::error!(
+                    "worker: the {} job's process stopped without finishing ({why}); not tried \
+                     again {}, which would not get past that",
+                    J::NAME,
+                    attempt.label
+                );
+                return Some(Err(Halt::Failed(stopped::<J>())));
+            }
             log::error!(
                 "worker: the {} job's process stopped without finishing ({why}); trying it again {}",
                 J::NAME,
@@ -385,21 +517,45 @@ fn run_with<J: Job>(
         });
         match ended {
             None if index == 0 => return None,
-            None => deaths.push("no process could be started".to_owned()),
+            None => {
+                deaths.push("no process could be started".to_owned());
+                last_death = None;
+            }
             Some(Ended::Said(result)) => return Some(result),
-            Some(Ended::Died { why, .. }) => {
+            Some(Ended::Died { death, last }) => {
                 if cancel.load(Ordering::Relaxed) {
                     return Some(Err(Halt::Cancelled));
                 }
-                deaths.push(format!("{}: {why}", attempt.label));
+                let mut why = format!("{}: {}", attempt.label, death.why);
+                if let Some(crash) = &death.crash {
+                    why.push_str(&format!(" ({})", crash.trim()));
+                }
+                if let Some(text) = last.and_then(|last| serde_json::to_string(&last).ok()) {
+                    why.push_str(&format!(", last at {text}"));
+                }
+                deaths.push(why);
+                last_death = Some(death);
             }
         }
     }
-    Some(Err(Halt::Failed(format!(
-        "the {} job stopped each time it was tried: {}",
+    log::error!(
+        "worker: the {} job's process stopped each time it was tried: {}",
         J::NAME,
         deaths.join("; ")
-    ))))
+    );
+    Some(Err(Halt::Failed(stopped::<J>())))
+}
+
+/// What the person is told when a job's worker died and it is not tried
+/// again: in plain words, the job by name. How it died - the exit status,
+/// the module, where it had got - is in the log, which the person is
+/// pointed to; a status code or a library's name means nothing to them.
+fn stopped<J: Job>() -> String {
+    format!(
+        "The {} stopped before it finished: the process doing it closed unexpectedly. \
+         Concat's log says why.",
+        J::NAME
+    )
 }
 
 /// One worker of `program` for `J`, started with `attempt`'s variables,
@@ -470,10 +626,19 @@ fn once_with<J: Job>(
     // level the worker wrote it. Under this crate's own target: the log
     // writes another crate's lines only from a warning up, and a worker's
     // whole account of an export is information.
+    // Its crash handler's line, when it writes one, is kept as well: it
+    // says where the worker died, which decides whether to try again.
+    let crash: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let crash_seen = Arc::clone(&crash);
     let logger = std::thread::Builder::new()
         .name("concat worker log".into())
         .spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if is_crash_line(&line)
+                    && let Ok(mut seen) = crash_seen.lock()
+                {
+                    seen.get_or_insert_with(|| line.clone());
+                }
                 log::log!(level_of(&line), "[{name}] {line}");
             }
         })
@@ -503,7 +668,11 @@ fn once_with<J: Job>(
     let ended = loop {
         if handed.is_err() {
             break Ended::Died {
-                why: "it would not take the request".to_owned(),
+                death: Death {
+                    why: "it would not take the request".to_owned(),
+                    crash: None,
+                    hung: false,
+                },
                 last: None,
             };
         }
@@ -518,7 +687,11 @@ fn once_with<J: Job>(
         if pulse.elapsed() > NO_PULSE {
             kill(&mut child);
             break Ended::Died {
-                why: format!("it stopped answering for {}s", NO_PULSE.as_secs()),
+                death: Death {
+                    why: format!("it stopped answering for {}s", NO_PULSE.as_secs()),
+                    crash: None,
+                    hung: true,
+                },
                 last,
             };
         }
@@ -526,7 +699,11 @@ fn once_with<J: Job>(
         if heard.elapsed() > quiet {
             kill(&mut child);
             break Ended::Died {
-                why: format!("it made no progress for {}s", quiet.as_secs()),
+                death: Death {
+                    why: format!("it made no progress for {}s", quiet.as_secs()),
+                    crash: None,
+                    hung: true,
+                },
                 last,
             };
         }
@@ -573,7 +750,11 @@ fn once_with<J: Job>(
                     "before it spoke"
                 };
                 break Ended::Died {
-                    why: format!("{status}, {at}"),
+                    death: Death {
+                        why: format!("{status}, {at}"),
+                        crash: None,
+                        hung: false,
+                    },
                     last,
                 };
             }
@@ -587,6 +768,15 @@ fn once_with<J: Job>(
     if let Some(logger) = logger {
         let _ = logger.join();
     }
+    // The crash line is in once the log's pipe has closed, which the join
+    // waited for.
+    let ended = match ended {
+        Ended::Died { mut death, last } => {
+            death.crash = crash.lock().ok().and_then(|mut seen| seen.take());
+            Ended::Died { death, last }
+        }
+        said => said,
+    };
     Some(ended)
 }
 
@@ -754,6 +944,14 @@ mod tests {
                 if step == 2 && !second {
                     match play.as_str() {
                         "crash" => std::process::abort(),
+                        "driver" => {
+                            // As the crash handler writes a crash in a
+                            // graphics driver, then the crash.
+                            eprintln!(
+                                "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x10, in nvwgf2umx.dll+0x1a2b3c"
+                            );
+                            std::process::abort();
+                        }
                         "hang" => std::thread::sleep(Duration::from_secs(600)),
                         "deaf" => {
                             // Told to stop, and never looks.
@@ -836,13 +1034,83 @@ mod tests {
     /// The driver under the job crashes its process: the editor - this
     /// test - is still here, and the second try, on the CPU, finishes.
     #[test]
-    fn a_worker_that_crashes_is_tried_again_on_the_cpu() {
-        let (heard, ended) = played("crash", None);
+    fn a_worker_that_crashes_in_the_driver_is_tried_again_on_the_cpu() {
+        let (heard, ended) = played("driver", None);
         assert_eq!(ended, Some(Ok("counted to 5 on the CPU".to_owned())));
         assert!(
             heard.contains(&"retry drawing on the CPU".to_owned()),
             "{heard:?}"
         );
+    }
+
+    /// A crash that says nothing of a driver - an abort, the heap's own
+    /// check (#762) - is not tried again on the CPU, where it would crash
+    /// the same way, and the caller is told how the worker died and where
+    /// it had got.
+    #[test]
+    fn a_worker_that_crashes_elsewhere_fails_and_is_not_tried_again() {
+        let (heard, ended) = played("crash", None);
+        assert!(
+            !heard.iter().any(|line| line.starts_with("retry")),
+            "{heard:?}"
+        );
+        let Some(Err(Halt::Failed(why))) = ended else {
+            panic!("not a failure: {ended:?}");
+        };
+        assert_eq!(
+            why,
+            "The play stopped before it finished: the process doing it closed unexpectedly. \
+             Concat's log says why."
+        );
+    }
+
+    #[test]
+    fn a_crash_in_a_graphics_module_is_the_drivers() {
+        let death = |crash: &str| Death {
+            why: "exit code: 0xc0000005, after it started".to_owned(),
+            crash: Some(crash.to_owned()),
+            hung: false,
+        };
+        for driver in [
+            "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x10, in nvwgf2umx.dll+0x1a2b3c",
+            "FATAL [?] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, writing 0x0, in igd12umd64.dll+0x10",
+            "FATAL [render] crash: 0xC000001D EXCEPTION_ILLEGAL_INSTRUCTION: an instruction this CPU does not have in amdxc64.dll+0x9",
+            "FATAL [?] crash: SIGSEGV (bad memory access) at 0x10 in libvulkan_radeon.so+0x1a",
+            "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x8, in D3D12Core.dll+0x77",
+        ] {
+            assert!(death(driver).in_graphics(), "{driver}");
+        }
+        for elsewhere in [
+            "FATAL [mix] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x10, in concat.exe+0x1a2b3c",
+            "FATAL [?] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x10, in avcodec-62.dll+0x10",
+            "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x10, in ntdll.dll+0x10",
+            "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION at 0x10",
+        ] {
+            assert!(!death(elsewhere).in_graphics(), "{elsewhere}");
+        }
+        let silent = Death {
+            why: "exit code: 0xc0000374, after it started".to_owned(),
+            crash: None,
+            hung: false,
+        };
+        assert!(!silent.in_graphics(), "a fail-fast names no module");
+        assert!(
+            Death {
+                hung: true,
+                ..silent
+            }
+            .in_graphics(),
+            "a hang may be the driver's"
+        );
+    }
+
+    #[test]
+    fn a_crash_line_is_told_from_the_rest_of_the_log() {
+        assert!(is_crash_line(
+            "FATAL [main] crash: 0xC0000374 STATUS_HEAP_CORRUPTION in ntdll.dll+0x1"
+        ));
+        assert!(!is_crash_line("03:55:47.299 ERROR export  crash: not ours"));
+        assert!(!is_crash_line("a library said FATAL [x] crash"));
     }
 
     #[test]

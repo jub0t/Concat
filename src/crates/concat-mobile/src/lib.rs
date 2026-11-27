@@ -9,7 +9,7 @@
 //! on an Android `Surface`, play and pause with sound, and say how long the
 //! edit is and where the playhead stands.
 //!
-//! Nothing here decides what an edit means. Edits are `concat_project`
+//! Nothing here decides what an edit means. Edits are `concat_doc`
 //! commands applied by the host's [`Session`]; pictures come from the
 //! host's [`concat_host::preview::Monitor`]; sound and the clock from
 //! [`concat_host::playback::Playback`]. What this crate adds is the thread
@@ -19,13 +19,16 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use concat_doc::commands::Command;
+use concat_doc::model::{Frame, LaneId, Media, MediaId, Model, SequenceId};
+use concat_doc::{Rate, TickDur};
 use concat_host::Session;
 use concat_host::playback::{ClipSpec, Playback, PlaybackEvents};
-use concat_project::Command;
 
 mod api;
 mod preview;
 mod render;
+mod view;
 
 pub use api::{ApiEvents, EditorApi};
 pub use preview::Preview;
@@ -201,34 +204,7 @@ impl Engine {
         let probed_ms = started.elapsed().as_secs_f64() * 1000.0;
         {
             let mut session = self.session();
-            let first = session.project().active().clips.is_empty();
-            let added = session.apply(Command::AddMedia {
-                item: summary.to_new_media(),
-            })?;
-            let media_id = match added.created_id {
-                Some(id) => id,
-                None => session
-                    .project()
-                    .media
-                    .iter()
-                    .find(|item| item.path == path)
-                    .map(|item| item.id.clone())
-                    .ok_or_else(|| "the bin did not take the file".to_owned())?,
-            };
-            if first && let Some(video) = summary.video.as_ref() {
-                let (rate_num, rate_den) = rate_of(&video.frame_rate_fraction);
-                let mut settings = session.video();
-                settings.width = video.width;
-                settings.height = video.height;
-                settings.rate_num = rate_num;
-                settings.rate_den = rate_den;
-                session.set_video(settings)?;
-            }
-            let end = session.project().active().duration();
-            session.apply(Command::AddClipAtFirstFree {
-                media_id,
-                start: end,
-            })?;
+            place_at_end(&mut session, summary.to_new_media())?;
             session.save(None)?;
         }
         log::info!(
@@ -242,39 +218,22 @@ impl Engine {
     /// The clips on the timeline, in time order.
     pub fn clips(&self) -> Vec<ClipView> {
         let session = self.session();
-        let timeline = session.project().active();
-        let mut clips: Vec<ClipView> = timeline
-            .clips
-            .iter()
-            .map(|clip| ClipView {
-                id: clip.id.clone(),
-                name: clip.name.clone(),
-                lane: timeline
-                    .tracks
-                    .iter()
-                    .position(|track| track.id == clip.track_id)
-                    .unwrap_or(0) as u32,
-                start: clip.start,
-                duration: clip.duration,
-            })
-            .collect();
-        clips.sort_by(|a, b| a.start.total_cmp(&b.start));
-        clips
+        clips_of(&session.document(), session.showing())
     }
 
     /// The timeline's frame and rate.
     pub fn video(&self) -> VideoInfo {
-        let video = self.session().video();
+        let frame = self.session().frame();
         VideoInfo {
-            width: video.width,
-            height: video.height,
-            fps: video.rate_num as f64 / video.rate_den.max(1) as f64,
+            width: frame.width.get(),
+            height: frame.height.get(),
+            fps: frame.rate.display_per_second(),
         }
     }
 
     /// Where the last clip ends, in seconds.
     pub fn duration(&self) -> f64 {
-        self.session().project().active().duration()
+        self.session().document().showing_end().display_seconds()
     }
 
     /// The playhead, in seconds: the audio device's clock while playing.
@@ -360,25 +319,87 @@ impl Engine {
         let specs = audio_specs(&clips);
         self.playback
             .set_clips(std::path::PathBuf::from(session.path()), specs);
-        let video = session.video();
-        self.renderer
-            .edit(clips, session.settings(), video.color_space);
+        self.renderer.edit(clips, session.frame());
     }
 }
 
-/// "30000/1001" as a fraction, 30/1 for anything unreadable.
-fn rate_of(fraction: &str) -> (i64, i64) {
-    let mut parts = fraction.split('/');
-    let num = parts
-        .next()
-        .and_then(|part| part.trim().parse::<i64>().ok());
-    let den = parts
-        .next()
-        .map_or(Some(1), |part| part.trim().parse::<i64>().ok());
-    match (num, den) {
-        (Some(num), Some(den)) if num > 0 && den > 0 => (num, den),
-        _ => (30, 1),
+/// Adds a probed file to the bin and puts it at the end of the timeline
+/// showing. The first file placed there that has a picture gives the
+/// timeline its frame; see [`framed_by`]. A file already in the bin is
+/// cut from again, not added a second time.
+fn place_at_end(session: &mut Session, media: Media) -> Result<(), String> {
+    let sequence = session
+        .showing()
+        .ok_or_else(|| "the project has no timeline to put the file on".to_owned())?;
+    let document = session.document();
+    let first = document
+        .lanes
+        .index()
+        .of(sequence)
+        .all(|(lane, _)| document.items.index().on_lane(lane).next().is_none());
+    let end = document.end_of(sequence);
+    let frame = if first {
+        framed_by(&media, session.frame())
+    } else {
+        None
+    };
+    let added = session.apply(&Command::AddMedia { media })?;
+    let media: MediaId = added
+        .applied
+        .created
+        .and_then(|id| id.typed())
+        .ok_or_else(|| "the bin did not take the file".to_owned())?;
+    if let Some(frame) = frame {
+        session.apply(&Command::SetTimelineVideo { sequence, frame })?;
     }
+    session.apply(&Command::AddClipAtFirstFree { media, start: end })?;
+    Ok(())
+}
+
+/// `frame` with the size and rate of a file's picture, 30 a second when
+/// the probe found no rate: what the first file on a timeline makes of
+/// it. None for a file with no picture.
+fn framed_by(media: &Media, frame: Frame) -> Option<Frame> {
+    let size = media.size?;
+    Some(Frame {
+        width: size.width,
+        height: size.height,
+        rate: media.rate.unwrap_or(Rate::FPS_30),
+        ..frame
+    })
+}
+
+/// The clips of the sequence showing, in time order, each with its lane
+/// counted from the top of the stack.
+fn clips_of(document: &Model, showing: Option<SequenceId>) -> Vec<ClipView> {
+    let Some(sequence) = showing else {
+        return Vec::new();
+    };
+    let mut lanes: Vec<LaneId> = document
+        .lanes
+        .index()
+        .of(sequence)
+        .map(|(lane, _)| lane)
+        .collect();
+    // The index walks the stack from the bottom.
+    lanes.reverse();
+    let mut clips = Vec::new();
+    for (from_top, lane) in lanes.into_iter().enumerate() {
+        for (id, start, _) in document.items.index().on_lane(lane) {
+            let Some(item) = document.items.get(id) else {
+                continue;
+            };
+            clips.push(ClipView {
+                id: id.to_string(),
+                name: item.name.clone(),
+                lane: u32::try_from(from_top).unwrap_or(u32::MAX),
+                start: start.display_seconds(),
+                duration: TickDur::from(item.len).display_seconds(),
+            });
+        }
+    }
+    clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+    clips
 }
 
 /// The audible clips of a flattened edit, as playback takes them - the
@@ -389,10 +410,132 @@ fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use concat_doc::model::{MediaKind, Size};
+    use concat_doc::{Tick, TickLen};
+    use concat_host::media::{FileKind, MediaSummary, VideoStreamInfo};
+    use concat_host::session::ProjectSettings;
+
+    /// A session on a project never saved: one timeline, 1920 by 1080 at
+    /// 30 a second, in a folder that is not there.
+    fn session() -> Session {
+        let nowhere = std::env::temp_dir().join(format!("concat-mobile-{}", std::process::id()));
+        let settings = ProjectSettings {
+            name: "Spike".to_owned(),
+            frame: Frame::hd(),
+        };
+        Session::open(&nowhere.join("unsaved").to_string_lossy(), settings).expect("opens")
+    }
+
+    /// A probed video of four seconds with a picture of this size and rate.
+    fn video(path: &str, width: u32, height: u32, rate: Option<Rate>) -> Media {
+        Media {
+            path: path.to_owned(),
+            name: path.rsplit('/').next().unwrap_or(path).to_owned(),
+            kind: MediaKind::Video,
+            length: TickLen::try_from(Tick::from_whole_seconds(4).expect("a place").get()).ok(),
+            rate,
+            size: Size::new(width, height),
+            ..Media::default()
+        }
+    }
+
+    /// What the probe of a video hands the bin, its rate written this way.
+    fn probed(rate: &str) -> Media {
+        MediaSummary {
+            path: "/footage/a.mp4".to_owned(),
+            duration: Some(4.0),
+            kind: FileKind::Video,
+            video: Some(VideoStreamInfo {
+                index: 0,
+                codec: "h264".to_owned(),
+                width: 1280,
+                height: 720,
+                frame_rate: 0.0,
+                frame_rate_fraction: rate.to_owned(),
+                color_range: None,
+                color_space: Default::default(),
+            }),
+            audio: None,
+            audio_tracks: Vec::new(),
+        }
+        .to_new_media()
+    }
+
     #[test]
     fn a_rate_reads_as_a_fraction() {
-        assert_eq!(super::rate_of("30000/1001"), (30000, 1001));
-        assert_eq!(super::rate_of("25"), (25, 1));
-        assert_eq!(super::rate_of("x"), (30, 1));
+        let rate = |written: &str| {
+            framed_by(&probed(written), Frame::hd())
+                .expect("it has a picture")
+                .rate
+        };
+        assert_eq!(Ok(rate("30000/1001")), Rate::new(30000, 1001));
+        assert_eq!(Ok(rate("25/1")), Rate::new(25, 1));
+        assert_eq!(rate("x"), Rate::FPS_30);
+    }
+
+    #[test]
+    fn the_first_file_with_a_picture_gives_the_timeline_its_size_and_rate() {
+        let mut session = session();
+        let ntsc = Rate::new(30000, 1001).ok();
+        place_at_end(&mut session, video("/footage/a.mp4", 1280, 720, ntsc)).expect("placed");
+        let frame = session.frame();
+        assert_eq!((frame.width.get(), frame.height.get()), (1280, 720));
+        assert_eq!(Some(frame.rate), ntsc);
+
+        let pal = Rate::new(25, 1).ok();
+        place_at_end(&mut session, video("/footage/b.mp4", 640, 360, pal)).expect("placed");
+        assert_eq!(session.frame(), frame, "only the first sets it");
+    }
+
+    #[test]
+    fn a_file_with_no_picture_leaves_the_frame_as_it_was() {
+        let mut session = session();
+        let song = Media {
+            kind: MediaKind::Audio,
+            size: None,
+            rate: None,
+            has_sound: true,
+            ..video("/footage/song.wav", 1, 1, None)
+        };
+        place_at_end(&mut session, song).expect("placed");
+        assert_eq!(session.frame(), Frame::hd());
+        assert_eq!(clips_of(&session.document(), session.showing()).len(), 1);
+    }
+
+    #[test]
+    fn a_file_already_in_the_bin_is_not_added_twice() {
+        let mut session = session();
+        for _ in 0..2 {
+            place_at_end(&mut session, video("/footage/a.mp4", 1280, 720, None)).expect("placed");
+        }
+        let document = session.document();
+        assert_eq!(document.media.len(), 1);
+        let clips = clips_of(&document, session.showing());
+        assert_eq!(clips.len(), 2);
+        assert_eq!(clips[1].start, clips[0].start + clips[0].duration);
+        assert_eq!(document.showing_end().display_seconds(), 8.0);
+    }
+
+    #[test]
+    fn clips_list_in_time_order_with_the_lane_counted_from_the_top() {
+        let mut session = session();
+        for _ in 0..2 {
+            place_at_end(&mut session, video("/footage/a.mp4", 1280, 720, None)).expect("placed");
+        }
+        // Over the first clip, so it goes one lane up.
+        let media = session.document().media.ids().next().expect("the file");
+        let start = Tick::from_whole_seconds(1).expect("a place");
+        session
+            .apply(&Command::AddClipAtFirstFree { media, start })
+            .expect("placed");
+
+        let document = session.document();
+        let showing = session.showing().expect("a timeline shows");
+        let bottom = u32::try_from(document.lanes.index().of(showing).count()).expect("few") - 1;
+        let clips = clips_of(&document, session.showing());
+        let listed: Vec<(f64, u32)> = clips.iter().map(|clip| (clip.start, clip.lane)).collect();
+        assert_eq!(listed, [(0.0, bottom), (1.0, bottom - 1), (4.0, bottom)]);
+        assert!(clips.iter().all(|clip| clip.name == "a.mp4"));
     }
 }

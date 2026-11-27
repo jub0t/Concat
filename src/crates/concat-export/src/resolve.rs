@@ -109,17 +109,7 @@ impl StabilizeJob {
             clip.source_start,
             clip.source_start + clip.duration.max(0.0) * speed,
         );
-        let correction = stabilize::path::correct(
-            &motion,
-            range,
-            speed,
-            &stabilize::Settings {
-                smoothness: settings.smoothness,
-                max_zoom: settings.max_zoom,
-                tripod: settings.tripod,
-                keep_rotation: settings.keep_rotation,
-            },
-        );
+        let correction = stabilize::path::correct(&motion, range, speed, &settings);
         (!correction.is_empty()).then_some(StabilizeJob { correction })
     }
 
@@ -337,12 +327,12 @@ pub(crate) fn build_timeline(
             engine_clip.retime = clip.engine_curve();
         }
         engine_clip.animation = animation_of(&clip.animation);
-        engine_clip.motion = clip.motion.as_ref().and_then(|motion| motion.engine());
+        engine_clip.motion = clip.motion.filter(|motion| !motion.is_empty());
         engine_clip.frozen = clip
             .frozen
             .map(|(local, length)| concat_core::timeline::Frozen { local, length });
         engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
-        engine_clip.masks = clip.masks.iter().map(Mask::engine).collect();
+        engine_clip.masks.clone_from(&clip.masks);
         engine_clip.overscan = overscan_of(clip);
         engine_clip.transform = Transform {
             scale: clip.scale,
@@ -404,7 +394,7 @@ pub(crate) fn build_timeline(
                 geometry.insert(id, planned);
             }
             if let Some(range) = clip.color_range {
-                ranges.insert(id, crate::engine_range(range));
+                ranges.insert(id, range);
             }
             let effects = shaded(&clip.effects);
             if !effects.is_empty() {

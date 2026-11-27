@@ -19,8 +19,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use concat_doc::model::{Frame, Media, Model};
 use concat_host::preview::FrameSpec;
-use concat_project::model::{MediaItem, Project};
+
+use crate::doc_view;
 
 use crate::host::{spawn_detached, spawn_frame};
 use crate::i18n::{t, tf};
@@ -212,7 +214,7 @@ impl MonitorPane {
             }
             MonitorMsg::Frame(result, spec, Lane::Main) => {
                 self.busy = false;
-                let fps = studio.project().active().video.rate();
+                let fps = f64::from(studio.frame_rate());
                 let wait = self.asked.take().map(|at| at.elapsed()).unwrap_or_default();
                 if spec.moving && result.is_ok() {
                     self.cadence
@@ -239,8 +241,10 @@ impl MonitorPane {
                 }
             }
             MonitorMsg::QualityChanged(index) => {
-                let id = studio.project().active_timeline_id.clone();
-                self.quality.insert(id, (index.max(0) as usize).min(2));
+                if let Some(id) = doc_view::showing(studio.doc()) {
+                    self.quality
+                        .insert(id.to_string(), (index.max(0) as usize).min(2));
+                }
                 self.request(studio, Lane::Main);
             }
             MonitorMsg::Opened => self.failed = false,
@@ -295,7 +299,10 @@ impl MonitorPane {
                     // The chain above is for the log. A file that has gone
                     // is said in a sentence, by its name: the chain names
                     // its whole path twice and reads as a stack trace.
-                    let said = match missing_source(&error, &studio.project().media) {
+                    let media: Vec<&Media> = doc_view::bin(studio.committed())
+                        .map(|(_, media)| media)
+                        .collect();
+                    let said = match missing_source(&error, &media) {
                         Some(name) => tf("monitor.previewMissing", &[&name]),
                         None => tf("monitor.previewFailed", &[&error]),
                     };
@@ -305,11 +312,11 @@ impl MonitorPane {
         }
     }
 
-    /// The quality tier for the project's active timeline: 0 full, 1
-    /// half, 2 quarter. Half until chosen.
-    pub fn quality_of(&self, project: &Project) -> usize {
-        self.quality
-            .get(&project.active_timeline_id)
+    /// The quality tier for the sequence showing: 0 full, 1 half, 2
+    /// quarter. Half until chosen, and chosen for each timeline apart.
+    pub fn quality_of(&self, doc: &Model) -> usize {
+        doc_view::showing(doc)
+            .and_then(|id| self.quality.get(&id.to_string()))
             .copied()
             .unwrap_or(1)
     }
@@ -362,12 +369,13 @@ impl MonitorPane {
         if !refine {
             self.rest.stop();
         }
-        let (width, height) =
-            Self::frame_size(self.quality_of(studio.project()), studio.output_size());
+        let quality = self.quality_of(studio.doc());
+        let (width, height) = Self::frame_size(quality, studio.output_size());
         let Some((clips, settings)) = studio.preview_clips() else {
             return;
         };
-        let quality = self.quality_of(studio.project());
+        let frame = doc_view::sequence(studio.doc())
+            .map_or_else(Frame::hd, |sequence| sequence.frame.clone());
         let spec = FrameSpec {
             time: f64::from(time),
             width,
@@ -382,12 +390,17 @@ impl MonitorPane {
             // proxy blurred up. With scrub copies off in Settings it reads the
             // files at every quality, a proxy left from before included.
             proxy: studio.prefs.scrub_copies() && (nearest || (moving && quality > 0)),
-            color_space: studio.project().active().video.color_space,
-            canvas: studio.project().active().video.canvas,
+            color_space: concat_export::ColorSpace::of(&frame.color),
+            canvas: [
+                frame.canvas.r,
+                frame.canvas.g,
+                frame.canvas.b,
+                frame.canvas.a,
+            ],
             nearest,
         };
         if !studio.playing {
-            self.cadence.report(studio.project().active().video.rate());
+            self.cadence.report(frame.rate.display_per_second());
         }
         let monitor = studio.host.monitor.clone();
         if refine {
@@ -444,7 +457,7 @@ impl MonitorPane {
 /// on the decoder's wording, so it holds whatever words the chain is in;
 /// the check on disk keeps a file that is there but would not decode from
 /// being called missing.
-fn missing_source(error: &str, media: &[MediaItem]) -> Option<String> {
+fn missing_source(error: &str, media: &[&Media]) -> Option<String> {
     media
         .iter()
         .filter(|item| !item.path.is_empty() && error.contains(item.path.as_str()))
@@ -461,11 +474,11 @@ fn missing_source(error: &str, media: &[MediaItem]) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn media(path: &str) -> MediaItem {
-        MediaItem {
+    fn media(path: &str) -> Media {
+        Media {
             path: path.to_owned(),
             name: "shown name".to_owned(),
-            ..MediaItem::default()
+            ..Media::default()
         }
     }
 
@@ -481,13 +494,13 @@ mod tests {
         );
         let here = std::env::temp_dir().to_string_lossy().into_owned();
         assert_eq!(
-            missing_source(&error, &[media(&here), media(&gone)]),
+            missing_source(&error, &[&media(&here), &media(&gone)]),
             Some("clip-1.mp4".to_owned())
         );
         let broken = format!("decode failed for {here}: bad data");
-        assert_eq!(missing_source(&broken, &[media(&here)]), None);
+        assert_eq!(missing_source(&broken, &[&media(&here)]), None);
         assert_eq!(
-            missing_source("preview texture: lost", &[media(&gone)]),
+            missing_source("preview texture: lost", &[&media(&gone)]),
             None
         );
     }
@@ -524,15 +537,19 @@ mod tests {
 
     #[test]
     fn quality_is_half_until_chosen_and_kept_per_timeline() {
+        use concat_doc::commands::Command;
         let mut pane = MonitorPane::default();
-        let mut project = Project {
-            active_timeline_id: "a".to_owned(),
-            ..Project::default()
-        };
-        assert_eq!(pane.quality_of(&project), 1);
-        pane.quality.insert("a".to_owned(), 2);
-        assert_eq!(pane.quality_of(&project), 2);
-        project.active_timeline_id = "b".to_owned();
-        assert_eq!(pane.quality_of(&project), 1, "another timeline has its own");
+        let mut bench = doc_view::bench::Bench::new();
+        let first = doc_view::showing(bench.doc()).expect("a timeline");
+        assert_eq!(pane.quality_of(bench.doc()), 1);
+        pane.quality.insert(first.to_string(), 2);
+        assert_eq!(pane.quality_of(bench.doc()), 2);
+        bench.apply(&Command::AddTimeline);
+        assert_ne!(doc_view::showing(bench.doc()), Some(first));
+        assert_eq!(
+            pane.quality_of(bench.doc()),
+            1,
+            "another timeline has its own"
+        );
     }
 }

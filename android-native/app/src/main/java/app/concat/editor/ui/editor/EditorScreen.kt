@@ -118,7 +118,7 @@ private val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.
 private class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
 
 /**
- * The editor, CapCut's way: a top bar, the preview (at most about 42% of
+ * The editor: a top bar, the preview (at most about 42% of
  * the height: the timeline is the product), the transport, the timeline,
  * and a scrollable toolbar whose tools open their options in a panel
  * above it. [startTool] opens a panel at once ("captions", "speech").

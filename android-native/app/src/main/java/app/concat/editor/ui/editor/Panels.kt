@@ -68,7 +68,7 @@ import org.json.JSONObject
 
 /*
  * The tools' sub-panels: what opens above the toolbar when a tool has
- * options, CapCut's way. Sliders apply when the finger lifts (one undo
+ * options. Sliders apply when the finger lifts (one undo
  * step each), chips at once; the check closes the panel.
  */
 
@@ -223,8 +223,8 @@ fun TextPanel(
 }
 
 /**
- * Effects, filters or transitions as a row of tiles over the clip, CapCut's
- * way: "None" first, a tap applies, and the newest of this shelf's links
+ * Effects, filters or transitions as a row of tiles over the clip:
+ * "None" first, a tap applies, and the newest of this shelf's links
  * gets its strength slider beneath. "All" opens the full catalogue sheet
  * with search, categories and every knob.
  */
@@ -295,7 +295,8 @@ fun PackagePanel(
         val newest = links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
         val pkg = newest?.let { catalogue.find(it.third.id) }
         val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity } ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
-        if (clip != null && newest != null && pkg != null && knob != null) {
+        // A transition's knobs are the clip itself, changed by picking another.
+        if (clip != null && clip.kind != ClipKind.Transition && newest != null && pkg != null && knob != null) {
             LinkStrength(clip, newest.first, newest.second, newest.third, pkg, knob, editor)
         }
     }

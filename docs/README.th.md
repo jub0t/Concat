@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## เกี่ยวกับ Concat
 
-Concat คือโปรแกรมตัดต่อวิดีโอที่ฟรีและเป็นโอเพนซอร์ส บน macOS, Windows, Linux, Android และ iOS ทำได้ครบในสิ่งที่งานตัดต่อส่วนใหญ่ต้องใช้ ทั้งคำบรรยายอัตโนมัติ แยกเสียงพูด แปลงข้อความเป็นเสียงพูด ลบพื้นหลัง แอนิเมชันและคีย์เฟรม เอฟเฟกต์และไตเติล ตัดต่อหลายแทร็ก และส่งออก 4K โดยไม่มีข้อแม้ใด ๆ ไม่มีลายน้ำ ไม่ต้องมีบัญชี ไม่ต้องสมัครสมาชิก ไม่ต้องอัปโหลด
+Concat คือโปรแกรมตัดต่อวิดีโอที่ฟรีและเป็นโอเพนซอร์ส บน macOS, Windows, Linux และ Android ทำได้ครบในสิ่งที่งานตัดต่อส่วนใหญ่ต้องใช้ ทั้งคำบรรยายอัตโนมัติ แยกเสียงพูด แปลงข้อความเป็นเสียงพูด ลบพื้นหลัง แอนิเมชันและคีย์เฟรม เอฟเฟกต์และไตเติล ตัดต่อหลายแทร็ก และส่งออก 4K โดยไม่มีข้อแม้ใด ๆ ไม่มีลายน้ำ ไม่ต้องมีบัญชี ไม่ต้องสมัครสมาชิก ไม่ต้องอัปโหลด
 
 ทุกอย่างทำงานบนเครื่องของคุณเอง ด้วยเอนจิน Rust แบบเนทีฟพร้อมตัวคอมโพสิตบน GPU ติดตั้ง ลากฟุตเทจเข้ามา แล้วตัดได้เลย โมเดล AI สำหรับคำบรรยาย เสียงพูด และการตัดพื้นหลัง ดาวน์โหลดครั้งเดียวจากหน้าการตั้งค่า แล้วหลังจากนั้นก็ใช้งานแบบออฟไลน์ได้ ฟุตเทจของคุณไม่เคยออกจากดิสก์ของคุณ
 
@@ -72,8 +72,8 @@ Concat คือโปรแกรมตัดต่อวิดีโอที�
 - 📤 **ส่งออก** H.264, HEVC, AV1 ด้วยตัวเข้ารหัสของคอมพิวเตอร์คุณเอง สูงสุด 4K 60 สี 10 บิต
 - ⚡ **เร็ว** มีพร็อกซีในตัว เลื่อนดู 4K ได้ลื่น ไตเติลถูกวาดบนทุกคอร์ และทุกเอฟเฟกต์พร้อมใช้ทันทีที่หน้าต่างเปิด
 - 🛟 **ทำงานต่อได้บนทุกเครื่อง** เมื่อชิปกราฟิกยอมแพ้ พรีวิวก็ยังวาดต่อไป
-- 🤖 **สั่งงานด้วยสคริปต์ได้** มี API แบบ JSON-RPC ที่สคริปต์และเอเจนต์ AI ใช้ตัดต่อวิดีโอได้ ถ้าบิลด์จากซอร์สโค้ดจะได้ gRPC และเครื่องมือบรรทัดคำสั่งเพิ่มมาด้วย
-- 🖥️ **macOS, Windows, Linux, Android, iOS** 27 ภาษา แอปเดียวกัน ไฟล์โปรเจกต์เดียวกัน
+- 🤖 **สั่งงานด้วยสคริปต์ได้** มี API แบบ JSON-RPC ที่สคริปต์และเอเจนต์ AI ใช้ตัดต่อวิดีโอได้ ถ้าบิลด์จากซอร์สโค้ดจะได้เครื่องมือบรรทัดคำสั่งเพิ่มมาด้วย
+- 🖥️ **macOS, Windows, Linux, Android** 27 ภาษา แอปเดียวกัน ไฟล์โปรเจกต์เดียวกัน
 
 ## ดาวน์โหลด
 
@@ -90,7 +90,6 @@ Concat อยู่ในช่วง **เบต้า**: ใช้งานไ
 - ✅ **macOS** · Intel และ Apple silicon หาก macOS ไม่ยอมเปิดบิลด์ที่ไม่ได้ลงนาม: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 และ ARM มี `.deb`, `.rpm`, `.AppImage` และแพ็กเกจสำหรับ Arch และยังมี Flatpak บน **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** ซึ่งเป็นรีโมต Flatpak ของชุมชนที่แพ็ก `.deb` สำหรับ x86_64 ของแต่ละรีลีส และอัปเดตตามทุกรีลีส
 - ✅ **Android** · โทรศัพท์และแท็บเล็ต
-- ✅ **iOS / iPadOS** · iPhone และ iPad ผ่านการไซด์โหลด
 
 ✅ รองรับ · 🚧 กำลังพัฒนา · 🧪 รอการทดสอบ
 
@@ -103,7 +102,7 @@ Concat อยู่ในช่วง **เบต้า**: ใช้งานไ
 > [!IMPORTANT]
 > วิธีที่ดีที่สุดในการมีส่วนร่วม คือดาวน์โหลดบิลด์จากหน้า [Releases](https://github.com/jub0t/Concat/releases) แล้วใช้งานจริง: หาว่าตรงไหนพัง และบอกว่าตรงไหนน่าจะดีขึ้นได้
 >
-> พร้อมเขียนโค้ดแล้วหรือยัง? [CONTRIBUTING.md](../CONTRIBUTING.md) อธิบายการตั้งค่า โครงสร้างของซอร์สโค้ด การตรวจสอบที่ต้องรัน และสัญญาอนุญาตของงานที่ส่งเข้ามา จะควบคุม Concat จากสคริปต์ บริการ หรือเอเจนต์ใช่ไหม? [เอกสารสำหรับนักพัฒนา](https://concat.standalones.org/docs) อธิบาย Concat API และช่องทางรับส่งข้อมูลของมัน ได้แก่ JSON-RPC และ gRPC ส่วน [Discussion นี้](https://github.com/jub0t/Concat/discussions/3) คือที่ที่โปรเจกต์ประกาศเปิดตัว
+> พร้อมเขียนโค้ดแล้วหรือยัง? [CONTRIBUTING.md](../CONTRIBUTING.md) อธิบายการตั้งค่า โครงสร้างของซอร์สโค้ด การตรวจสอบที่ต้องรัน และสัญญาอนุญาตของงานที่ส่งเข้ามา จะควบคุม Concat จากสคริปต์ บริการ หรือเอเจนต์ใช่ไหม? [เอกสารสำหรับนักพัฒนา](https://concat.standalones.org/docs) อธิบาย Concat API และช่องทางรับส่งข้อมูลของมัน คือ JSON-RPC ส่วน [Discussion นี้](https://github.com/jub0t/Concat/discussions/3) คือที่ที่โปรเจกต์ประกาศเปิดตัว
 > 
 > ผู้ร่วมพัฒนาขอรับบทบาท `@Contributor` ในเซิร์ฟเวอร์ Discord ได้ แค่บอกมา
 

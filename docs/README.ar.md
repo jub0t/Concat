@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## نبذة
 
-Concat محرر فيديو مجاني ومفتوح المصدر على macOS وWindows وLinux وAndroid وiOS. فيه ما تحتاجه معظم المونتاجات: الترجمة التلقائية، عزل الصوت، تحويل النص إلى كلام، إزالة الخلفية، الرسوم المتحركة والإطارات المفتاحية، المؤثرات والعناوين، القص متعدد المسارات، التصدير بدقة 4K. وبلا أي فخاخ: لا علامة مائية، لا حساب، لا اشتراك، لا رفع للملفات.
+Concat محرر فيديو مجاني ومفتوح المصدر على macOS وWindows وLinux وAndroid. فيه ما تحتاجه معظم المونتاجات: الترجمة التلقائية، عزل الصوت، تحويل النص إلى كلام، إزالة الخلفية، الرسوم المتحركة والإطارات المفتاحية، المؤثرات والعناوين، القص متعدد المسارات، التصدير بدقة 4K. وبلا أي فخاخ: لا علامة مائية، لا حساب، لا اشتراك، لا رفع للملفات.
 
 كل شيء يعمل محليًا على محرك Rust أصلي مع مركّب رسوميات على بطاقة الرسوميات. ثبّته، أسقط لقطاتك، وقصّ. نماذج الذكاء الاصطناعي للترجمة والأصوات والقص تُنزَّل مرة واحدة من الإعدادات ثم تعمل دون اتصال. لقطاتك لا تغادر قرصك أبدًا.
 
@@ -72,8 +72,8 @@ Concat محرر فيديو مجاني ومفتوح المصدر على macOS وW
 - 📤 **تصدير.** H.264 وHEVC وAV1، على مرمّز جهازك نفسه. حتى 4K بمعدل 60، ألوان 10 بت.
 - ⚡ **سريع.** ملفات وسيطة مدمجة لتصفّح 4K بسلاسة. تُرسم العناوين على كل النوى، وكل مؤثر جاهز لحظة فتح النافذة.
 - 🛟 **يواصل العمل على أي جهاز.** حين تستسلم شريحة الرسوميات، تواصل المعاينة الرسم.
-- 🤖 **قابل للبرمجة.** واجهة JSON-RPC يمكن للسكربتات ووكلاء الذكاء الاصطناعي قص الفيديو بها. والبناء من الشيفرة المصدرية يضيف gRPC وأداة سطر أوامر.
-- 🖥️ **macOS وWindows وLinux وAndroid وiOS.** 27 لغة. التطبيق نفسه، ملفات المشروع نفسها.
+- 🤖 **قابل للبرمجة.** واجهة JSON-RPC يمكن للسكربتات ووكلاء الذكاء الاصطناعي قص الفيديو بها. والبناء من الشيفرة المصدرية يضيف أداة سطر أوامر.
+- 🖥️ **macOS وWindows وLinux وAndroid.** 27 لغة. التطبيق نفسه، ملفات المشروع نفسها.
 
 ## التنزيل
 
@@ -90,7 +90,6 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 - ✅ **macOS** · Intel وApple Silicon. إذا رفض macOS فتح إصدار غير موقّع: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 وARM. ‏`.deb` و`.rpm` و`.AppImage` وحزمة Arch. وأيضًا Flatpak على **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**، وهو مستودع Flatpak مجتمعي يغلّف ملف `.deb` لمعمارية x86_64 من كل إصدار ويتحدّث معه
 - ✅ **Android** · الهواتف والأجهزة اللوحية
-- ✅ **iOS / iPadOS** · iPhone وiPad، بالتثبيت الجانبي
 
 ✅ مدعوم · 🚧 قيد العمل · 🧪 بانتظار الاختبار
 
@@ -103,7 +102,7 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 > [!IMPORTANT]
 > أفضل طريقة للمساهمة أن تأخذ إصدارًا من صفحة [Releases](https://github.com/jub0t/Concat/releases) وتستخدمه: اعثر على ما يتعطّل، وقل أين يمكن أن يكون أفضل.
 >
-> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concat.standalones.org/docs) واجهة Concat ووسائل نقلها: JSON-RPC وgRPC. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
+> مستعد لكتابة الشيفرة؟ يغطي [CONTRIBUTING.md](../CONTRIBUTING.md) الإعداد وبنية الشجرة والفحوصات التي تُشغَّل وكيفية ترخيص المساهمات. تقود Concat من سكربت أو خدمة أو وكيل؟ تغطي [وثائق المطوّرين](https://concat.standalones.org/docs) واجهة Concat ووسيلة نقلها: JSON-RPC. [هذه المناقشة](https://github.com/jub0t/Concat/discussions/3) هي حيث أُعلن عن المشروع.
 > 
 > يمكن للمساهمين الحصول على دور `@Contributor` في خادم Discord: فقط اطلبه.
 

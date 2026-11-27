@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Про проєкт
 
-Concat є безкоштовним відеоредактором з відкритим кодом для macOS, Windows, Linux, Android та iOS. Він уміє те, що потрібно більшості монтажів: автоматичні субтитри, ізоляцію голосу, синтез мовлення, видалення фону, анімації та ключові кадри, ефекти й титри, багатодоріжковий монтаж, експорт у 4K. І без пасток: ані водяного знака, ані облікового запису, ані підписки, ані завантаження на сервер.
+Concat є безкоштовним відеоредактором з відкритим кодом для macOS, Windows, Linux та Android. Він уміє те, що потрібно більшості монтажів: автоматичні субтитри, ізоляцію голосу, синтез мовлення, видалення фону, анімації та ключові кадри, ефекти й титри, багатодоріжковий монтаж, експорт у 4K. І без пасток: ані водяного знака, ані облікового запису, ані підписки, ані завантаження на сервер.
 
 Усе працює локально на нативному рушії на Rust із GPU-композитором. Встановіть, перетягніть матеріал, ріжте. Моделі ШІ для субтитрів, голосів і вирізання фону завантажуються один раз із налаштувань і далі працюють офлайн. Ваш матеріал ніколи не залишає ваш диск.
 
@@ -72,8 +72,8 @@ Concat є безкоштовним відеоредактором з відкр�
 - 📤 **Експорт.** H.264, HEVC, AV1 на власному кодувальнику вашого комп’ютера. До 4K 60, 10-бітний колір.
 - ⚡ **Швидко.** Проксі вбудовано, щоб 4K гортався плавно. Титри малюються на всіх ядрах, і кожен ефект готовий щойно відкривається вікно.
 - 🛟 **Працює далі на будь-якій машині.** Коли графічний чип здається, попередній перегляд продовжує малюватися.
-- 🤖 **Скриптований.** API JSON-RPC, через який скрипти та ШІ-агенти можуть монтувати відео. Збірка з вихідного коду додає gRPC та інструмент командного рядка.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 мов. Той самий застосунок, ті самі файли проєктів.
+- 🤖 **Скриптований.** API JSON-RPC, через який скрипти та ШІ-агенти можуть монтувати відео. Збірка з вихідного коду додає інструмент командного рядка.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 мов. Той самий застосунок, ті самі файли проєктів.
 
 ## Завантажити
 
@@ -90,7 +90,6 @@ Concat у **беті**: він працює, але шорсткості ще є
 - ✅ **macOS** · Intel і Apple Silicon. Якщо macOS відмовляється відкрити непідписану збірку: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 і ARM. `.deb`, `.rpm`, `.AppImage` і пакет для Arch. А ще Flatpak на **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, спільнотному Flatpak-репозиторії, який обгортає `.deb` x86_64 кожного релізу й оновлюється разом із ним
 - ✅ **Android** · телефони та планшети
-- ✅ **iOS / iPadOS** · iPhone та iPad, через sideload
 
 ✅ Підтримується · 🚧 У роботі · 🧪 Треба перевірити
 
@@ -103,7 +102,7 @@ Concat у **беті**: він працює, але шорсткості ще є
 > [!IMPORTANT]
 > Найкраще ви допоможете, якщо візьмете збірку зі сторінки [Releases](https://github.com/jub0t/Concat/releases) і користуватиметеся нею: знайдете, де вона ламається, і скажете, де вона могла б бути кращою.
 >
-> Готові писати код? У [CONTRIBUTING.md](../CONTRIBUTING.md) описано налаштування, будову дерева, які перевірки запускати та як ліцензуються внески. Керуєте Concat зі скрипту, сервісу чи агента? [Документація для розробників](https://concat.standalones.org/docs) описує API Concat та його транспорти: JSON-RPC і gRPC. [У цьому обговоренні](https://github.com/jub0t/Concat/discussions/3) проєкт було анонсовано.
+> Готові писати код? У [CONTRIBUTING.md](../CONTRIBUTING.md) описано налаштування, будову дерева, які перевірки запускати та як ліцензуються внески. Керуєте Concat зі скрипту, сервісу чи агента? [Документація для розробників](https://concat.standalones.org/docs) описує API Concat та його транспорт: JSON-RPC. [У цьому обговоренні](https://github.com/jub0t/Concat/discussions/3) проєкт було анонсовано.
 > 
 > Учасники можуть отримати роль `@Contributor` на сервері Discord: достатньо попросити.
 

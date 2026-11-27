@@ -20,9 +20,9 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use concat_doc::model::Frame as DocumentSettings;
+use concat_export::ColorSpace;
 use concat_export::ExportClip;
-use concat_project::DocumentSettings;
-use concat_project::model::ColorSpace;
 
 /// How far ahead of the playhead playback opens the file a cut leads to;
 /// see [`Monitor::prefetch`].
@@ -295,7 +295,10 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Arc<concat_export::PreviewPlan> {
-        let rate = (settings.rate_num, settings.rate_den);
+        let rate = (
+            i64::from(settings.rate.num()),
+            i64::from(settings.rate.den()),
+        );
         let mut slot = self
             .plan
             .lock()
@@ -403,7 +406,7 @@ impl Monitor {
             frames.min(concat_media::prefetch::AHEAD),
             spec.proxy,
         );
-        let fps = (settings.rate_num as f64 / settings.rate_den.max(1) as f64).max(1.0);
+        let fps = (f64::from(settings.rate.num()) / f64::from(settings.rate.den().max(1))).max(1.0);
         // The file a cut leads into, read a second early: opening a reader
         // and seeking it costs more than the quarter second the frames
         // ahead cover, so a cut would otherwise wait on it. Only files the

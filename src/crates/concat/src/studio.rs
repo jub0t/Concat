@@ -29,6 +29,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use concat_doc::commands::{
+    ClipMove, Command, Edge as TrimEdge, Framing, ItemPatch, KeyProperty, LaneFlag,
+};
+use concat_doc::model::{
+    self, Content, Effect, Item, ItemId, LaneId, MediaId, Model as Doc, TextAlign, Title,
+};
+use concat_doc::{AnyId, Document, Tick, TickDur, TickLen};
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
 use concat_effects::manifest::ParamType;
@@ -38,11 +45,22 @@ use concat_host::{
     templates,
 };
 use concat_media::Pyramid;
-use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
-use concat_project::model::{
-    self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
-};
-use concat_project::{Command, PlayheadSide};
+
+use crate::doc_view::{self, Kind};
+
+/// The item an edit made, as the panels hold its id.
+fn made_item(created: Option<AnyId>) -> Option<String> {
+    created
+        .and_then(|id| id.typed::<ItemId>())
+        .map(|id| id.to_string())
+}
+
+/// The colour the sequence showing is output in; SDR with none.
+fn colour_of_showing(doc: &Doc) -> model::ColorSpace {
+    doc_view::sequence(doc).map_or(model::ColorSpace::Sdr, |sequence| {
+        sequence.frame.color.clone()
+    })
+}
 
 mod backdrop;
 mod beats;
@@ -82,8 +100,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
-    running_time, wave_columns, wave_path, when_phrase,
+    WAVE_BAR, WAVE_PITCH, frames_timecode, hex_of, running_time, wave_columns, wave_path,
+    when_phrase,
 };
 use crate::grading;
 use crate::host::{
@@ -475,10 +493,6 @@ pub enum Edge {
 /// Where one clip sat when a gesture began, so the whole set moves rigidly.
 pub struct MoveOrigin {
     pub clip: String,
-    /// Where the clip began when the press landed, exact: the drag adds its
-    /// shift to this, not to the echo's start, which already holds the last
-    /// shift.
-    pub start: f64,
     pub row: i32,
 }
 
@@ -501,7 +515,6 @@ pub enum Gesture {
         edge: Edge,
         start: f32,
         duration: f32,
-        source_start: f32,
         /// The pointer has left the dead zone around the press.
         started: bool,
     },
@@ -618,8 +631,8 @@ pub struct ColourPick {
 /// Whether a clip of this kind has a picture of its own to take a colour
 /// off: a video or a still, decoded from its file. A title or a shape is
 /// drawn, and has no file to read the pixel from.
-fn picks_colour(kind: model::ClipKind) -> bool {
-    matches!(kind, model::ClipKind::Video | model::ClipKind::Image)
+fn picks_colour(kind: Kind) -> bool {
+    matches!(kind, Kind::Video | Kind::Image)
 }
 
 /// The colour about `(u, v)` of `frame`, in fractions of it: the mean of
@@ -1031,12 +1044,12 @@ pub struct Studio {
 
     // ── the edit ──
     pub session: Option<Session>,
-    /// A clone of the project a gesture is mutating. `project()` reads it
+    /// A copy of the document a gesture is changing. `doc()` reads it
     /// while it exists; a command replaces it.
-    pub echo: Option<Project>,
-    /// Stands in for a project when none is open, so every reader has
-    /// something to read.
-    empty: Project,
+    pub echo: Option<Doc>,
+    /// The session's document as of its last change, taken once per change
+    /// so every reader has it by reference; empty when nothing is open.
+    document: Document<Doc>,
     /// Unsaved changes, and the timer that writes them.
     dirty: bool,
     autosave: slint::Timer,
@@ -1159,7 +1172,7 @@ pub struct Studio {
     /// Bumped when the library should show its Media page: a file the
     /// editor just made and put in the bin. See `Editor.media-jump-token`.
     pub media_jump: i32,
-    /// Bumped to turn the library to Text & Captions > Captions; see
+    /// Bumped to turn the library to the Captions page; see
     /// `Editor.captions-jump-token`.
     pub captions_jump: i32,
     /// A look being shown before it is laid down: the filter's id. It is
@@ -1409,7 +1422,7 @@ impl MissingArt {
 
 /// One audio track's row in the Audio panel's list: the name the file gave
 /// it or its number, and its channel layout.
-fn audio_track_label(track: &model::AudioTrack, position: usize) -> String {
+fn audio_track_label(track: &model::SoundStream, position: usize) -> String {
     let name = if track.title.is_empty() {
         tf("studio.track", &[&(position + 1)])
     } else {
@@ -1423,20 +1436,21 @@ fn audio_track_label(track: &model::AudioTrack, position: usize) -> String {
     format!("{name} · {layout}")
 }
 
-fn kind_of(clip: &Clip) -> ClipKind {
-    match clip.kind {
-        model::ClipKind::Video => ClipKind::Video,
-        model::ClipKind::Audio => ClipKind::Audio,
-        model::ClipKind::Image => ClipKind::Image,
-        model::ClipKind::Text => ClipKind::Text,
-        model::ClipKind::Layer => {
-            layer_kind(clip.video_effects.first().map(|link| link.id.as_str()))
-        }
-        model::ClipKind::SoundLayer => ClipKind::SoundLayer,
-        model::ClipKind::Shape => ClipKind::Shape,
+/// What an item is to the lanes, the stage and the drag chip.
+fn kind_of(doc: &Doc, item: &Item) -> ClipKind {
+    match doc_view::kind(doc, item) {
+        Kind::Audio => ClipKind::Audio,
+        Kind::Image => ClipKind::Image,
+        Kind::Text => ClipKind::Text,
+        Kind::Layer => layer_kind(doc_view::package(item)),
+        Kind::SoundLayer => ClipKind::SoundLayer,
+        Kind::Shape => ClipKind::Shape,
         // Drawn as a layer is - a span over the lanes beneath it, named for
         // its package, with no picture of its own - in a colour of its own.
-        model::ClipKind::Transition => ClipKind::Transition,
+        Kind::Transition => ClipKind::Transition,
+        // What the window has no panel for is drawn as footage is: a span
+        // with a picture and a sound of its own.
+        Kind::Video | Kind::Other => ClipKind::Video,
     }
 }
 
@@ -1459,10 +1473,12 @@ fn layer_kind(package: Option<&str>) -> ClipKind {
     }
 }
 
-fn align_of(align: TextAlign) -> TextAlignment {
+/// How a title's lines sit, as the panels say it; centred for an
+/// alignment this build does not know.
+fn align_of(align: &TextAlign) -> TextAlignment {
     match align {
         TextAlign::Left => TextAlignment::Left,
-        TextAlign::Center => TextAlignment::Center,
+        TextAlign::Center | TextAlign::Unknown(_) => TextAlignment::Center,
         TextAlign::Right => TextAlignment::Right,
     }
 }
@@ -1477,15 +1493,18 @@ fn char_at(text: &str, byte: i32) -> usize {
 }
 
 /// A title as it is first placed: the embedded face, centred, white.
-fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
+fn new_title_style(prefs: &crate::prefs::Preferences) -> Title {
     // The look a title was kept as, when one was (see
     // `Studio::use_title_style_for_new`); the bundled face otherwise.
-    let base = prefs.title_style.clone().unwrap_or_else(|| TextStyle {
-        font_family: "Hanken Grotesk".to_owned(),
-        font_weight: 600.0,
-        ..TextStyle::default()
-    });
-    TextStyle {
+    let base = prefs.title_look.as_ref().map_or_else(
+        || Title {
+            font_family: "Hanken Grotesk".to_owned(),
+            font_weight: 600.0,
+            ..Title::default()
+        },
+        crate::prefs::TitleLook::to_title,
+    );
+    Title {
         content: t("studio.newTitle"),
         runs: Vec::new(),
         ..base
@@ -1678,11 +1697,11 @@ fn commit_key(commands: &[Command]) -> String {
                 if patch.opacity.is_some() {
                     fields.push("opacity");
                 }
-                if patch.text.is_some() {
-                    fields.push("text");
+                if patch.title.is_some() {
+                    fields.push("title");
                 }
-                if patch.video_effects.is_some() {
-                    fields.push("video_effects");
+                if patch.effects.is_some() {
+                    fields.push("effects");
                 }
                 if patch.filters.is_some() {
                     fields.push("filters");
@@ -1700,16 +1719,16 @@ fn commit_key(commands: &[Command]) -> String {
 
 /// The field a keyable property is set through - the inverse of
 /// `Studio::key_property_of`, for handing a row back to the panel.
-fn key_field_of(property: model::KeyProperty) -> ClipField {
+fn key_field_of(property: KeyProperty) -> ClipField {
     match property {
-        model::KeyProperty::Scale => ClipField::Scale,
-        model::KeyProperty::OffsetX => ClipField::OffsetX,
-        model::KeyProperty::OffsetY => ClipField::OffsetY,
-        model::KeyProperty::Rotation => ClipField::Rotation,
-        model::KeyProperty::StretchX => ClipField::StretchX,
-        model::KeyProperty::StretchY => ClipField::StretchY,
-        model::KeyProperty::Opacity => ClipField::Opacity,
-        model::KeyProperty::Volume => ClipField::Volume,
+        KeyProperty::Scale => ClipField::Scale,
+        KeyProperty::OffsetX => ClipField::OffsetX,
+        KeyProperty::OffsetY => ClipField::OffsetY,
+        KeyProperty::Rotation => ClipField::Rotation,
+        KeyProperty::StretchX => ClipField::StretchX,
+        KeyProperty::StretchY => ClipField::StretchY,
+        KeyProperty::Opacity => ClipField::Opacity,
+        KeyProperty::Volume => ClipField::Volume,
     }
 }
 
@@ -1729,20 +1748,21 @@ const ADJUST_ID: &str = "concat.adjust";
 /// The kinds the colour panel grades: a picture, and a layer, which grades
 /// everything beneath it - an adjustment layer is a layer whose chain
 /// starts with the panel's own package.
-fn graded(kind: model::ClipKind) -> bool {
-    kind.is_visual() || kind == model::ClipKind::Layer
+fn graded(kind: Kind) -> bool {
+    kind.is_visual() || kind == Kind::Layer
 }
 
 /// What a clip is to the inspector: the clips of a batch share one only
 /// when they share this. See [`Studio::edit_targets`].
-fn inspector_family(kind: model::ClipKind) -> u8 {
+fn inspector_family(kind: Kind) -> u8 {
     match kind {
-        model::ClipKind::Text => 0,
-        model::ClipKind::Video | model::ClipKind::Image => 1,
-        model::ClipKind::Shape => 2,
-        model::ClipKind::Layer => 3,
-        model::ClipKind::Audio | model::ClipKind::SoundLayer => 4,
-        model::ClipKind::Transition => 5,
+        Kind::Text => 0,
+        Kind::Video | Kind::Image => 1,
+        Kind::Shape => 2,
+        Kind::Layer => 3,
+        Kind::Audio | Kind::SoundLayer => 4,
+        Kind::Transition => 5,
+        Kind::Other => 6,
     }
 }
 
@@ -1750,56 +1770,30 @@ fn inspector_family(kind: model::ClipKind) -> u8 {
 /// package at the same turn of it, so the second blur of the clip shown is
 /// the second blur of each other clip of a batch. None when that clip has
 /// no such link, and the edit passes it by.
-fn peer_link(chain: &[AppliedFilter], index: usize, peer: &[AppliedFilter]) -> Option<usize> {
-    let id = &chain.get(index)?.id;
+fn peer_link(chain: &[&Effect], index: usize, peer: &[&Effect]) -> Option<usize> {
+    let package = &chain.get(index)?.package;
     let turn = chain[..index]
         .iter()
-        .filter(|entry| &entry.id == id)
+        .filter(|entry| &entry.package == package)
         .count();
     peer.iter()
         .enumerate()
-        .filter(|(_, entry)| &entry.id == id)
+        .filter(|(_, entry)| &entry.package == package)
         .nth(turn)
         .map(|(at, _)| at)
 }
 
-/// The ease a key put on at `at` inherits: that of whichever key it joins
-/// behind, so laying a run of keys down does not alternate between shapes.
-/// The first key on a parameter has nothing to inherit and gets the
-/// straight line.
-fn ease_before(keys: &[model::ParamKey], at: f64) -> model::KeyEase {
-    keys.iter()
-        .rev()
-        .find(|key| key.at < at)
-        .map_or(model::KeyEase::LINEAR, |key| key.ease)
-}
-
-/// The playhead's place in `clip`, `0..=1`, held to its ends: where a keyed
-/// property is shown and written from. `Studio::key_point` is the same
-/// without the clamp, for the diamonds, which must not land a key on an end
-/// nobody aimed at.
-fn place_in(clip: &Clip, playhead: f32) -> f64 {
-    if clip.duration <= 0.0 {
-        return 0.0;
-    }
-    ((f64::from(playhead) - clip.start) / clip.duration).clamp(0.0, 1.0)
-}
-
-/// What a keyable property is worth on screen: its constant, or once it
-/// carries keys, its ride's value at `at`.
-fn shown(clip: &Clip, property: model::KeyProperty, at: f64) -> f64 {
-    if clip.is_keyed(property) {
-        clip.value_at(property, at)
-    } else {
-        clip.constant(property)
-    }
+/// What a keyable property is worth on screen at a content tick: its
+/// value, or once it carries keys, what they make there.
+fn shown(clip: &Item, property: KeyProperty, at: Tick) -> f64 {
+    doc_view::value_at(doc_view::animated(clip, property), at)
 }
 
 /// A keyable property's value in the knob's units: the model's, except
 /// the level, which the knob shows in decibels and the clip holds as gain.
-fn knob_value(property: model::KeyProperty, value: f64) -> f64 {
+fn knob_value(property: KeyProperty, value: f64) -> f64 {
     match property {
-        model::KeyProperty::Volume => {
+        KeyProperty::Volume => {
             if value <= 0.001 {
                 -60.0
             } else {
@@ -1811,9 +1805,9 @@ fn knob_value(property: model::KeyProperty, value: f64) -> f64 {
 }
 
 /// The reverse of [`knob_value`]: a knob's number as the model holds it.
-fn model_value(property: model::KeyProperty, knob: f64) -> f64 {
+fn model_value(property: KeyProperty, knob: f64) -> f64 {
     match property {
-        model::KeyProperty::Volume => {
+        KeyProperty::Volume => {
             if knob <= -60.0 {
                 0.0
             } else {
@@ -1826,25 +1820,25 @@ fn model_value(property: model::KeyProperty, knob: f64) -> f64 {
 
 /// The range a keyable knob runs over, in the knob's units: what the
 /// curve view's height spans. The same numbers as the inspector's rows.
-fn knob_range(property: model::KeyProperty) -> (f64, f64) {
+fn knob_range(property: KeyProperty) -> (f64, f64) {
     match property {
-        model::KeyProperty::Scale => (0.05, 8.0),
-        model::KeyProperty::OffsetX | model::KeyProperty::OffsetY => (-1.0, 1.0),
-        model::KeyProperty::Rotation => (-180.0, 180.0),
-        model::KeyProperty::StretchX | model::KeyProperty::StretchY => (0.1, 4.0),
-        model::KeyProperty::Opacity => (0.0, 1.0),
-        model::KeyProperty::Volume => (-60.0, 24.0),
+        KeyProperty::Scale => (0.05, 8.0),
+        KeyProperty::OffsetX | KeyProperty::OffsetY => (-1.0, 1.0),
+        KeyProperty::Rotation => (-180.0, 180.0),
+        KeyProperty::StretchX | KeyProperty::StretchY => (0.1, 4.0),
+        KeyProperty::Opacity => (0.0, 1.0),
+        KeyProperty::Volume => (-60.0, 24.0),
     }
 }
 
 /// The keyable property a batch edits relative to the first clip, for the
 /// fields that place a picture; None for every field a batch sets outright.
-fn relative_property(field: ClipField) -> Option<model::KeyProperty> {
+fn relative_property(field: ClipField) -> Option<KeyProperty> {
     match field {
-        ClipField::OffsetX => Some(model::KeyProperty::OffsetX),
-        ClipField::OffsetY => Some(model::KeyProperty::OffsetY),
-        ClipField::Rotation => Some(model::KeyProperty::Rotation),
-        ClipField::Scale => Some(model::KeyProperty::Scale),
+        ClipField::OffsetX => Some(KeyProperty::OffsetX),
+        ClipField::OffsetY => Some(KeyProperty::OffsetY),
+        ClipField::Rotation => Some(KeyProperty::Rotation),
+        ClipField::Scale => Some(KeyProperty::Scale),
         _ => None,
     }
 }
@@ -1864,13 +1858,13 @@ fn batch_value(field: ClipField, value: f64, reference: f64, current: f64) -> f6
     }
 }
 
-/// Writes a keyable property the way the person means it: the constant
-/// while the property has no keys, and once it rides, the key at `at` -
-/// put on if there was none, with the ease of the key behind it. The engine
-/// stops reading the constant the moment a property is keyed, so a knob or
-/// a stage drag that wrote it would change nothing on screen.
-fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: f64) {
-    clip.write_at(property, value, at);
+/// Writes a keyable property the way the person means it: the value while
+/// the property has no keys, and once it rides, the key at the content
+/// tick `at` - put on if there is none there, with the ease of the key
+/// behind it. A number that rides is drawn from its keys alone, so a knob
+/// or a stage drag that wrote its value would change nothing on screen.
+fn write_keyable(clip: &mut Item, property: KeyProperty, value: f64, at: Tick) {
+    doc_view::write_at(doc_view::animated_mut(clip, property), value, at);
 }
 
 thread_local! {
@@ -1961,7 +1955,6 @@ fn command_kind(command: &Command) -> &'static str {
         Command::AddTransitionClip { .. } => "Add transition",
         Command::SetClipSpeedCurve { curve: Some(_), .. } => "Speed ramp",
         Command::SetClipSpeedCurve { .. } => "Remove speed ramp",
-        Command::MatchClip { .. } => "Copy clip settings",
         Command::SetClipKey { .. } | Command::SetEffectKey { .. } | Command::SetMaskKey { .. } => {
             "Set keyframe"
         }
@@ -2001,7 +1994,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::SetClipSpeed { .. } => "Speed",
         Command::SetClipTransform { .. } => "Transform",
         Command::FrameClip {
-            framing: model::Framing::Fit,
+            framing: Framing::Fit,
             ..
         } => "Fit to frame",
         Command::FrameClip { .. } => "Fill frame",
@@ -2010,7 +2003,7 @@ fn command_kind(command: &Command) -> &'static str {
         Command::AddTrack { .. } => "Add track",
         Command::RemoveTrack { .. } => "Delete track",
         Command::SetTrackFlag {
-            flag: TrackFlag::Visible,
+            flag: LaneFlag::Visible,
             value,
             ..
         } => {
@@ -2052,13 +2045,13 @@ fn command_kind(command: &Command) -> &'static str {
 
 /// What a patch changes about a clip, by name. Never to what: a patch
 /// carries a title's words and a clip's name.
-fn patch_words(patch: &ClipPatch) -> String {
+fn patch_words(patch: &ItemPatch) -> String {
     let changed = [
         (patch.name.is_some(), "name"),
         (patch.volume.is_some(), "volume"),
         (patch.fade_in.is_some() || patch.fade_out.is_some(), "fade"),
         (patch.opacity.is_some(), "opacity"),
-        (patch.preserve_pitch.is_some(), "keep pitch"),
+        (patch.keep_pitch.is_some(), "keep pitch"),
         (patch.muted.is_some(), "mute"),
         (patch.flip_h.is_some() || patch.flip_v.is_some(), "flip"),
         (patch.blend.is_some(), "blend mode"),
@@ -2066,11 +2059,11 @@ fn patch_words(patch: &ClipPatch) -> String {
         (patch.masks.is_some(), "masks"),
         (patch.motion.is_some(), "animation"),
         (patch.filters.is_some(), "audio effects"),
-        (patch.video_effects.is_some(), "effects"),
-        (patch.transition_in.is_some(), "transition"),
-        (patch.text.is_some(), "text"),
+        (patch.effects.is_some(), "effects"),
+        (patch.cut_in.is_some(), "transition"),
+        (patch.title.is_some(), "text"),
         (patch.shape.is_some(), "shape"),
-        (patch.audio_stream.is_some(), "audio track"),
+        (patch.stream.is_some(), "audio track"),
         (patch.background.is_some(), "background"),
     ];
     let names: Vec<&str> = changed
@@ -2090,6 +2083,7 @@ fn patch_words(patch: &ClipPatch) -> String {
 /// name stay out of the log.
 fn command_words(command: &Command) -> String {
     let kind = command_kind(command);
+    let secs = |at: &Tick| doc_view::secs(*at);
     match command {
         Command::Batch { commands } => match commands.as_slice() {
             [] => "Nothing".to_owned(),
@@ -2123,8 +2117,8 @@ fn command_words(command: &Command) -> String {
                 words.join(", ")
             }
         },
-        Command::AddMedia { item } | Command::FillSlot { item, .. } => {
-            format!("{kind} {}", file_name_of(&item.path))
+        Command::AddMedia { media: file } | Command::FillSlot { file, .. } => {
+            format!("{kind} {}", file_name_of(&file.path))
         }
         Command::AddClip { start, ripple, .. } => {
             let how = if *ripple {
@@ -2132,32 +2126,31 @@ fn command_words(command: &Command) -> String {
             } else {
                 ""
             };
-            format!("{kind} at {start:.2} s{how}")
+            format!("{kind} at {:.2} s{how}", secs(start))
         }
         Command::AddClipAtFirstFree { start, .. }
         | Command::AddTextClip { start, .. }
-        | Command::AddShapeClip { start, .. } => format!("{kind} at {start:.2} s"),
-        Command::AddClipsInSequence {
-            media_ids, start, ..
-        } => format!("{kind} {} at {start:.2} s", clips_of(media_ids.len())),
-        Command::AddLayerClip {
-            start, effect_id, ..
-        } => format!("{kind} {effect_id} at {start:.2} s"),
-        Command::AddTransitionClip {
-            start,
-            transition_id,
-            ..
-        } => format!("{kind} {transition_id} at {start:.2} s"),
+        | Command::AddShapeClip { start, .. } => format!("{kind} at {:.2} s", secs(start)),
+        Command::AddClipsInSequence { media, start, .. } => {
+            format!("{kind} {} at {:.2} s", clips_of(media.len()), secs(start))
+        }
+        Command::AddLayerClip { start, package, .. }
+        | Command::AddTransitionClip { start, package, .. } => {
+            format!("{kind} {package} at {:.2} s", secs(start))
+        }
         Command::SetClipSpeedCurve {
             curve: Some(points),
             ..
         } => format!("{kind} with {} points", points.len()),
+        // A key's place is on its clip's own content time.
         Command::SetClipKey { at, .. }
         | Command::SetEffectKey { at, .. }
         | Command::SetMaskKey { at, .. }
         | Command::ClearClipKey { at, .. }
         | Command::ClearEffectKey { at, .. }
-        | Command::ClearMaskKey { at, .. } => format!("{kind} at {at:.2} s"),
+        | Command::ClearMaskKey { at, .. } => {
+            format!("{kind} {:.2} s into the clip's content", secs(at))
+        }
         Command::MoveClips { moves } | Command::MoveClipsToNewTrack { moves, .. } => {
             format!("{kind} {}", clips_of(moves.len()))
         }
@@ -2168,173 +2161,158 @@ fn command_words(command: &Command) -> String {
             ..
         } => {
             let edge = match edge {
-                TrimEdge::Start => "start",
-                TrimEdge::End => "end",
+                TrimEdge::Head => "start",
+                TrimEdge::Tail => "end",
             };
             let how = if *ripple { ", rippling" } else { "" };
-            format!("{kind} a clip's {edge} by {delta:+.2} s{how}")
+            format!(
+                "{kind} a clip's {edge} by {:+.2} s{how}",
+                doc_view::dur_secs(*delta)
+            )
         }
-        Command::SplitClips { clip_ids, time } => {
-            if clip_ids.len() == 1 {
-                format!("{kind} at {time:.2} s")
+        Command::SplitClips { items, at } => {
+            if items.len() == 1 {
+                format!("{kind} at {:.2} s", secs(at))
             } else {
-                format!("{kind} {} at {time:.2} s", clips_of(clip_ids.len()))
+                format!("{kind} {} at {:.2} s", clips_of(items.len()), secs(at))
             }
         }
-        Command::ReplaceClipMedia { item, .. } | Command::ConsolidateClips { item, .. } => {
-            format!("{kind}, now {}", file_name_of(&item.path))
+        Command::ReplaceClipMedia { file, .. } | Command::ConsolidateClips { file, .. } => {
+            format!("{kind}, now {}", file_name_of(&file.path))
         }
-        Command::FreezeFrame { time, .. } => format!("{kind} at {time:.2} s"),
-        Command::MergeClips { clip_ids }
-        | Command::RemoveClips { clip_ids, .. }
-        | Command::DuplicateClips { clip_ids } => {
-            format!("{kind} {}", clips_of(clip_ids.len()))
+        Command::FreezeFrame { at, .. } => format!("{kind} at {:.2} s", secs(at)),
+        Command::MergeClips { items }
+        | Command::RemoveClips { items, .. }
+        | Command::DuplicateClips { items } => {
+            format!("{kind} {}", clips_of(items.len()))
         }
         Command::UpdateClip { patch, .. } => format!("{kind}: {}", patch_words(patch)),
-        Command::SetClipSpeed { speed, .. } => format!("{kind} {speed:.2}x"),
-        Command::SetTimelineVideo { video, .. } => format!(
+        Command::SetClipSpeed { speed, .. } => format!("{kind} {:.2}x", speed.display()),
+        Command::SetTimelineVideo { frame, .. } => format!(
             "{kind} {}x{} {:.3} fps",
-            video.width,
-            video.height,
-            video.rate()
+            frame.width,
+            frame.height,
+            frame.rate.display_per_second()
         ),
         Command::AddFont { path, .. } => format!("{kind} {}", file_name_of(path)),
         Command::RemoveFont { family } => format!("{kind} {family}"),
-        Command::UpdateMediaPath { new_path, .. } => {
-            format!("{kind} to {}", file_name_of(new_path))
+        Command::UpdateMediaPath { path, .. } => {
+            format!("{kind} to {}", file_name_of(path))
         }
         _ => kind.to_owned(),
     }
 }
 
-/// The commands that turn `before` into `after`, clip `id` as the echo
-/// left it against the document's: a transform, a cutout, a
-/// stabilization, a speed, the
-/// keys, and one patch for everything else that differs. Empty when
-/// nothing does. A speed change on a magnetic timeline moves the lane
-/// behind the clip with its end.
-fn clip_edit_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<Command> {
+/// The commands that turn `before` into `after`, the item under `item` as
+/// the echo left it against the document's: a transform, a cutout, a
+/// stabilization, a voice mix, a speed, the keys, and one patch for
+/// everything else that differs. Empty when nothing does. A speed change
+/// on a magnetic timeline moves the lane behind the clip with its end.
+fn clip_edit_commands(item: ItemId, before: &Item, after: &Item, magnetic: bool) -> Vec<Command> {
     let mut commands = Vec::new();
-    if after.scale != before.scale
-        || after.offset_x != before.offset_x
-        || after.offset_y != before.offset_y
-        || after.rotation != before.rotation
-        || after.stretch_x != before.stretch_x
-        || after.stretch_y != before.stretch_y
+    let (was, now) = (&before.picture, &after.picture);
+    if now.scale.value != was.scale.value
+        || now.offset_x.value != was.offset_x.value
+        || now.offset_y.value != was.offset_y.value
+        || now.rotation.value != was.rotation.value
+        || now.stretch_x.value != was.stretch_x.value
+        || now.stretch_y.value != was.stretch_y.value
     {
         commands.push(Command::SetClipTransform {
-            clip_id: id.to_owned(),
-            scale: Some(after.scale),
-            offset_x: Some(after.offset_x),
-            offset_y: Some(after.offset_y),
-            rotation: Some(after.rotation),
-            stretch_x: Some(after.stretch_x),
-            stretch_y: Some(after.stretch_y),
+            item,
+            scale: Some(now.scale.value),
+            offset_x: Some(now.offset_x.value),
+            offset_y: Some(now.offset_y.value),
+            rotation: Some(now.rotation.value),
+            stretch_x: Some(now.stretch_x.value),
+            stretch_y: Some(now.stretch_y.value),
         });
     }
-    if after.cutout != before.cutout {
+    if now.cutout != was.cutout {
         commands.push(Command::SetClipCutout {
-            clip_id: id.to_owned(),
-            cutout: after.cutout.clone(),
+            item,
+            cutout: now.cutout.clone(),
         });
     }
-    if after.stabilize != before.stabilize {
+    if now.stabilize != was.stabilize {
         commands.push(Command::SetClipStabilize {
-            clip_id: id.to_owned(),
-            stabilize: after.stabilize,
+            item,
+            stabilize: now.stabilize.clone(),
         });
     }
-    // Without this the inspector's Voice isolation wrote the echo and the
-    // commit dropped it: the way chosen sprang back to Everything.
-    if after.voice != before.voice {
+    // The inspector's Voice isolation is written to the echo like the
+    // rest, and lands as a command of its own.
+    if after.sound.voice != before.sound.voice {
         commands.push(Command::SetClipVoice {
-            clip_id: id.to_owned(),
-            voice: after.voice,
+            item,
+            voice: after.sound.voice.clone(),
         });
     }
-    // A curve still on the clip lands as the curve, which brings the rate
-    // and the length with it. Without one, a rate that moved lands as the
-    // rate - and so does taking a curve away, at the rate it averaged, as
-    // setting a rate is what ends a curve.
-    if after.speed_curve.is_some() {
-        if after.speed_curve != before.speed_curve {
-            commands.push(Command::SetClipSpeedCurve {
-                clip_id: id.to_owned(),
-                curve: after.speed_curve.clone(),
-                ripple: magnetic,
-            });
-        }
-    } else if after.speed != before.speed || before.speed_curve.is_some() {
-        commands.push(Command::SetClipSpeed {
-            clip_id: id.to_owned(),
-            speed: after.speed,
-            ripple: magnetic,
-        });
-    }
-    let mut patch = ClipPatch::default();
+    // A curve the person shaped lands as the curve, which brings the pace
+    // and the length with it; a constant pace that moved lands as the
+    // pace, and so does taking a curve away, at the pace it averaged.
+    commands.extend(chains::speed_commands(item, before, after, magnetic));
+    let mut patch = ItemPatch::default();
     if after.name != before.name {
         patch.name = Some(after.name.clone());
     }
-    if after.volume != before.volume {
-        patch.volume = Some(after.volume);
+    if after.sound.volume.value != before.sound.volume.value {
+        patch.volume = Some(after.sound.volume.value);
     }
-    if after.fade_in != before.fade_in {
-        patch.fade_in = Some(after.fade_in);
+    if after.sound.fade_in != before.sound.fade_in {
+        patch.fade_in = Some(after.sound.fade_in);
     }
-    if after.fade_out != before.fade_out {
-        patch.fade_out = Some(after.fade_out);
+    if after.sound.fade_out != before.sound.fade_out {
+        patch.fade_out = Some(after.sound.fade_out);
     }
-    if after.opacity != before.opacity {
-        patch.opacity = Some(after.opacity);
+    if now.opacity.value != was.opacity.value {
+        patch.opacity = Some(now.opacity.value);
     }
-    if after.preserve_pitch != before.preserve_pitch {
-        patch.preserve_pitch = Some(after.preserve_pitch);
+    if after.sound.keep_pitch != before.sound.keep_pitch {
+        patch.keep_pitch = Some(after.sound.keep_pitch);
     }
-    if after.audio_stream != before.audio_stream {
-        patch.audio_stream = Some(after.audio_stream);
+    if let (Content::Media(cut), Content::Media(old)) = (&after.content, &before.content)
+        && cut.stream != old.stream
+    {
+        patch.stream = Some(cut.stream);
     }
-    if after.flip_h != before.flip_h {
-        patch.flip_h = Some(after.flip_h);
+    if now.flip_h != was.flip_h {
+        patch.flip_h = Some(now.flip_h);
     }
-    if after.flip_v != before.flip_v {
-        patch.flip_v = Some(after.flip_v);
+    if now.flip_v != was.flip_v {
+        patch.flip_v = Some(now.flip_v);
     }
-    if after.blend != before.blend {
-        patch.blend = Some(if after.blend.is_empty() {
-            "normal".to_owned()
-        } else {
-            after.blend.clone()
-        });
+    if now.blend != was.blend {
+        patch.blend = Some(now.blend.clone());
     }
-    if after.crop != before.crop {
-        patch.crop = Some(after.crop);
+    if now.crop != was.crop {
+        patch.crop = Some(now.crop);
     }
     if after.masks != before.masks {
-        patch.masks = Some(after.masks.clone());
+        patch.masks = Some(doc_view::masks_owned(&after.masks));
     }
-    if after.motion != before.motion {
-        patch.motion = Some(after.motion.clone());
+    if now.motion != was.motion {
+        patch.motion = Some(now.motion.clone());
     }
-    if after.shape != before.shape
-        && let Some(shape) = after.shape.clone()
+    if let Some(shape) = doc_view::shape(after)
+        && doc_view::shape(before) != Some(shape)
     {
-        patch.shape = Some(shape);
+        patch.shape = Some(shape.clone());
     }
-    commands.extend(key_commands(id, before, after));
-    if after.text != before.text {
-        patch.text = Some(after.text.clone());
+    commands.extend(key_commands(item, before, after));
+    if let Some(title) = doc_view::title(after)
+        && doc_view::title(before) != Some(title)
+    {
+        patch.title = Some(title.clone());
     }
-    if after.video_effects != before.video_effects {
-        patch.video_effects = Some(after.video_effects.clone());
+    if after.effects != before.effects {
+        patch.effects = Some(doc_view::chain_owned(&after.effects));
     }
     if after.filters != before.filters {
-        patch.filters = Some(after.filters.clone());
+        patch.filters = Some(doc_view::chain_owned(&after.filters));
     }
-    if patch != ClipPatch::default() {
-        commands.push(Command::UpdateClip {
-            clip_id: id.to_owned(),
-            patch,
-        });
+    if patch != ItemPatch::default() {
+        commands.push(Command::UpdateClip { item, patch });
     }
     commands
 }
@@ -2342,28 +2320,29 @@ fn clip_edit_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> 
 /// The commands that turn `before`'s keys into `after`'s: a `SetClipKey`
 /// for every key added or changed, a `ClearClipKey` for every key gone.
 /// Two keys within a hair of each other are the same key.
-fn key_commands(clip_id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
-    let near = |a: f64, b: f64| (a - b).abs() <= model::KEY_EPSILON;
+fn key_commands(item: ItemId, before: &Item, after: &Item) -> Vec<Command> {
     let mut commands = Vec::new();
-    for property in model::KeyProperty::ALL {
-        for key in after.keys_on(property) {
-            let unchanged = before
-                .keys_on(property)
-                .any(|old| near(old.at, key.at) && old.value == key.value && old.ease == key.ease);
+    for property in doc_view::KEY_PROPERTIES {
+        let was = &doc_view::animated(before, property).keys;
+        let now = &doc_view::animated(after, property).keys;
+        for key in now {
+            let unchanged = was.iter().any(|old| {
+                doc_view::near(old.at, key.at) && old.value == key.value && old.ease == key.ease
+            });
             if !unchanged {
                 commands.push(Command::SetClipKey {
-                    clip_id: clip_id.to_owned(),
+                    item,
                     property,
                     at: key.at,
                     value: key.value,
-                    ease: key.ease,
+                    ease: key.ease.clone(),
                 });
             }
         }
-        for old in before.keys_on(property) {
-            if !after.keys_on(property).any(|key| near(old.at, key.at)) {
+        for old in was {
+            if !now.iter().any(|key| doc_view::near(old.at, key.at)) {
                 commands.push(Command::ClearClipKey {
-                    clip_id: clip_id.to_owned(),
+                    item,
                     property,
                     at: old.at,
                 });
@@ -2375,14 +2354,18 @@ fn key_commands(clip_id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
 
 /// The colour panel's rows: the adjust package's parameters, at the values
 /// the clip's chain holds or at the defaults when the clip carries none.
-/// Every one can be keyed; `at` is the playhead's place in the clip, `0..=1`,
-/// or None when it is outside - a keyed knob then shows its ride's value
-/// there, and its cluster says whether a key sits under the playhead.
-fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData> {
+/// Every one can be keyed; `at` is the playhead's place on the clip's
+/// content time, or None when it is outside the clip - a keyed knob shows
+/// its ride's value there, and its cluster says whether a key sits under
+/// the playhead.
+fn adjust_rows(chain: &[&Effect], at: Option<Tick>) -> Vec<AppliedParamData> {
     let Some(package) = Catalogue::builtin().get(ADJUST_ID) else {
         return Vec::new();
     };
-    let held = chain.iter().find(|entry| entry.id == ADJUST_ID);
+    let held = chain
+        .iter()
+        .copied()
+        .find(|entry| entry.package == ADJUST_ID);
     package
         .manifest
         .params
@@ -2390,12 +2373,13 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
         // The wheels and curves are drawn by widgets of their own.
         .filter(|param| !param.kind.is_compound())
         .map(|param| {
-            let keyed = held.is_some_and(|entry| entry.is_keyed(&param.key));
+            let keyed = held.is_some_and(|entry| doc_view::param_keyed(entry, &param.key));
             let (here, prev, next) = match (held, at) {
                 (Some(entry), Some(at)) if keyed => {
-                    let (prev, next) = entry.keys_around(&param.key, at);
+                    let keys = doc_view::param_keys(entry, &param.key);
+                    let (prev, next) = doc_view::keys_around(keys, at);
                     (
-                        entry.key_at(&param.key, at).is_some(),
+                        doc_view::key_near(keys, at).is_some(),
                         prev.is_some(),
                         next.is_some(),
                     )
@@ -2403,12 +2387,8 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
                 _ => (false, false, false),
             };
             let value = match (held, at) {
-                (Some(entry), Some(at)) => entry.value_at(&param.key, at, param.default),
-                (Some(entry), None) => entry
-                    .params
-                    .get(&param.key)
-                    .copied()
-                    .unwrap_or(param.default),
+                (Some(entry), Some(at)) => doc_view::param_at(entry, &param.key, at, param.default),
+                (Some(entry), None) => doc_view::param_or(entry, &param.key, param.default),
                 (None, _) => param.default,
             };
             AppliedParamData {
@@ -2457,7 +2437,7 @@ fn unpacked(value: f64) -> slint::Color {
 /// picture of its own to take the colour off; `picking` is the knob, by
 /// link and key, whose eyedropper is armed.
 fn chain_colours(
-    chain: &[AppliedFilter],
+    chain: &[&Effect],
     pickable: bool,
     picking: Option<(usize, &str)>,
 ) -> Vec<ColourKnobData> {
@@ -2468,8 +2448,8 @@ fn chain_colours(
         .filter_map(|(index, entry)| {
             let package = catalogue
                 .packages()
-                .find(|package| package.answers_to(&entry.id))?;
-            Some((index, entry, package))
+                .find(|package| package.answers_to(&entry.package))?;
+            Some((index, *entry, package))
         })
         .flat_map(|(index, entry, package)| {
             package
@@ -2478,11 +2458,7 @@ fn chain_colours(
                 .iter()
                 .filter(|param| param.kind == ParamType::Color)
                 .map(move |param| {
-                    let value = entry
-                        .params
-                        .get(&param.key)
-                        .copied()
-                        .unwrap_or(param.default);
+                    let value = doc_view::param_or(entry, &param.key, param.default);
                     let can_automatic = unpacked(param.default).alpha() == 0;
                     ColourKnobData {
                         entry: index as i32,
@@ -2501,13 +2477,13 @@ fn chain_colours(
 
 /// A chain's choices - its enum knobs - a row of segments each, at the
 /// document's value or the default.
-fn chain_choices(chain: &[AppliedFilter]) -> Vec<ChainChoiceData> {
+fn chain_choices(chain: &[&Effect]) -> Vec<ChainChoiceData> {
     let catalogue = Catalogue::builtin();
     let mut choices = Vec::new();
     for (index, entry) in chain.iter().enumerate() {
         let Some(package) = catalogue
             .packages()
-            .find(|package| package.answers_to(&entry.id))
+            .find(|package| package.answers_to(&entry.package))
         else {
             continue;
         };
@@ -2515,11 +2491,7 @@ fn chain_choices(chain: &[AppliedFilter]) -> Vec<ChainChoiceData> {
             if param.kind != ParamType::Enum || param.values.is_empty() {
                 continue;
             }
-            let value = entry
-                .params
-                .get(&param.key)
-                .copied()
-                .unwrap_or(param.default);
+            let value = doc_view::param_or(entry, &param.key, param.default);
             let options: Vec<SharedString> = param
                 .values
                 .iter()
@@ -2560,19 +2532,19 @@ fn chain_choices(chain: &[AppliedFilter]) -> Vec<ChainChoiceData> {
 /// knob its package declares, holding the document's value or the default.
 /// A link no package answers to keeps its row - so it can be removed - and
 /// gets no knobs.
-fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedParamData>) {
+fn chain_rows(chain: &[&Effect]) -> (Vec<AppliedEntryData>, Vec<AppliedParamData>) {
     let catalogue = Catalogue::builtin();
     let mut rows = Vec::new();
     let mut knobs = Vec::new();
     for (index, entry) in chain.iter().enumerate() {
         let package = catalogue
             .packages()
-            .find(|package| package.answers_to(&entry.id));
+            .find(|package| package.answers_to(&entry.package));
         rows.push(AppliedEntryData {
-            id: entry.id.as_str().into(),
+            id: entry.package.as_str().into(),
             name: package
                 .map(|package| package.manifest.effect.name.clone())
-                .unwrap_or_else(|| label_of(&entry.id))
+                .unwrap_or_else(|| label_of(&entry.package))
                 .into(),
             on: entry.enabled,
             known: package.is_some(),
@@ -2596,11 +2568,8 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                 max: 100.0,
                 step: 1.0,
                 default_value: 100.0,
-                value: entry
-                    .params
-                    .get(concat_effects::catalogue::INTENSITY)
-                    .copied()
-                    .unwrap_or(100.0) as f32,
+                value: doc_view::param_or(entry, concat_effects::catalogue::INTENSITY, 100.0)
+                    as f32,
                 fmt: ParamFormat::Percent,
                 keyable: false,
                 keyed: false,
@@ -2632,11 +2601,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                 max: param.max as f32,
                 step: step as f32,
                 default_value: param.default as f32,
-                value: entry
-                    .params
-                    .get(&param.key)
-                    .copied()
-                    .unwrap_or(param.default) as f32,
+                value: doc_view::param_or(entry, &param.key, param.default) as f32,
                 fmt: format_of(&param.unit),
                 keyable: false,
                 keyed: false,
@@ -2652,16 +2617,17 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
 /// A link's wheels and curves as the inspector draws them: the values the
 /// link holds, or the defaults when there is no link yet. `entry` is its
 /// index in the chain, -1 for the Adjust panel; `keys` is the playhead's
-/// place in the clip when the wheels can carry keys - Some(None) when it is
-/// outside - and None when they cannot.
+/// place on the clip's content time when the wheels can carry keys -
+/// Some(None) when it is outside the clip - and None when they cannot.
 fn grading_rows(
     package: &concat_effects::Package,
-    link: Option<&AppliedFilter>,
+    link: Option<&Effect>,
     entry: i32,
-    keys: Option<Option<f64>>,
+    keys: Option<Option<Tick>>,
 ) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
-    let empty = std::collections::BTreeMap::new();
-    let params = link.map_or(&empty, |link| &link.params);
+    // The knobs' own values: what a curve's points are read from.
+    let params = link.map(doc_view::plain_params).unwrap_or_default();
+    let params = &params;
     let mut wheels = Vec::new();
     let mut curves = Vec::new();
     for param in &package.manifest.params {
@@ -2670,15 +2636,16 @@ fn grading_rows(
                 let [x, y, m] = grading::wheel_keys(&param.key);
                 let at = keys.flatten();
                 let value = |name: &str, fallback: f64| match (link, at) {
-                    (Some(link), Some(at)) => link.value_at(name, at, fallback),
+                    (Some(link), Some(at)) => doc_view::param_at(link, name, at, fallback),
                     _ => params.get(name).copied().unwrap_or(fallback),
                 };
-                let keyed = link.is_some_and(|link| link.is_keyed(&m));
+                let keyed = link.is_some_and(|link| doc_view::param_keyed(link, &m));
                 let (here, prev, next) = match (link, at) {
                     (Some(link), Some(at)) if keyed => {
-                        let (prev, next) = link.keys_around(&m, at);
+                        let held = doc_view::param_keys(link, &m);
+                        let (prev, next) = doc_view::keys_around(held, at);
                         (
-                            link.key_at(&m, at).is_some(),
+                            doc_view::key_near(held, at).is_some(),
                             prev.is_some(),
                             next.is_some(),
                         )
@@ -2731,23 +2698,21 @@ fn grading_rows(
 }
 
 /// Every link's wheels and curves in a chain, for the stack.
-fn chain_grading(
-    chain: &[AppliedFilter],
-) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
+fn chain_grading(chain: &[&Effect]) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
     let catalogue = Catalogue::builtin();
     let mut wheels = Vec::new();
     let mut curves = Vec::new();
     for (index, link) in chain.iter().enumerate() {
         let Some(package) = catalogue
             .packages()
-            .find(|package| package.answers_to(&link.id))
+            .find(|package| package.answers_to(&link.package))
         else {
             continue;
         };
         if package.id() == ADJUST_ID {
             continue;
         }
-        let (more_wheels, more_curves) = grading_rows(package, Some(link), index as i32, None);
+        let (more_wheels, more_curves) = grading_rows(package, Some(*link), index as i32, None);
         wheels.extend(more_wheels);
         curves.extend(more_curves);
     }
@@ -2785,29 +2750,22 @@ fn wheel_partners(param: &str) -> Vec<String> {
 /// The commands that take a wheel's puck keys at `from` to `to` with its
 /// master's key - their values and eases kept - when `param` is a wheel's
 /// master; nothing for any other knob.
-fn partners_moved(
-    link: &AppliedFilter,
-    clip_id: &str,
-    entry: usize,
-    param: &str,
-    from: f64,
-    to: f64,
-) -> Vec<Command> {
+fn partners_moved(link: &Effect, item: ItemId, param: &str, from: Tick, to: Tick) -> Vec<Command> {
     wheel_partners(param)
         .into_iter()
         .filter_map(|name| {
-            let key = link.keys_on(&name)[link.key_at(&name, from)?];
+            let key = doc_view::key_near(doc_view::param_keys(link, &name), from)?.clone();
             Some([
                 Command::ClearEffectKey {
-                    clip_id: clip_id.to_owned(),
-                    entry,
-                    key: name.clone(),
-                    at: from,
+                    item,
+                    effect: link.id,
+                    param: name.clone(),
+                    at: key.at,
                 },
                 Command::SetEffectKey {
-                    clip_id: clip_id.to_owned(),
-                    entry,
-                    key: name,
+                    item,
+                    effect: link.id,
+                    param: name,
                     at: to,
                     value: key.value,
                     ease: key.ease,
@@ -2821,41 +2779,31 @@ fn partners_moved(
 /// The effects a project's clips name that no package answers to - retired
 /// ones, or packages not installed here - by name, each once, in the order
 /// they first appear.
-fn retired_effects(project: &Project) -> Vec<String> {
+fn retired_effects(doc: &Doc) -> Vec<String> {
     let catalogue = Catalogue::builtin();
     let mut names: Vec<String> = Vec::new();
-    for timeline in &project.timelines {
-        for clip in &timeline.clips {
-            for link in &clip.video_effects {
-                if catalogue
-                    .packages()
-                    .any(|package| package.answers_to(&link.id))
-                {
-                    continue;
-                }
-                let name = label_of(&link.id);
-                if !names.contains(&name) {
-                    names.push(name);
-                }
+    for (_, item) in doc.items.iter() {
+        for link in doc_view::chain(&item.effects) {
+            if catalogue
+                .packages()
+                .any(|package| package.answers_to(&link.package))
+            {
+                continue;
+            }
+            let name = label_of(&link.package);
+            if !names.contains(&name) {
+                names.push(name);
             }
         }
     }
     names
 }
 
-/// Names for a notice: the first three, and how many more there are.
-fn few(names: &[String]) -> String {
-    match names.len() {
-        0..=3 => names.join(", "),
-        count => format!("{} +{}", names[..3].join(", "), count - 3),
-    }
-}
-
 /// What the confirmation sheet can ask about.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Confirm {
-    /// Deleting a whole track, and every clip on it.
-    RemoveTrack { track_id: String },
+    /// Deleting a whole lane, and every clip on it.
+    RemoveTrack { lane: LaneId },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
     /// Quitting though the project could not be saved, for `error`. A
@@ -2866,146 +2814,23 @@ pub enum Confirm {
     /// Restarting for a setting that is read only at launch: the project
     /// is saved, and opens again in the new window.
     Restart,
+    /// Applying a new address for the server, which restarts it and so
+    /// stops the `jobs` scripts and apps have running.
+    StopServerJobs { jobs: usize },
 }
 
-/// One clip on the clipboard: the clip as it was when copied, the row of
-/// the lane it sat on, and the file it plays. A lane's id belongs to its
-/// timeline, so a paste into another timeline goes by the row instead and
-/// lands the clip on the same row there (#290). A media id belongs to its
-/// project, so a paste into another project goes by the file: the same
-/// id there is another file or none, and the paste laid the wrong footage
-/// down or nothing at all.
+/// One clip on the clipboard: the clip as it was when copied, the place
+/// in its timeline's stack of the lane it sat on, counted from the bottom,
+/// and the file it plays. A lane's id belongs to its timeline, so a paste
+/// into another timeline goes by that place instead and lands the clip on
+/// the same lane there (#290). A media id belongs to its project, so a
+/// paste into another project goes by the file: the same id there is
+/// another file or none.
 #[derive(Clone, Debug)]
 pub struct Held {
     pub row: usize,
-    pub clip: Clip,
-    pub media: Option<model::MediaItem>,
-}
-
-/// Changes smaller than this are not made: a copy that already matches
-/// gets no edit that does nothing.
-const COPY_SAME: f64 = 1e-6;
-
-/// The latest end of any clip on lane `track_id` of `timeline`, 0 for an
-/// empty lane: where a copy's file is first laid, so nothing lies after it
-/// while it is cut and retimed.
-fn lane_end(timeline: &Timeline, track_id: &str) -> f64 {
-    timeline
-        .clips
-        .iter()
-        .filter(|clip| clip.track_id == track_id)
-        .map(|clip| clip.start + clip.duration)
-        .fold(0.0, f64::max)
-}
-
-/// The first half of a copy of a media clip: `source`'s whole file laid at
-/// the end of lane `track_id`, where nothing can clamp the edits that
-/// shape it (see [`shape_copy`]).
-fn lay_command(timeline: &Timeline, source: &Clip, track_id: &str) -> Command {
-    Command::AddClip {
-        media_id: source.media_id.clone(),
-        track_id: track_id.to_owned(),
-        start: lane_end(timeline, track_id),
-        ripple: false,
-    }
-}
-
-/// The edits, applied in order as one batch, that make `laid` - the whole
-/// of the original's file, just put down with nothing after it on its
-/// lane - into a copy of `of` on `lane` at `at`: its frames, its speed and
-/// its place, and then everything else it has (see [`match_command`]).
-///
-/// The footage is cut at the laid clip's own pace first, the tail before
-/// the head so the head never meets the shortest-clip limit; then the
-/// clip is retimed, which works the length out from the footage; and only
-/// then is it moved, so the neighbours where it lands can clamp none of
-/// the cuts. The move takes the editor's rule: a start that would cover a
-/// clip becomes the nearest one where the whole copy fits. Every edit is
-/// plain, never magnetic, so no other clip moves.
-fn shape_copy(of: &Clip, laid: &Clip, lane: &str, at: f64) -> Vec<Command> {
-    use concat_project::model::ranges::{MAX_SPEED, MIN_SPEED};
-    use concat_project::speed;
-
-    let id = &laid.id;
-    // A curve the editor would not take is no curve: the copy plays at
-    // the original's constant rate instead.
-    let curve = of
-        .speed_curve
-        .clone()
-        .filter(|points| speed::engine_curve(points).is_some());
-    // The rate the editor gives the copy, and so the footage that rate
-    // must cover to last as long as the original does.
-    let rate = curve
-        .as_deref()
-        .map_or(of.speed, speed::average_speed)
-        .clamp(MIN_SPEED, MAX_SPEED);
-    let footage = of.duration * rate;
-    let pace = laid.speed.max(MIN_SPEED);
-    // One cut, plain: nothing else on the lane moves for it.
-    let cut = |edge: TrimEdge, by: f64| Command::TrimClip {
-        ripple: false,
-        clip_id: id.clone(),
-        delta: by,
-        edge,
-    };
-
-    let mut edits = Vec::with_capacity(5);
-    let laid_end = laid.source_start + laid.duration * pace;
-    let off_the_tail = (of.source_start + footage - laid_end) / pace;
-    if off_the_tail.abs() > COPY_SAME {
-        edits.push(cut(TrimEdge::End, off_the_tail));
-    }
-    let off_the_head = (of.source_start - laid.source_start) / pace;
-    if off_the_head.abs() > COPY_SAME {
-        edits.push(cut(TrimEdge::Start, off_the_head));
-    }
-
-    if let Some(points) = curve {
-        edits.push(Command::SetClipSpeedCurve {
-            ripple: false,
-            clip_id: id.clone(),
-            curve: Some(points),
-        });
-    } else if (rate - pace).abs() > COPY_SAME {
-        edits.push(Command::SetClipSpeed {
-            clip_id: id.clone(),
-            speed: rate,
-            ripple: false,
-        });
-    }
-
-    // A plain head cut carries the clip's start along with it.
-    let stands_at = laid.start + off_the_head;
-    let wanted = at.max(0.0);
-    if (wanted - stands_at).abs() > COPY_SAME || laid.track_id != lane {
-        let to_its_place = ClipMove {
-            track_id: lane.to_owned(),
-            start: wanted,
-            clip_id: id.clone(),
-        };
-        edits.push(Command::MoveClips {
-            moves: vec![to_its_place],
-        });
-    }
-
-    edits.push(match_command(of, id));
-    edits
-}
-
-/// Makes `created` like `source` in everything but its place, named as a
-/// copy. The whole clip goes, not a list of its fields: the list this
-/// replaced was written before masks, cutouts, stabilizing, backgrounds
-/// and enhancing, and a copy quietly lost every one of them.
-fn match_command(source: &Clip, created: &str) -> Command {
-    let mut like = source.clone();
-    // A title's name follows its words; anything else says it is a copy.
-    if like.text.is_none() {
-        like.name = format!("{} copy", source.name);
-    }
-    Command::MatchClip {
-        clip_id: created.to_owned(),
-        like: Box::new(like),
-    }
+    pub clip: Item,
+    pub media: Option<model::Media>,
 }
 
 /// Where each held clip lands: `(row, start)` per clip in the order held,
@@ -3016,15 +2841,16 @@ fn match_command(source: &Clip, created: &str) -> Command {
 /// nearest open one.
 fn paste_plan(
     held: &[Held],
-    base: f64,
+    base: Tick,
     shift: isize,
     lanes: usize,
     locked: &dyn Fn(usize) -> bool,
-) -> Vec<Option<(usize, f64)>> {
+) -> Vec<Option<(usize, Tick)>> {
     let origin = held
         .iter()
         .map(|held| held.clip.start)
-        .fold(f64::INFINITY, f64::min);
+        .min()
+        .unwrap_or(Tick::ZERO);
     let open: Vec<usize> = (0..lanes).filter(|row| !locked(*row)).collect();
     held.iter()
         .map(|held| {
@@ -3113,7 +2939,7 @@ impl Studio {
             library: Default::default(),
             session: None,
             echo: None,
-            empty: Project::new(),
+            document: Document::default(),
             dirty: false,
             autosave: slint::Timer::default(),
             media: crate::panes::media_bin::MediaBin::default(),
@@ -3261,16 +3087,17 @@ enum DetachPlan {
     Already,
 }
 
-/// How a detach of `clip` goes, given whether its file has sound and
-/// whether a sound detached from it is on the timeline. `DetachAudio`
-/// itself changes nothing when it cannot happen, and says nothing; the
-/// last two answers are what the window says instead.
-fn detach_plan(clip: &Clip, has_audio: bool, detached: bool) -> DetachPlan {
-    if clip.kind != model::ClipKind::Video || !has_audio {
+/// How a detach of a clip goes, given what it is, whether its own sound
+/// is silenced, whether its file has sound and whether a sound detached
+/// from it is on the timeline. `DetachAudio` itself changes nothing when
+/// it cannot happen, and says nothing; the last two answers are what the
+/// window says instead.
+fn detach_plan(kind: Kind, muted: bool, has_audio: bool, detached: bool) -> DetachPlan {
+    if kind != Kind::Video || !has_audio {
         DetachPlan::NoSound
     } else if detached {
         DetachPlan::Already
-    } else if clip.muted == Some(true) {
+    } else if muted {
         DetachPlan::Again
     } else {
         DetachPlan::Detach
@@ -3278,13 +3105,12 @@ fn detach_plan(clip: &Clip, has_audio: bool, detached: bool) -> DetachPlan {
 }
 
 /// Whether a move puts any clip somewhere other than where `before` has
-/// it: another lane, or another start. A drag works in `f32` seconds, so a
-/// start is compared as the drag holds it; one that only went through that
-/// rounding has not moved.
-fn moved_any<'a>(moves: &[ClipMove], before: impl Fn(&str) -> Option<&'a Clip>) -> bool {
+/// it: another lane, or another start. A move that names no lane keeps
+/// the clip's own, and one of a clip that has gone is no move.
+fn moved_any<'a>(moves: &[ClipMove], before: impl Fn(ItemId) -> Option<&'a Item>) -> bool {
     moves.iter().any(|wanted| {
-        before(&wanted.clip_id).is_some_and(|clip| {
-            clip.track_id != wanted.track_id || clip.start as f32 != wanted.start as f32
+        before(wanted.item).is_some_and(|clip| {
+            wanted.lane.is_some_and(|lane| lane != clip.lane) || clip.start != wanted.start
         })
     })
 }
@@ -3320,57 +3146,73 @@ fn edit_point(spans: &[(f64, f64)], playhead: f32, rate: f32, forward: bool) -> 
 
 #[cfg(test)]
 mod tests {
+    use concat_doc::commands::{ClipMove, KeyProperty};
+    use concat_doc::model::{Content, Ease, Item, ItemId, MediaKind, Motion, Move, VoiceKind};
+
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_choices, chain_colours, chain_rows,
-        colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue, home_folder,
-        key_commands, key_field_of, knob_range, packed, place_in, shown, wheel_partners,
+        clip_edit_commands, colour_about, custom_frame, custom_rate, fps_of, grading_rows, has_hue,
+        home_folder, key_commands, key_field_of, knob_range, packed, shown, wheel_partners,
         write_keyable,
     };
+    use crate::doc_view::{self, Kind, bench::Bench, tick};
+
+    /// A ten-second clip of a file of `kind` at the start of the main
+    /// lane: the bench it is on, its id, and the clip.
+    fn placed(kind: MediaKind) -> (Bench, ItemId, Item) {
+        let mut bench = Bench::new();
+        let media = bench.add_media("take", kind, 10.0);
+        let lane = bench.main_lane();
+        let id = bench.add_clip(media, lane, 0.0);
+        let clip = doc_view::item(bench.doc(), id).expect("the clip").clone();
+        (bench, id, clip)
+    }
 
     /// The inspector writes its Voice isolation into the echo, and the
     /// commit is the difference between the echo and the document: a
-    /// difference with no command dropped the choice, and the inspector's
-    /// Voice only and No voice sprang back to Everything.
+    /// difference with no command would drop the choice, and the
+    /// inspector's Voice only and No voice would spring back to Everything.
     #[test]
     fn a_voice_set_in_the_inspector_is_committed() {
-        use concat_project::model::{Clip, ClipKind as Kind, VoiceMix};
-        let before = Clip::blank("c1", "t1", Kind::Audio, "m1", 0.0, 4.0);
-        for mix in [Some(VoiceMix::KEEP_VOICE), Some(VoiceMix::REMOVE_VOICE)] {
+        let (_, id, before) = placed(MediaKind::Audio);
+        for mix in [
+            doc_view::keep_voice(VoiceKind::Speech),
+            doc_view::remove_voice(VoiceKind::Speech),
+        ] {
             let mut after = before.clone();
-            after.voice = mix;
-            let commands = super::clip_edit_commands("c1", &before, &after, false);
+            after.sound.voice = Some(mix.clone());
+            let commands = clip_edit_commands(id, &before, &after, false);
             assert!(
                 commands.iter().any(|command| matches!(
                     command,
-                    Command::SetClipVoice { voice, .. } if *voice == mix
+                    Command::SetClipVoice { voice, .. } if voice.as_ref() == Some(&mix)
                 )),
                 "no command carries {mix:?}: {commands:?}"
             );
         }
         let mut on = before.clone();
-        on.voice = Some(VoiceMix::KEEP_VOICE);
+        on.sound.voice = Some(doc_view::keep_voice(VoiceKind::Speech));
         assert!(
-            super::clip_edit_commands("c1", &on, &before, false)
+            clip_edit_commands(id, &on, &before, false)
                 .iter()
                 .any(|command| matches!(command, Command::SetClipVoice { voice: None, .. }))
         );
     }
 
     /// The Animate cards write the clip's motion into the echo; a commit
-    /// that had no command for motion dropped the pick, and the card sprang
-    /// back to None. Picked, changed and taken off, each lands.
+    /// with no command for motion would drop the pick, and the card would
+    /// spring back to None. Picked and taken off, each lands.
     #[test]
     fn a_motion_picked_in_the_inspector_is_committed() {
-        use concat_project::model::{Clip, ClipKind as Kind, ClipMotion, ClipMove};
-        let before = Clip::blank("c1", "t1", Kind::Video, "m1", 0.0, 4.0);
+        let (_, id, before) = placed(MediaKind::Video);
         let mut after = before.clone();
-        after.motion = Some(ClipMotion {
-            enter: Some(ClipMove {
-                kind: "pop".to_owned(),
-                seconds: 0.5,
+        after.picture.motion = Motion {
+            enter: Some(Move {
+                name: "pop".to_owned(),
+                len: doc_view::len(0.5),
             }),
-            ..ClipMotion::default()
-        });
+            ..Motion::default()
+        };
         let patched = |commands: Vec<Command>| {
             commands.into_iter().find_map(|command| match command {
                 Command::UpdateClip { patch, .. } => patch.motion,
@@ -3378,15 +3220,14 @@ mod tests {
             })
         };
         assert_eq!(
-            patched(super::clip_edit_commands("c1", &before, &after, false)),
-            Some(after.motion.clone())
+            patched(clip_edit_commands(id, &before, &after, false)),
+            Some(after.picture.motion.clone())
         );
         assert_eq!(
-            patched(super::clip_edit_commands("c1", &after, &before, false)),
-            Some(None)
+            patched(clip_edit_commands(id, &after, &before, false)),
+            Some(Motion::default())
         );
     }
-
     /// A row rebuilt with fresh models of the same rows is the same row, so
     /// a publish leaves it - and the dropdown reading it - alone (#622);
     /// a changed option, or any other field, is a change.
@@ -3520,41 +3361,36 @@ mod tests {
     /// for the nearest open one; with no lane at all nothing lands.
     #[test]
     fn a_paste_keeps_the_groups_shape_and_lands_on_rows_that_exist() {
-        use concat_project::model::{Clip, ClipKind};
+        let lane = Bench::new().main_lane();
         let held = |row: usize, start: f64| super::Held {
             row,
-            clip: Clip::blank("c", "t", ClipKind::Video, "c", start, 1.0),
+            clip: Item::new(lane, tick(start), doc_view::len(1.0), Content::Layer),
             media: None,
         };
         let group = [held(1, 4.0), held(2, 5.5), held(0, 9.0)];
         let none = |_: usize| false;
+        let at = |row: usize, start: f64| Some((row, tick(start)));
         // At the playhead on the rows copied from.
-        let plan = super::paste_plan(&group, 10.0, 0, 4, &none);
-        assert_eq!(
-            plan,
-            vec![Some((1, 10.0)), Some((2, 11.5)), Some((0, 15.0))]
-        );
+        let plan = super::paste_plan(&group, tick(10.0), 0, 4, &none);
+        assert_eq!(plan, vec![at(1, 10.0), at(2, 11.5), at(0, 15.0)]);
         // After an anchor on row 3: the earliest lands there, the rest
         // keep their distance in rows, held inside the four lanes.
-        let plan = super::paste_plan(&group, 20.0, 2, 4, &none);
-        assert_eq!(
-            plan,
-            vec![Some((3, 20.0)), Some((3, 21.5)), Some((2, 25.0))]
-        );
+        let plan = super::paste_plan(&group, tick(20.0), 2, 4, &none);
+        assert_eq!(plan, vec![at(3, 20.0), at(3, 21.5), at(2, 25.0)]);
         // Another timeline with two lanes: rows past the end fold back.
-        let plan = super::paste_plan(&group, 0.0, 0, 2, &none);
-        assert_eq!(plan, vec![Some((1, 0.0)), Some((1, 1.5)), Some((0, 5.0))]);
+        let plan = super::paste_plan(&group, tick(0.0), 0, 2, &none);
+        assert_eq!(plan, vec![at(1, 0.0), at(1, 1.5), at(0, 5.0)]);
         // A locked row is passed over for the nearest open one.
-        let plan = super::paste_plan(&group, 0.0, 0, 4, &|row| row == 1);
-        assert_eq!(plan, vec![Some((0, 0.0)), Some((2, 1.5)), Some((0, 5.0))]);
+        let plan = super::paste_plan(&group, tick(0.0), 0, 4, &|row| row == 1);
+        assert_eq!(plan, vec![at(0, 0.0), at(2, 1.5), at(0, 5.0)]);
         // No lanes, nothing lands; every lane locked, nothing lands.
         assert!(
-            super::paste_plan(&group, 0.0, 0, 0, &none)
+            super::paste_plan(&group, tick(0.0), 0, 0, &none)
                 .iter()
                 .all(Option::is_none)
         );
         assert!(
-            super::paste_plan(&group, 0.0, 0, 2, &|_| true)
+            super::paste_plan(&group, tick(0.0), 0, 2, &|_| true)
                 .iter()
                 .all(Option::is_none)
         );
@@ -3565,49 +3401,61 @@ mod tests {
     #[test]
     fn a_detach_says_why_it_cannot_happen() {
         use super::{DetachPlan, detach_plan};
-        use concat_project::model::{Clip, ClipKind};
-        let video = Clip::blank("v", "t", ClipKind::Video, "v", 0.0, 2.0);
-        assert_eq!(detach_plan(&video, true, false), DetachPlan::Detach);
-        assert_eq!(detach_plan(&video, false, false), DetachPlan::NoSound);
-        assert_eq!(detach_plan(&video, true, true), DetachPlan::Already);
-        let silenced = Clip {
-            muted: Some(true),
-            ..video.clone()
-        };
-        assert_eq!(detach_plan(&silenced, true, false), DetachPlan::Again);
-        assert_eq!(detach_plan(&silenced, true, true), DetachPlan::Already);
-        let sound = Clip::blank("a", "t", ClipKind::Audio, "a", 0.0, 2.0);
-        assert_eq!(detach_plan(&sound, true, false), DetachPlan::NoSound);
+        assert_eq!(
+            detach_plan(Kind::Video, false, true, false),
+            DetachPlan::Detach
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, false, false, false),
+            DetachPlan::NoSound
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, false, true, true),
+            DetachPlan::Already
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, true, true, false),
+            DetachPlan::Again
+        );
+        assert_eq!(
+            detach_plan(Kind::Video, true, true, true),
+            DetachPlan::Already
+        );
+        assert_eq!(
+            detach_plan(Kind::Audio, false, true, false),
+            DetachPlan::NoSound
+        );
     }
 
-    /// A click on a clip is a move to where it already is, and is no edit;
-    /// a start that only went through the drag's `f32` is no move either.
+    /// A click on a clip is a move to where it already is, and is no edit:
+    /// its own lane, named or not, at its own start.
     #[test]
     fn a_click_moves_nothing() {
-        use concat_project::commands::ClipMove;
-        use concat_project::model::{Clip, ClipKind};
-        let clip = Clip::blank("c", "t", ClipKind::Video, "c", 1.1, 2.0);
-        let before = |id: &str| (id == "c").then_some(&clip);
-        let to = |start: f64, track: &str| {
+        let mut bench = Bench::new();
+        let media = bench.add_media("take", MediaKind::Video, 2.0);
+        let (lane, other) = (bench.main_lane(), bench.lane(0));
+        let id = bench.add_clip(media, lane, 1.1);
+        let clip = doc_view::item(bench.doc(), id).expect("the clip").clone();
+        let before = |asked: ItemId| (asked == id).then_some(&clip);
+        let to = |start: f64, lane| {
             vec![ClipMove {
-                clip_id: "c".into(),
-                start,
-                track_id: track.into(),
+                item: id,
+                start: tick(start),
+                lane,
             }]
         };
-        assert!(!super::moved_any(&to(1.1, "t"), before));
-        assert!(!super::moved_any(&to(f64::from(1.1_f32), "t"), before));
-        assert!(super::moved_any(&to(1.2, "t"), before));
-        assert!(super::moved_any(&to(1.1, "u"), before));
+        assert!(!super::moved_any(&to(1.1, Some(lane)), before));
+        assert!(!super::moved_any(&to(1.1, None), before));
+        assert!(super::moved_any(&to(1.2, Some(lane)), before));
+        assert!(super::moved_any(&to(1.1, Some(other)), before));
         // A clip that has gone is not a move.
         let gone = vec![ClipMove {
-            clip_id: "x".into(),
-            start: 9.0,
-            track_id: "t".into(),
+            item: concat_doc::commands::placeholder(),
+            start: tick(9.0),
+            lane: Some(lane),
         }];
         assert!(!super::moved_any(&gone, before));
     }
-
     /// A wheel is keyed as one knob: named by itself or by any of its own
     /// keys, it keys its puck and master; its master's key takes the puck's
     /// with it in the keyframes pane; any other knob keys alone.
@@ -3632,7 +3480,6 @@ mod tests {
     /// nothing, and a link's own values where it holds them.
     #[test]
     fn the_adjust_panel_draws_its_wheels_and_curves() {
-        use concat_project::model::AppliedFilter;
         let package = concat_effects::Catalogue::builtin()
             .get("concat.adjust")
             .expect("a built-in");
@@ -3654,10 +3501,12 @@ mod tests {
             ["luma", "red", "green", "blue"]
         );
         assert!(curves.iter().all(|(_, points)| points.is_empty()));
-        let mut link = AppliedFilter::new("concat.adjust");
-        link.params.insert("gain.x".to_owned(), 0.25);
-        link.params.insert("gain.m".to_owned(), -0.5);
-        crate::grading::set_curve_point(&mut link.params, "red", -1, 0.5, 0.6);
+        let mut link = doc_view::new_effect("concat.adjust");
+        doc_view::set_param(&mut link, "gain.x", 0.25);
+        doc_view::set_param(&mut link, "gain.m", -0.5);
+        let mut values = doc_view::plain_params(&link);
+        crate::grading::set_curve_point(&mut values, "red", -1, 0.5, 0.6);
+        doc_view::set_plain_params(&mut link, &values);
         let (wheels, curves) = grading_rows(package, Some(&link), -1, None);
         assert_eq!((wheels[2].x, wheels[2].master), (0.25, -0.5));
         assert!(!wheels[2].keyable, "a stack's wheels take no keys");
@@ -3671,33 +3520,34 @@ mod tests {
     /// caller says, lit for the one knob armed.
     #[test]
     fn a_colour_knob_is_a_swatch() {
-        use concat_project::model::AppliedFilter;
-        let mut link = AppliedFilter::new("concat.chroma-key");
-        let (_, knobs) = chain_rows(std::slice::from_ref(&link));
+        let mut link = doc_view::new_effect("concat.chroma-key");
+        let (_, knobs) = chain_rows(&[&link]);
         assert!(knobs.iter().all(|knob| knob.key != "color"), "no slider");
         assert!(
             knobs.iter().all(|knob| knob.key != "view"),
             "a choice, not a slider"
         );
         assert!(knobs.iter().any(|knob| knob.key == "strength"));
-        let colours = chain_colours(std::slice::from_ref(&link), true, None);
+        let colours = chain_colours(&[&link], true, None);
         assert_eq!(colours.len(), 1);
         assert_eq!(colours[0].key, "color");
         assert!(colours[0].automatic && colours[0].can_automatic);
         assert!(colours[0].pickable && !colours[0].picking);
         let blue = slint::Color::from_argb_u8(255, 0x00, 0x47, 0xbb);
-        link.params.insert("color".to_owned(), packed(blue));
-        assert_eq!(link.params["color"], f64::from(0x0047_bbffu32));
-        let picked = chain_colours(std::slice::from_ref(&link), false, Some((0, "color")));
+        doc_view::set_param(&mut link, "color", packed(blue));
+        assert_eq!(
+            doc_view::param(&link, "color"),
+            Some(f64::from(0x0047_bbffu32))
+        );
+        let picked = chain_colours(&[&link], false, Some((0, "color")));
         assert_eq!(picked[0].value, blue);
         assert!(!picked[0].automatic && picked[0].can_automatic);
         assert!(!picked[0].pickable && picked[0].picking);
-        let choices = chain_choices(&[link]);
+        let choices = chain_choices(&[&link]);
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].key, "view");
         assert_eq!(choices[0].current, 0);
     }
-
     /// A pick is the mean of the five by five pixels about the point, in
     /// light, and nothing off the picture; a grey has no hue to key.
     #[test]
@@ -3848,9 +3698,6 @@ mod tests {
         assert!(!box_.contains(x, 0.5 - 6.0 / 1080.0, FRAME));
     }
 
-    /// A knob over a property with no keys writes the constant; over one
-    /// that rides, it writes the key at the playhead and leaves the
-    /// constant alone. The echo's keys then become one command each.
     /// A batch's position and turn move by the knob's change and its scale
     /// by the knob's factor; the first clip, the knob's reference, lands on
     /// the knob's value, and a field that is not a placement is set outright.
@@ -3874,21 +3721,26 @@ mod tests {
         }
     }
 
+    /// A knob over a property with no keys writes its value; over one
+    /// that rides, it writes the key at the playhead and leaves the value
+    /// alone. The echo's keys then become one command each, and the
+    /// playhead's place on a clip's content is held to the clip's ends.
     #[test]
     fn a_keyed_property_is_written_as_a_key_and_committed_as_commands() {
-        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
-        let before = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, 10.0);
+        let (_, id, before) = placed(MediaKind::Video);
         let mut after = before.clone();
-        write_keyable(&mut after, KeyProperty::Scale, 2.0, 0.5);
-        assert_eq!(after.scale, 2.0, "no keys: the constant");
-        assert!(key_commands("c1", &before, &after).is_empty());
+        write_keyable(&mut after, KeyProperty::Scale, 2.0, tick(5.0));
+        assert_eq!(after.picture.scale.value, 2.0, "no keys: the value");
+        assert!(key_commands(id, &before, &after).is_empty());
 
-        after.set_key(KeyProperty::Scale, 0.25, 1.0, KeyEase::LINEAR);
-        write_keyable(&mut after, KeyProperty::Scale, 3.0, 0.75);
-        assert_eq!(after.scale, 2.0, "keyed: the constant is left alone");
-        assert_eq!(after.value_at(KeyProperty::Scale, 0.75), 3.0);
-        assert_eq!(shown(&after, KeyProperty::Scale, 0.75), 3.0);
-        let commands = key_commands("c1", &before, &after);
+        doc_view::set_key(&mut after.picture.scale.keys, tick(2.5), 1.0, Ease::LINEAR);
+        write_keyable(&mut after, KeyProperty::Scale, 3.0, tick(7.5));
+        assert_eq!(
+            after.picture.scale.value, 2.0,
+            "keyed: the value is left alone"
+        );
+        assert_eq!(shown(&after, KeyProperty::Scale, tick(7.5)), 3.0);
+        let commands = key_commands(id, &before, &after);
         assert_eq!(commands.len(), 2, "one per key: {commands:?}");
         assert!(commands.iter().all(|command| matches!(
             command,
@@ -3899,35 +3751,49 @@ mod tests {
         )));
 
         let mut gone = after.clone();
-        gone.clear_key(KeyProperty::Scale, 0.25);
-        let commands = key_commands("c1", &after, &gone);
+        gone.picture
+            .scale
+            .keys
+            .retain(|key| !doc_view::near(key.at, tick(2.5)));
+        let commands = key_commands(id, &after, &gone);
         assert!(
-            matches!(commands.as_slice(), [Command::ClearClipKey { at, .. }] if (*at - 0.25).abs() < 1e-9),
+            matches!(commands.as_slice(), [Command::ClearClipKey { at, .. }] if *at == tick(2.5)),
             "{commands:?}"
         );
-        assert_eq!(place_in(&after, 2.5), 0.25);
-        assert_eq!(place_in(&after, 12.0), 1.0, "held to the end");
+        assert_eq!(doc_view::content_at(&after, tick(2.5)), tick(2.5));
+        assert_eq!(
+            doc_view::content_at(&after, tick(12.0)),
+            tick(10.0),
+            "held to the end"
+        );
     }
 
     /// Width and height key the way scale does: a knob on an unkeyed pull
-    /// sets the constant, and once it carries keys the knob writes a key
+    /// sets its value, and once it carries keys the knob writes a key
     /// that the commit carries, while the other axis is left as it was.
     /// Every keyable property has a field that names it and back, which
     /// is what lets an inspector row and a Keyframes row find each other.
     #[test]
     fn a_pull_is_keyed_like_a_scale() {
-        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
-        let before = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, 10.0);
+        let (_, id, before) = placed(MediaKind::Video);
         let mut after = before.clone();
-        write_keyable(&mut after, KeyProperty::StretchX, 1.5, 0.5);
-        assert_eq!(after.stretch_x, 1.5, "no keys: the constant");
+        write_keyable(&mut after, KeyProperty::StretchX, 1.5, tick(5.0));
+        assert_eq!(after.picture.stretch_x.value, 1.5, "no keys: the value");
 
-        after.set_key(KeyProperty::StretchX, 0.0, 1.0, KeyEase::LINEAR);
-        write_keyable(&mut after, KeyProperty::StretchX, 2.0, 1.0);
-        assert_eq!(after.stretch_x, 1.5, "keyed: the constant is left alone");
-        assert_eq!(shown(&after, KeyProperty::StretchX, 0.5), 1.5);
-        assert_eq!(shown(&after, KeyProperty::StretchY, 0.5), 1.0);
-        let commands = key_commands("c1", &before, &after);
+        doc_view::set_key(
+            &mut after.picture.stretch_x.keys,
+            tick(0.0),
+            1.0,
+            Ease::LINEAR,
+        );
+        write_keyable(&mut after, KeyProperty::StretchX, 2.0, tick(10.0));
+        assert_eq!(
+            after.picture.stretch_x.value, 1.5,
+            "keyed: the value is left alone"
+        );
+        assert_eq!(shown(&after, KeyProperty::StretchX, tick(5.0)), 1.5);
+        assert_eq!(shown(&after, KeyProperty::StretchY, tick(5.0)), 1.0);
+        let commands = key_commands(id, &before, &after);
         assert_eq!(commands.len(), 2, "one per key: {commands:?}");
         assert!(commands.iter().all(|command| matches!(
             command,
@@ -3937,7 +3803,7 @@ mod tests {
             }
         )));
 
-        for property in KeyProperty::ALL {
+        for property in doc_view::KEY_PROPERTIES {
             assert_eq!(
                 Studio::key_property_of(key_field_of(property)),
                 Some(property)
@@ -3958,86 +3824,66 @@ mod tests {
     /// left behind at the playhead.
     #[test]
     fn a_batch_level_is_one_undo_step_for_every_clip() {
-        use concat_project::model::{KeyEase, KeyProperty, MediaKind};
-        let mut editor = concat_project::Editor::new();
-        let media_id = editor
-            .apply(Command::AddMedia {
-                item: concat_project::commands::NewMedia {
-                    path: "/a.wav".to_owned(),
-                    name: "a.wav".to_owned(),
-                    duration: Some(10.0),
-                    kind: MediaKind::Audio,
-                    width: None,
-                    height: None,
-                    frame_rate: None,
-                    frame_rate_fraction: None,
-                    video_codec: None,
-                    audio_codec: Some("pcm".to_owned()),
-                    has_audio: true,
-                    audio_tracks: Vec::new(),
-                    origin: None,
-                    color_space: Default::default(),
-                },
-            })
-            .expect("adds")
-            .created_id
-            .expect("id");
-        let track_id = editor.project().active().tracks[0].id.clone();
-        let mut ids = Vec::new();
-        for start in [0.0, 20.0] {
-            let id = editor
-                .apply(Command::AddClip {
-                    media_id: media_id.clone(),
-                    track_id: track_id.clone(),
-                    start,
-                    ripple: false,
-                })
-                .expect("adds")
-                .created_id
-                .expect("id");
-            ids.push(id);
-        }
+        use concat_doc::model::Model;
+        use concat_doc::{Budget, Entry, History, Origin};
+        let mut bench = Bench::new();
+        let media = bench.add_media("a.wav", MediaKind::Audio, 10.0);
+        let lane = bench.main_lane();
+        let ids = [
+            bench.add_clip(media, lane, 0.0),
+            bench.add_clip(media, lane, 20.0),
+        ];
         // The second rides: full, then faded out.
-        for (at, value) in [(0.0, 1.0), (1.0, 0.0)] {
-            editor
-                .apply(Command::SetClipKey {
-                    clip_id: ids[1].clone(),
-                    property: KeyProperty::Volume,
-                    at,
-                    value,
-                    ease: KeyEase::LINEAR,
-                })
-                .expect("keys");
+        for (at, value) in [(0.0, 1.0), (10.0, 0.0)] {
+            bench.apply(&Command::SetClipKey {
+                item: ids[1],
+                property: KeyProperty::Volume,
+                at: tick(at),
+                value,
+                ease: Ease::LINEAR,
+            });
         }
-        editor.end_gesture();
-        let document = editor.project().clone();
+        let document = bench.document.clone();
 
         let mut commands = Vec::new();
-        for id in &ids {
-            let before = document.active().clip(id).expect("clip");
+        for id in ids {
+            let before = doc_view::item(&document, id).expect("clip");
             let mut after = before.clone();
-            crate::batch_volume::set_level(&mut after, before, 0.5, 0.0);
-            commands.extend(super::clip_edit_commands(id, before, &after, false));
+            crate::batch_volume::set_level(&mut after, before, 0.5, tick(0.0));
+            commands.extend(clip_edit_commands(id, before, &after, false));
         }
-        editor.apply(Command::Batch { commands }).expect("applies");
-        let clip = |editor: &concat_project::Editor, id: &str| {
-            editor.project().active().clip(id).expect("clip").clone()
+        let batch = Command::Batch { commands };
+        let mut history: History<Model, Command, Vec<ItemId>> =
+            History::new(document.clone(), Budget::default());
+        let outcome =
+            concat_doc::commands::run(history.current(), &batch, Origin(0)).expect("applies");
+        history
+            .record(
+                outcome.commit.expect("the batch changes the clips"),
+                Entry::new(vec![batch], Vec::new(), Vec::new()),
+            )
+            .expect("the step is kept");
+        let clip = |history: &History<Model, Command, Vec<ItemId>>, id: ItemId| {
+            doc_view::item(history.current(), id).expect("clip").clone()
         };
-        assert_eq!(clip(&editor, &ids[0]).volume, 0.5);
-        let keyed = clip(&editor, &ids[1]);
-        let ride: Vec<f64> = keyed
-            .keys_on(KeyProperty::Volume)
+        assert_eq!(clip(&history, ids[0]).sound.volume.value, 0.5);
+        let ride: Vec<f64> = clip(&history, ids[1])
+            .sound
+            .volume
+            .keys
+            .iter()
             .map(|key| key.value)
             .collect();
         assert_eq!(ride, vec![0.5, 0.0], "the ride moved, no key was added");
 
-        assert!(editor.undo());
-        for id in &ids {
+        assert!(history.undo().is_some());
+        for id in ids {
             assert_eq!(
-                clip(&editor, id),
-                *document.active().clip(id).expect("clip"),
+                clip(&history, id),
+                *doc_view::item(&document, id).expect("clip"),
                 "one undo puts {id} back"
             );
         }
+        assert!(history.undo().is_none(), "it was one step");
     }
 }

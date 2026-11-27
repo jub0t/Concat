@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## O projektu
 
-Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux, Android i iOS. Pokriva ono što treba većini montaža: automatske titlove, izdvajanje glasa, pretvorbu teksta u govor, uklanjanje pozadine, animacije i ključne kadrove, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
+Concat je besplatan videouređivač otvorenog koda za macOS, Windows, Linux i Android. Pokriva ono što treba većini montaža: automatske titlove, izdvajanje glasa, pretvorbu teksta u govor, uklanjanje pozadine, animacije i ključne kadrove, efekte i naslove, višetračno rezanje, izvoz u 4K. Bez ikakvih kvaka: bez vodenog žiga, bez računa, bez pretplate, bez učitavanja.
 
 Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, ubacite snimke, režite. AI modeli za titlove, glasove i izrezivanje preuzimaju se jednom iz Postavki i nakon toga rade izvan mreže. Vaše snimke nikada ne napuštaju vaš disk.
 
@@ -72,8 +72,8 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - 📤 **Izvoz.** H.264, HEVC, AV1, na kodeku samog računala. Do 4K 60, 10-bitna boja.
 - ⚡ **Brzo.** Proxyji su ugrađeni da se 4K glatko pomiče. Naslovi se crtaju na svim jezgrama, a svaki je efekt spreman čim se prozor otvori.
 - 🛟 **Nastavlja raditi na svakom računalu.** Kad grafički čip odustane, pregled i dalje crta.
-- 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje gRPC i alat za naredbeni redak.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 jezika. Ista aplikacija, iste datoteke projekata.
+- 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje alat za naredbeni redak.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 jezika. Ista aplikacija, iste datoteke projekata.
 
 ## Preuzimanje
 
@@ -90,7 +90,6 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 - ✅ **macOS** · Intel i Apple Silicon. Ako macOS odbije otvoriti nepotpisanu inačicu: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 i ARM. `.deb`, `.rpm`, `.AppImage` i Arch paket. Također Flatpak na **[Flatparku](https://flatpark.org/apps/app.concat.editor/)**, Flatpak repozitoriju zajednice koji omata x86_64 `.deb` svakog izdanja i ažurira se s njim
 - ✅ **Android** · telefoni i tableti
-- ✅ **iOS / iPadOS** · iPhone i iPad, sideloadom
 
 ✅ Podržano · 🚧 U izradi · 🧪 Za testiranje
 
@@ -103,7 +102,7 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 > [!IMPORTANT]
 > Najbolji način doprinosa jest uzeti inačicu sa stranice [Releases](https://github.com/jub0t/Concat/releases) i koristiti je: pronaći gdje puca i reći gdje bi mogla biti bolja.
 >
-> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concat.standalones.org/docs) pokriva Concat API i njegove prijenose: JSON-RPC i gRPC. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
+> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concat.standalones.org/docs) pokriva Concat API i njegov prijenos: JSON-RPC. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
 > 
 > Suradnici mogu zatražiti ulogu `@Contributor` na Discord poslužitelju: samo pitajte.
 

@@ -4,17 +4,14 @@
 #   eval "$(scripts/mobile-env.sh aarch64-linux-android)"
 #   cargo ndk -t arm64-v8a --platform 26 build -p concat-mobile
 #
-#   eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
-#   cargo build -p concat --target aarch64-apple-ios
-#
 # It names what the fetch scripts left in vendor/ - FFmpeg through
-# FFMPEG_DIR, and on Android the libraries the APK carries through
-# CONCAT_ANDROID_LIBS - and on Android the SDK pieces the build scripts of
-# Slint's backend and whisper.cpp read. Run scripts/ffmpeg-mobile.sh for
-# the target first, and on Android scripts/android-libs.sh too.
+# FFMPEG_DIR, and the libraries the APK carries through
+# CONCAT_ANDROID_LIBS - and the SDK pieces the build scripts of Slint's
+# backend and whisper.cpp read. Run scripts/ffmpeg-mobile.sh and
+# scripts/android-libs.sh for the target first.
 set -euo pipefail
 
-target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
+target=${1:?target triple: aarch64-linux-android or x86_64-linux-android}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 ffmpeg=$workspace/vendor/ffmpeg/$target
 [ -d "$ffmpeg/lib" ] || { echo "no FFmpeg for $target: run scripts/ffmpeg-mobile.sh $target" >&2; exit 1; }
@@ -79,9 +76,6 @@ case "$target" in
       rustflags="$rustflags -L native=$shim"
     fi
     echo "export RUSTFLAGS='$rustflags'"
-    ;;
-  aarch64-apple-ios)
-    echo "export IPHONEOS_DEPLOYMENT_TARGET='${IPHONEOS_DEPLOYMENT_TARGET:-15.0}'"
     ;;
   *)
     echo "unknown target $target" >&2; exit 1 ;;

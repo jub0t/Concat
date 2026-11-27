@@ -398,10 +398,45 @@ impl Runner<'_> {
                 path: project.to_owned(),
             })?;
         }
+        // Which timeline is showing and the order of the tabs are no step
+        // of undo: walking back past the edit that made a timeline lets go
+        // of its place among them. The walk is this check's own, so it puts
+        // the view back as the case left it, by the commands a person has.
+        let tabs = ended["view"]["tabs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let showing = ended["view"]["showing"].as_str().map(str::to_owned);
+        let mut view = Vec::new();
+        for (index, tab) in tabs.iter().enumerate() {
+            view.push(json!({ "op": "moveTimeline", "timelineId": tab, "index": index }));
+        }
+        if let Some(showing) = showing {
+            view.push(json!({ "op": "selectTimeline", "timelineId": showing }));
+        }
+        for command in view {
+            let request: Request = serde_json::from_value(json!({
+                "method": "edit.apply",
+                "path": project,
+                "command": command,
+            }))
+            .map_err(|error| format!("{label}: the view's command is no request: {error}"))?;
+            self.send(request)?;
+        }
         let again = self.document(project)?;
         let counted = history.edits != usize::MAX;
         let mut wrong = Vec::new();
-        if let Some(path) = difference(&history.base, &began, "") {
+        // The count of ids made is saved with the document and never goes
+        // back, so that an id is never made twice: an undo leaves it where
+        // the edits took it, and it is no part of what is compared.
+        let edit = |document: &Value| {
+            let mut edit = document.clone();
+            if let Some(fields) = edit.as_object_mut() {
+                fields.remove("mint");
+            }
+            edit
+        };
+        if let Some(path) = difference(&edit(&history.base), &edit(&began), "") {
             wrong.push(format!(
                 "undone, the document is not what it was before the edits: it first differs at {path}"
             ));
@@ -473,52 +508,49 @@ impl Runner<'_> {
                 "step {at}: {method} answered with no project to bind from"
             ));
         };
-        if !pointers.is_empty() {
-            let answer = serde_json::to_value(&view)
-                .map_err(|error| format!("step {at}: the answer does not encode: {error}"))?;
-            for (name, pointer) in pointers {
-                let found = match answer.pointer(&pointer) {
-                    Some(Value::String(text)) => text.clone(),
-                    Some(Value::Number(number)) => number.to_string(),
-                    _ => {
-                        return Err(format!(
-                            "step {at}: {pointer} is no string or number in the answer"
-                        ));
-                    }
-                };
-                if bindings.insert(name.clone(), found).is_some() {
-                    return Err(format!("step {at}: {name} is bound already"));
+        if let Some(alias) = alias {
+            let id = match method.as_str() {
+                // The bin's id for the file: the one it has already, for a
+                // file imported before.
+                "media.import" => view.created_id.clone().ok_or_else(|| {
+                    let file = value["file"].as_str().unwrap_or_default();
+                    format!("step {at}: {file} is not in the bin after its import")
+                })?,
+                "edit.apply" => view.created_id.clone().ok_or_else(|| {
+                    format!("step {at}: the edit minted nothing to bind as {alias}")
+                })?,
+                _ => {
+                    return Err(format!(
+                        "step {at}: only media.import and edit.apply bind a name, not {method}"
+                    ));
                 }
+            };
+            if bindings.insert(alias.clone(), id).is_some() {
+                return Err(format!("step {at}: {alias} is bound already"));
             }
         }
-        let Some(alias) = alias else {
+        if pointers.is_empty() {
             return Ok(());
-        };
-        let id = match method.as_str() {
-            "media.import" => {
-                let file = value["file"].as_str().unwrap_or_default();
-                let wanted = canonical(file);
-                view.project
-                    .media
-                    .iter()
-                    .find(|item| canonical(&item.path) == wanted)
-                    .map(|item| item.id.clone())
-                    .ok_or_else(|| {
-                        format!("step {at}: {file} is not in the bin after its import")
-                    })?
+        }
+        // After the step's own name, so a pointer can go through the record
+        // of what the step made: `/project/items/$clip/lane`.
+        let answer = serde_json::to_value(&view)
+            .map_err(|error| format!("step {at}: the answer does not encode: {error}"))?;
+        for (name, pointer) in pointers {
+            let pointer =
+                named_pointer(&pointer, bindings).map_err(|error| format!("step {at}: {error}"))?;
+            let found = match answer.pointer(&pointer) {
+                Some(Value::String(text)) => text.clone(),
+                Some(Value::Number(number)) => number.to_string(),
+                _ => {
+                    return Err(format!(
+                        "step {at}: {pointer} is no string or number in the answer"
+                    ));
+                }
+            };
+            if bindings.insert(name.clone(), found).is_some() {
+                return Err(format!("step {at}: {name} is bound already"));
             }
-            "edit.apply" => view
-                .created_id
-                .clone()
-                .ok_or_else(|| format!("step {at}: the edit minted nothing to bind as {alias}"))?,
-            _ => {
-                return Err(format!(
-                    "step {at}: only media.import and edit.apply bind a name, not {method}"
-                ));
-            }
-        };
-        if bindings.insert(alias.clone(), id).is_some() {
-            return Err(format!("step {at}: {alias} is bound already"));
         }
         Ok(())
     }
@@ -557,13 +589,11 @@ impl Runner<'_> {
                     })
                 })
             }
-            Harness::SpliceDocument { append, merge } => {
-                self.splice(report, label, project, &when, append, merge)
-            }
+            Harness::SpliceDocument { merge } => self.splice(report, label, project, &when, merge),
         }
     }
 
-    /// Saves and closes the project, writes `append` and `merge` into its
+    /// Saves and closes the project, writes `merge` into its
     /// saved document, reopens it, and checks all of it is in the document
     /// the project then gives: what this build cannot read, it keeps.
     fn splice(
@@ -572,25 +602,17 @@ impl Runner<'_> {
         label: &str,
         project: &str,
         when: &str,
-        append: &[Splice],
         merge: &[Splice],
     ) -> Result<(), String> {
         self.send(Request::ProjectClose {
             path: project.to_owned(),
             save: true,
         })?;
-        let file = Path::new(project).join("concat.json");
+        let file = Path::new(project).join(concat_host::session::DOCUMENT);
         let text = std::fs::read_to_string(&file)
             .map_err(|error| format!("could not read {}: {error}", file.display()))?;
         let mut document: Value = serde_json::from_str(&text)
             .map_err(|error| format!("{} is not JSON: {error}", file.display()))?;
-        for splice in append {
-            document
-                .pointer_mut(&splice.at)
-                .and_then(Value::as_array_mut)
-                .ok_or_else(|| format!("{when}: {} is no array in the saved document", splice.at))?
-                .push(splice.value.clone());
-        }
         for splice in merge {
             let object = document
                 .pointer_mut(&splice.at)
@@ -611,15 +633,6 @@ impl Runner<'_> {
         })?;
         let opened = self.document(project)?;
         let mut lost = Vec::new();
-        for splice in append {
-            let kept = opened
-                .pointer(&splice.at)
-                .and_then(Value::as_array)
-                .is_some_and(|items| items.contains(&splice.value));
-            if !kept {
-                lost.push(format!("{} lost {}", splice.at, splice.value));
-            }
-        }
         for splice in merge {
             for (key, value) in splice.value.as_object().into_iter().flatten() {
                 if opened
@@ -636,7 +649,7 @@ impl Runner<'_> {
                 "{label}: what was written into the saved document at {when} is in the opened one"
             ),
             lost.is_empty(),
-            named(&lost, &format!("all {} of it", append.len() + merge.len())),
+            named(&lost, &format!("all {} of it", merge.len())),
         );
         Ok(())
     }
@@ -776,12 +789,10 @@ impl Runner<'_> {
             path: project.to_owned(),
         })? {
             Reply::View(view) => view
-                .project
-                .active()
-                .clips
-                .iter()
-                .map(|clip| clip.start + clip.duration)
-                .fold(0.0, f64::max),
+                .document()
+                .map_err(|error| format!("project.get answered with no document: {error}"))?
+                .showing_end()
+                .display_seconds(),
             _ => return Err("project.get did not answer with the project".to_owned()),
         };
         let length = (end * self.case.fps()).round() as u32;
@@ -1090,12 +1101,13 @@ impl Runner<'_> {
         let other = self.build(report, &label, &twin.skip)?;
         let ours = self.document(project)?;
         let theirs = self.document(&other)?;
-        let differ = difference(&ours["timelines"], &theirs["timelines"], "").is_some();
+        let (ours, theirs) = (edit_of(&ours), edit_of(&theirs));
+        let differ = difference(&ours, &theirs, "").is_some();
         if twin.same {
             report.check(
                 format!("the case's timeline is the {} twin's again", twin.name),
                 !differ,
-                match difference(&ours["timelines"], &theirs["timelines"], "") {
+                match difference(&ours, &theirs, "") {
                     None => "entry for entry".to_owned(),
                     Some(path) => format!("they first differ at {path}"),
                 },
@@ -1413,6 +1425,32 @@ fn substitute(value: &Value, bindings: &BTreeMap<String, String>) -> Result<Valu
                 .collect::<Result<_, String>>()?,
         ),
         _ => value.clone(),
+    })
+}
+
+/// A JSON pointer with each part that is `$name` put as what is bound to
+/// that name.
+fn named_pointer(pointer: &str, bindings: &BTreeMap<String, String>) -> Result<String, String> {
+    let parts: Vec<String> = pointer
+        .split('/')
+        .map(|part| match part.strip_prefix('$') {
+            Some(name) => bindings
+                .get(name)
+                .cloned()
+                .ok_or_else(|| format!("nothing is bound as {name}")),
+            None => Ok(part.to_owned()),
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(parts.join("/"))
+}
+
+/// The edit of a saved document: its timelines, their lanes and what is on
+/// them, without the bin, the view and the count of ids made.
+fn edit_of(document: &Value) -> Value {
+    json!({
+        "sequences": document["sequences"],
+        "lanes": document["lanes"],
+        "items": document["items"],
     })
 }
 

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.beat-pulse"
+name = "Beat Pulse"
+kind = "effect"
+category = "Flash"
+order = 4
+intensity = "amount"
+description = "The picture brightens on every beat of a tempo and falls back between them. Put the clip where the first beat lands."
+
+[[param]]
+key = "bpm"
+label = "Tempo"
+unit = "BPM"
+min = 40
+max = 240
+step = 1
+default = 120
+
+[[param]]
+key = "amount"
+label = "Brightness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[[param]]
+key = "length"
+label = "Hit Length"
+unit = "%"
+min = 10
+max = 100
+step = 1
+default = 50
+
+[wgsl]
+entry = "effect.wgsl"
+
+[card]
+moment = 0.02

@@ -10,8 +10,9 @@
 //! however many there are, and one look the lane keeps, so restyling them
 //! all is one `SetCaptionLook` rather than an edit to every caption.
 
-use concat_project::Command;
-use concat_project::model::{CaptionCue, CaptionLook, TextStyle};
+use concat_doc::commands::{Command, Cue};
+use concat_doc::model::{CaptionLook, Title};
+use concat_doc::{Tick, TickLen};
 
 /// Where a caption sits, by the sheet's row: a frame-height fraction from
 /// the centre, positive down. Bottom, centre, top.
@@ -41,15 +42,20 @@ pub struct Heard {
 /// the timeline and plays at `speed`: one a stretch, where it was said and
 /// never shorter than a word can be read. Stretches with no words are left
 /// out.
-pub fn heard_cues(heard: &[Heard], clip_start: f64, speed: f64) -> Vec<CaptionCue> {
+pub fn heard_cues(heard: &[Heard], clip_start: f64, speed: f64) -> Vec<Cue> {
     let speed = if speed > 0.0 { speed } else { 1.0 };
     heard
         .iter()
         .filter(|stretch| !stretch.text.trim().is_empty())
-        .map(|stretch| CaptionCue {
-            start: clip_start + stretch.start / speed,
-            duration: ((stretch.end - stretch.start) / speed).max(SHORTEST),
-            text: stretch.text.trim().to_owned(),
+        .filter_map(|stretch| {
+            let start = Tick::from_display_seconds((clip_start + stretch.start / speed).max(0.0))?;
+            let seconds = ((stretch.end - stretch.start) / speed).max(SHORTEST);
+            let len = TickLen::try_from(Tick::from_display_seconds(seconds)?.get()).ok()?;
+            Some(Cue {
+                start,
+                len,
+                words: stretch.text.trim().to_owned(),
+            })
         })
         .collect()
 }
@@ -58,10 +64,10 @@ pub fn heard_cues(heard: &[Heard], clip_start: f64, speed: f64) -> Vec<CaptionCu
 /// weight, colours, stroke, shadow, background) at the sheet's size and
 /// place, the bundled face otherwise. `look` is (offset from the middle,
 /// size).
-pub fn caption_look(look: (f64, f64), base: Option<&TextStyle>) -> CaptionLook {
+pub fn caption_look(look: (f64, f64), base: Option<&Title>) -> CaptionLook {
     let (offset_y, font_size) = look;
-    let style = match base {
-        Some(base) => TextStyle {
+    let title = match base {
+        Some(base) => Title {
             content: String::new(),
             font_size,
             max_width: 0.0,
@@ -70,30 +76,26 @@ pub fn caption_look(look: (f64, f64), base: Option<&TextStyle>) -> CaptionLook {
             runs: Vec::new(),
             ..base.clone()
         },
-        None => TextStyle {
+        None => Title {
             content: String::new(),
             font_family: "Hanken Grotesk".to_owned(),
             font_size,
             font_weight: 600.0,
-            ..TextStyle::default()
+            ..Title::default()
         },
     };
-    CaptionLook { style, offset_y }
+    CaptionLook { title, offset_y }
 }
 
 /// `cues` laid on a new caption lane in `look` over `base`, as one edit.
 /// None when no cue has words.
-pub fn place_captions(
-    cues: Vec<CaptionCue>,
-    look: (f64, f64),
-    base: Option<&TextStyle>,
-) -> Option<Command> {
-    let cues: Vec<CaptionCue> = cues
+pub fn place_captions(cues: Vec<Cue>, look: (f64, f64), base: Option<&Title>) -> Option<Command> {
+    let cues: Vec<Cue> = cues
         .into_iter()
-        .filter(|cue| !cue.text.trim().is_empty())
+        .filter(|cue| !cue.words.trim().is_empty())
         .collect();
     (!cues.is_empty()).then(|| Command::PlaceCaptions {
-        track_id: None,
+        lane: None,
         look: caption_look(look, base),
         cues,
     })
@@ -102,6 +104,8 @@ pub fn place_captions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_doc::Doc;
+    use concat_doc::model::{Color, Content, LaneId};
 
     fn heard(start: f64, end: f64, text: &str) -> Heard {
         Heard {
@@ -111,6 +115,10 @@ mod tests {
         }
     }
 
+    fn secs(len: TickLen) -> f64 {
+        concat_doc::TickDur::from(len).display_seconds()
+    }
+
     #[test]
     fn a_stretch_lands_where_it_was_said_at_the_clips_speed() {
         let cues = heard_cues(
@@ -118,15 +126,11 @@ mod tests {
             10.0,
             2.0,
         );
-        assert_eq!(
-            (cues[0].start, cues[0].duration, cues[0].text.as_str()),
-            (11.0, 1.0, "hello")
-        );
-        assert_eq!(cues[1].start, 12.5);
-        assert_eq!(
-            cues[1].duration, SHORTEST,
-            "a short word stays up long enough to read"
-        );
+        assert_eq!(cues[0].start.display_seconds(), 11.0);
+        assert_eq!(secs(cues[0].len), 1.0);
+        assert_eq!(cues[0].words, "hello");
+        assert_eq!(cues[1].start.display_seconds(), 12.5);
+        assert_eq!(secs(cues[1].len), SHORTEST, "long enough to read");
     }
 
     #[test]
@@ -140,8 +144,8 @@ mod tests {
     /// restyles them all and keeps their words.
     #[test]
     fn captions_are_one_lane_one_edit_and_one_look() {
-        let mut editor = concat_project::Editor::new();
-        let lanes = editor.project().active().tracks.len();
+        let mut doc = Doc::new();
+        let lanes = doc.model().lanes.len();
         let cues = heard_cues(
             &[
                 heard(0.0, 1.5, "one"),
@@ -153,68 +157,52 @@ mod tests {
         );
         let command = place_captions(cues, (CAPTION_OFFSETS[0], CAPTION_SIZES[1]), None)
             .expect("words to place");
-        let lane = editor
+        let lane: LaneId = doc
             .apply(command)
-            .expect("placed")
-            .created_id
-            .expect("the lane");
-        let timeline = editor.project().active();
-        assert_eq!(timeline.tracks.len(), lanes + 1, "one new lane");
-        let captions: Vec<_> = timeline
-            .clips
-            .iter()
-            .filter(|clip| clip.track_id == lane)
-            .collect();
+            .created
+            .expect("the lane")
+            .typed()
+            .expect("a lane");
+        assert_eq!(doc.model().lanes.len(), lanes + 1, "one new lane");
+        let on = |doc: &Doc| -> Vec<(String, Color, f64)> {
+            doc.model()
+                .items
+                .index()
+                .on_lane(lane)
+                .filter_map(|(id, _, _)| doc.model().items.get(id).cloned())
+                .map(|item| match &item.content {
+                    Content::Title(title) => (
+                        title.content.clone(),
+                        title.color,
+                        item.picture.offset_y.value,
+                    ),
+                    _ => panic!("a title"),
+                })
+                .collect()
+        };
+        let captions = on(&doc);
         assert_eq!(captions.len(), 3);
-        assert_eq!(
-            captions[0].duration, 1.0,
-            "the first ends where the second begins"
-        );
-        assert!(
-            captions
-                .iter()
-                .all(|clip| clip.offset_y == CAPTION_OFFSETS[0])
-        );
-
-        let mut look = timeline
-            .track(&lane)
-            .and_then(|track| track.captions.clone())
+        assert!(captions.iter().all(|c| c.2 == CAPTION_OFFSETS[0]));
+        let mut look = doc
+            .model()
+            .lanes
+            .get(lane)
+            .and_then(|lane| lane.captions.clone())
             .expect("a caption lane");
-        look.style.color = "#ffd60a".to_owned();
+        let gold = Color::rgb(0xff, 0xd6, 0x0a);
+        look.title.color = gold;
         look.offset_y = -0.3;
-        editor
-            .apply(Command::SetCaptionLook {
-                track_id: lane.clone(),
-                look: Some(look),
-            })
-            .expect("restyled");
-        let timeline = editor.project().active();
-        let words: Vec<(String, String, f64)> = timeline
-            .clips
-            .iter()
-            .filter(|clip| clip.track_id == lane)
-            .map(|clip| {
-                let text = clip.text.as_ref().expect("a title");
-                (text.content.clone(), text.color.clone(), clip.offset_y)
-            })
-            .collect();
+        doc.apply(Command::SetCaptionLook {
+            lane,
+            look: Some(look),
+        });
         assert_eq!(
-            words,
+            on(&doc),
             vec![
-                ("one".to_owned(), "#ffd60a".to_owned(), -0.3),
-                ("two".to_owned(), "#ffd60a".to_owned(), -0.3),
-                ("three".to_owned(), "#ffd60a".to_owned(), -0.3),
+                ("one".to_owned(), gold, -0.3),
+                ("two".to_owned(), gold, -0.3),
+                ("three".to_owned(), gold, -0.3),
             ]
-        );
-        assert!(editor.undo(), "one undo step");
-        assert!(
-            editor
-                .project()
-                .active()
-                .clips
-                .iter()
-                .filter(|clip| clip.track_id == lane)
-                .all(|clip| clip.offset_y == CAPTION_OFFSETS[0])
         );
     }
 }

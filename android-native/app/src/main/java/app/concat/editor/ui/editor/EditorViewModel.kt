@@ -291,10 +291,20 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         if (kind == "transition") {
             val clip = selectedClip()
             if (clip?.kind == ClipKind.Transition) {
-                // A transition clip selected: it becomes this one, at its defaults.
-                val patch = JSONObject().put("name", name)
-                    .put("videoEffects", org.json.JSONArray().put(AppliedEffect.fresh(packageId)))
-                change("Transition") { apply(Commands.updateClip(clip.id, patch)) }
+                // A transition clip selected: this one in its place, at its
+                // defaults, one undo step. A transition's package is the clip.
+                change("Transition") {
+                    val view = apply(
+                        Commands.batch(
+                            listOf(
+                                Commands.removeClips(listOf(clip.id), ripple = false),
+                                Commands.addTransitionClip(packageId, name, clip.start, clip.duration, clip.trackId),
+                            ),
+                        ),
+                    )
+                    view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
+                    view
+                }
                 return
             }
             val at = clip?.start ?: _ui.value.position
@@ -338,6 +348,8 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
      */
     fun setLink(clipId: String, field: String, index: Int, link: JSONObject) {
         val clip = _ui.value.view?.clip(clipId) ?: return
+        // A transition's package and knobs are the clip itself, not a chain an edit replaces.
+        if (clip.kind == ClipKind.Transition) return
         val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }.toMutableList()
         if (index !in chain.indices) return
         chain[index] = link
@@ -670,7 +682,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     /**
      * Picked pictures over the main track: each onto a new lane on top, at
-     * the playhead, as CapCut's Overlay does.
+     * the playhead.
      */
     fun importOverlay(uris: List<Uri>) {
         if (uris.isEmpty()) return

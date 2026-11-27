@@ -8,14 +8,14 @@
 //! in [`studio`]. The state reads the engine's project and writes commands
 //! to it; nothing here decides what an edit means.
 //!
-//! A library so that every entry point is a few lines: `main.rs` on the
-//! desktop and on iOS. Each one calls [`run`]. Android's app is its own,
-//! over `concat-mobile`.
+//! A library so that the entry point, `main.rs`, is a few lines that call
+//! [`run`]. Android's app is its own, over `concat-mobile`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use concat_doc::commands::Command;
 use slint::{ModelRc, SharedString, VecModel};
 
 // `DataTransfer` is what a drag carries. Slint keeps the platform's drag
@@ -33,6 +33,7 @@ mod ui {
 
 mod batch_volume;
 mod chips;
+mod doc_view;
 mod dock;
 mod fonts;
 mod format;
@@ -40,23 +41,10 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
-/// The iPhone's pickers and its way to Photos; see the module.
-#[cfg(target_os = "ios")]
-mod ios;
 mod keymap;
 mod meters;
 mod motion_tiles;
 mod platform;
-/// What a phone's own crate installs before the window runs: the way to
-/// the system's file picker, and where a finished export is put so the
-/// phone shows it. See `platform::pick_files_async` and
-/// `platform::publish_export`.
-#[cfg(target_os = "ios")]
-pub use platform::{
-    ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
-};
-#[cfg(target_os = "ios")]
-pub use platform::{MicrophoneAccess, install_microphone_access};
 /// What a backend's hooks say of the window, for safe start: it drew a
 /// frame, or the person used it. On a desktop `DropHandler` says it. See
 /// `start_watch`.
@@ -69,6 +57,7 @@ mod presets;
 mod smoke_export;
 mod source;
 mod speed_ramp;
+mod srt;
 mod start_watch;
 mod studio;
 mod sysinfo;
@@ -328,12 +317,6 @@ fn watch_window_thread() -> slint::Timer {
 }
 
 fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint::PlatformError> {
-    // What Import and a finished export reach on an iPhone. Android's own
-    // crate installs its; iOS runs this crate's binary, so it is here.
-    // https://github.com/jub0t/Concat/issues/332
-    #[cfg(target_os = "ios")]
-    ios::install();
-
     // The interface scale: a percent of the display's own, applied once
     // the window is up and kept through moves between monitors; see
     // `platform::apply_ui_scale`. https://github.com/jub0t/Concat/issues/320
@@ -461,14 +444,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     fonts::register();
     let app = App::new()?;
     app.set_macos(platform::MACOS);
-    // A phone wears the phone shell - see ui/phone/ - and its lanes keep
-    // the playhead at their middle; the strip and the dock are the desk's.
+    // The phone shell - see ui/phone/ and `platform::phone` - keeps the
+    // playhead at the middle of its lanes; the strip and the dock are the
+    // desk's.
     let phone = platform::phone();
     app.set_phone(phone);
-    // The launch screen's version line, and whether its drop zone is
-    // offered: a drag in from the system is a desk's (see platform.rs).
+    // The launch screen's version line.
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
-    app.set_can_drop(cfg!(not(target_os = "ios")));
     app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
@@ -585,7 +567,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         |studio, _, _, families| studio.system_fonts_known(families),
     );
 
-    // Which codecs can be written here, and which by the chip: a phone
+    // Which codecs can be written here, and which by the chip: a machine
     // finds out only by opening its encoders, two seconds or so on some,
     // and the export sheet asked on the window's first publish, before
     // the window answered a touch. Asked on a worker; the sheet offers
@@ -595,11 +577,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // can start one: opening a chip's encoder runs its driver, and a
     // driver that crashes there used to close the editor at launch. What
     // the helper found is remembered here, and the asking after it opens
-    // nothing. Where no helper starts or speaks - a phone, a sandbox that
-    // forbids it - the encoders are asked here, as they were.
+    // nothing. Where no helper starts or speaks - a sandbox that forbids
+    // it - the encoders are asked here.
     host::spawn_long(
         || {
-            #[cfg(not(target_os = "ios"))]
             if let Ok(program) = std::env::current_exe()
                 && let Err(why) =
                     concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])
@@ -1252,30 +1233,20 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
 
     // ── tabs ──
     editor.on_tab_selected(on_window!(|state, index: i32| {
-        let Some(id) = state
-            .project()
-            .timelines
-            .get(index.max(0) as usize)
-            .map(|timeline| timeline.id.clone())
-        else {
+        let Some(sequence) = state.doc().view.tabs.get(index.max(0) as usize).copied() else {
             return;
         };
         state.selection.clear();
-        state.apply(concat_project::Command::SelectTimeline { timeline_id: id });
+        state.apply(Command::SelectTimeline { sequence });
     }));
     editor.on_tab_renamed(on_window!(|state, index: i32, name: SharedString| {
         let trimmed = name.trim().to_string();
-        let Some(id) = state
-            .project()
-            .timelines
-            .get(index.max(0) as usize)
-            .map(|timeline| timeline.id.clone())
-        else {
+        let Some(sequence) = state.doc().view.tabs.get(index.max(0) as usize).copied() else {
             return;
         };
         if !trimmed.is_empty() {
-            state.apply(concat_project::Command::RenameTimeline {
-                timeline_id: id,
+            state.apply(Command::RenameTimeline {
+                sequence,
                 name: trimmed,
             });
         }
@@ -1284,22 +1255,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         state.move_timeline(from, to);
     }));
     editor.on_tab_added(on_window!(|state| {
-        if let Some(id) = state.apply(concat_project::Command::AddTimeline) {
+        // The new timeline is shown in a tab of its own by the edit that
+        // makes it.
+        if state.apply(Command::AddTimeline).is_some() {
             state.selection.clear();
-            state.apply(concat_project::Command::SelectTimeline { timeline_id: id });
         }
     }));
     editor.on_tab_close_requested(on_window!(|state, index: i32| {
-        let Some(id) = state
-            .project()
-            .timelines
-            .get(index.max(0) as usize)
-            .map(|timeline| timeline.id.clone())
-        else {
+        let Some(sequence) = state.doc().view.tabs.get(index.max(0) as usize).copied() else {
             return;
         };
         state.selection.clear();
-        state.apply(concat_project::Command::RemoveTimeline { timeline_id: id });
+        state.apply(Command::RemoveTimeline { sequence });
     }));
 
     // ── the tray ──
@@ -1339,7 +1306,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         state.handle(Msg::Timeline(TimelineMsg::HoverEnded));
     }));
     editor.on_add_track(on_window!(|state, bottom: bool| {
-        state.apply(concat_project::Command::AddTrack { bottom });
+        state.apply(Command::AddTrack { bottom });
     }));
     editor.on_delete_selected(on_window!(|state| {
         state.delete_selected();
@@ -1456,18 +1423,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             state.flush_commit();
             let (from_row, to_row) = (state.row_at(from_y), state.row_at(to_y));
             let caught: Vec<String> = state
-                .timeline()
-                .clips
-                .iter()
-                .filter(|clip| {
-                    let row = state.row_of(&clip.track_id);
+                .clips()
+                .into_iter()
+                .filter(|(_, clip)| {
+                    let row = state.row_of_lane(clip.lane);
                     row >= from_row
                         && row <= to_row
-                        && (clip.start + clip.duration) as f32 >= from
-                        && clip.start as f32 <= to
-                        && !state.locked(&clip.track_id)
+                        && doc_view::end_s(clip) as f32 >= from
+                        && doc_view::start_s(clip) as f32 <= to
+                        && !state.lane_locked(clip.lane)
                 })
-                .map(|clip| clip.id.clone())
+                .map(|(id, _)| id)
                 .collect();
             if additive {
                 for id in caught {
@@ -1981,8 +1947,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         state.menu_target = None;
         state.menu_media = state
             .media
-            .by_row(state.project(), row)
-            .map(|item| item.id.clone());
+            .by_row(state.doc(), row)
+            .map(|card| card.id.clone());
     }));
     editor.on_menu_selected(on_window!(|state, action: SharedString| {
         if let Some(id) = state.menu_media.clone() {
@@ -2481,6 +2447,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
+    app.on_settings_server_apply(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerApply { stop_jobs: false }));
+    }));
+    app.on_settings_server_revert(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerRevert));
+    }));
     app.on_settings_check_updates(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::CheckUpdates));
     }));
@@ -2745,7 +2717,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                         }
                         "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
                         "linkage" => {
-                            let on = !state.timeline().linkage;
+                            let on = !doc_view::sequence(state.doc())
+                                .is_some_and(|sequence| sequence.linkage);
                             state.handle(Msg::Timeline(TimelineMsg::LinkageChanged(on)))
                         }
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
@@ -3390,6 +3363,8 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::path::Path;
 
+    use concat_doc::commands::Command;
+    use concat_host::session::PendingSave;
     use concat_host::{Session, projects};
 
     /// The desktop Import dialog offers the AVCHD footage the media reader
@@ -3398,18 +3373,6 @@ mod tests {
     fn the_import_filter_offers_avchd_footage() {
         assert!(IMPORT_MEDIA_EXTENSIONS.contains(&"mts"));
         assert!(IMPORT_MEDIA_EXTENSIONS.contains(&"m2ts"));
-    }
-
-    /// Every extension offered by the desktop Import dialog is media the
-    /// phone picker recognises too, so a typo cannot turn it into a file filter.
-    #[test]
-    fn every_import_extension_is_recognised_as_media() {
-        for extension in IMPORT_MEDIA_EXTENSIONS {
-            assert!(
-                crate::platform::media_kind(extension).is_some(),
-                "the Import filter's {extension:?} extension is not recognised as media"
-            );
-        }
     }
 
     /// A scratch folder that removes itself when the test ends, pass, fail or
@@ -3460,16 +3423,28 @@ mod tests {
     }
 
     fn tracks(session: &Session) -> usize {
-        session.project().active().tracks.len()
+        crate::doc_view::lanes(&session.document()).len()
+    }
+
+    /// Writes a captured save as the session's own save does, and says
+    /// whether it was written or passed over for a newer one.
+    fn write(pending: &PendingSave) -> Result<projects::Saved, String> {
+        projects::save_document_ordered(
+            &pending.folder,
+            &concat_host::session::document_path(&pending.folder),
+            &pending.name,
+            &pending.frame,
+            &pending.document,
+            pending.ticket,
+        )
     }
 
     /// The regression this gate exists for, over a real project on disk: a
     /// close used to hide the window and quit whatever the save did. The
-    /// write here is `concat_host`'s own - a real [`Session`] through
-    /// `projects::save` - and it is made to fail by a directory standing
-    /// where the manifest must go, a block at the destination the save
-    /// renames onto, so the failure holds whatever the save calls its
-    /// temporary file (the old `.saving` or the current per-call name). A
+    /// write here is `concat_host`'s own - a real [`Session`] saving its
+    /// document and its manifest - and it is made to fail by a file standing
+    /// where the project folder must be, a block at the destination itself,
+    /// so the failure holds whatever the save calls its temporary files. A
     /// failed write must leave the session open, keep the edit it holds and
     /// never leave; the retry, unblocked, must land the edit and then leave.
     ///
@@ -3489,37 +3464,42 @@ mod tests {
             [0, 0, 0, 255],
         )
         .expect("creates the project");
-        let manifest = projects::manifest_path(Path::new(&info.path));
+        let root = Path::new(&info.path).to_path_buf();
 
         // A real session, saved once; then an edit that lives in memory
         // only, so the disk holds the project without it.
         let mut session = Session::open_info(&info).expect("opens the session");
         let unedited = tracks(&session);
         session.save(None).expect("the baseline write lands");
-        let baseline = std::fs::read(&manifest).expect("reads the baseline manifest");
         session
-            .apply(concat_project::Command::AddTrack { bottom: false })
+            .apply(&Command::AddTrack { bottom: false })
             .expect("adds a track");
         let edited = tracks(&session);
         assert_eq!(edited, unedited + 1, "the edit really changed the project");
 
-        // Block the destination: a directory where the manifest must go. The
-        // save writes its temporary, flushes it, and cannot rename it over a
-        // directory, so it fails for real and leaves no partial manifest.
-        std::fs::remove_file(&manifest).expect("removes the manifest");
-        std::fs::create_dir(&manifest).expect("blocks the manifest path");
+        // Block the destination: the project folder is moved aside and a
+        // file stands where it was. The save can neither make the folder nor
+        // write the document or the manifest inside it, so it fails for real
+        // and leaves nothing half-written.
+        let aside = scratch.0.join("Closing aside");
+        std::fs::rename(&root, &aside).expect("moves the folder aside");
+        std::fs::write(&root, b"in the way").expect("blocks the project folder");
 
         let slot = RefCell::new(Some(session));
         let left = Cell::new(false);
         let outcome = close_window(|| save_then_release(&slot), || left.set(true));
 
-        let failed_at = manifest.display().to_string();
+        let failed_at = root.display().to_string();
         assert!(outcome.is_err(), "a blocked write is a failure");
         assert!(
             outcome.as_ref().unwrap_err().contains(failed_at.as_str()),
             "the failure is the real one from the blocked destination: {outcome:?}"
         );
-        assert!(manifest.is_dir(), "the block is untouched, nothing landed");
+        assert_eq!(
+            std::fs::read(&root).expect("reads the block"),
+            b"in the way",
+            "the block is untouched, nothing landed"
+        );
         {
             let held = slot.borrow();
             let session = held.as_ref().expect("the session is kept");
@@ -3531,11 +3511,9 @@ mod tests {
         }
         assert!(!left.get(), "nothing leaves on a failed save");
 
-        // Restore the baseline that the test removed to install its block.
-        // This checks recovery; it does not claim that a manifest deleted
-        // by the test itself was preserved by the failed write.
-        std::fs::remove_dir(&manifest).expect("clears the block");
-        std::fs::write(&manifest, &baseline).expect("restores the manifest");
+        // The folder comes back as the baseline save left it.
+        std::fs::remove_file(&root).expect("clears the block");
+        std::fs::rename(&aside, &root).expect("restores the folder");
         let reopened = Session::open_info(&info).expect("reopens the old document");
         assert_eq!(
             tracks(&reopened),
@@ -3576,25 +3554,20 @@ mod tests {
         )
         .expect("creates the project");
         let mut session = Session::open_info(&info).expect("opens the session");
-        let (old_path, old_document) = session.prepare_save(None);
-        let old_ticket = projects::ticket();
+        let old = session.prepare_save(None);
         session
-            .apply(concat_project::Command::AddTrack { bottom: false })
+            .apply(&Command::AddTrack { bottom: false })
             .expect("adds the unsaved track");
         let edited = tracks(&session);
-        let (new_path, new_document) = session.prepare_save(None);
-        let new_ticket = projects::ticket();
+        let new = session.prepare_save(None);
 
         let (release, delayed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
             delayed.recv().expect("releases the delayed autosave");
-            projects::save_ordered(&old_path, &old_document, old_ticket)
+            write(&old)
         });
         let left = Cell::new(false);
-        let outcome = close_window(
-            || projects::save_ordered(&new_path, &new_document, new_ticket).map(|_| ()),
-            || left.set(true),
-        );
+        let outcome = close_window(|| write(&new).map(|_| ()), || left.set(true));
         // Always release and join the worker before asserting, including
         // when the close write unexpectedly fails.
         release.send(()).expect("releases the worker");

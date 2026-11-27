@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## 소개
 
-Concat은 macOS, Windows, Linux, Android, iOS용 무료 오픈 소스 비디오 편집기입니다. 대부분의 편집에 필요한 것을 모두 다룹니다: 자동 자막, 음성 분리, 텍스트 음성 변환, 배경 제거, 애니메이션과 키프레임, 효과와 타이틀, 멀티트랙 편집, 4K 내보내기. 단, 함정은 없습니다: 워터마크 없음, 계정 없음, 구독 없음, 업로드 없음.
+Concat은 macOS, Windows, Linux, Android용 무료 오픈 소스 비디오 편집기입니다. 대부분의 편집에 필요한 것을 모두 다룹니다: 자동 자막, 음성 분리, 텍스트 음성 변환, 배경 제거, 애니메이션과 키프레임, 효과와 타이틀, 멀티트랙 편집, 4K 내보내기. 단, 함정은 없습니다: 워터마크 없음, 계정 없음, 구독 없음, 업로드 없음.
 
 모든 것이 GPU 컴포지터를 갖춘 네이티브 Rust 엔진 위에서 로컬로 실행됩니다. 설치하고, 영상을 끌어다 놓고, 자르면 됩니다. 자막, 음성, 배경 제거용 AI 모델은 설정에서 한 번만 내려받으면 그 뒤로는 오프라인으로 동작합니다. 당신의 영상은 디스크 밖으로 나가지 않습니다.
 
@@ -72,8 +72,8 @@ Concat은 macOS, Windows, Linux, Android, iOS용 무료 오픈 소스 비디오 
 - 📤 **내보내기.** H.264, HEVC, AV1, 컴퓨터 자체 인코더로. 최대 4K 60, 10비트 색상.
 - ⚡ **빠름.** 프록시가 내장되어 4K도 부드럽게 스크럽됩니다. 타이틀은 모든 코어에서 그려지고, 창이 열리는 순간 모든 효과가 준비되어 있습니다.
 - 🛟 **어떤 컴퓨터에서도 계속 작동.** 그래픽 칩이 포기해도 미리보기는 계속 그려집니다.
-- 🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 gRPC와 명령줄 도구가 추가됩니다.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27개 언어. 같은 앱, 같은 프로젝트 파일.
+- 🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 명령줄 도구가 추가됩니다.
+- 🖥️ **macOS, Windows, Linux, Android.** 27개 언어. 같은 앱, 같은 프로젝트 파일.
 
 ## 다운로드
 
@@ -90,7 +90,6 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 - ✅ **macOS** · Intel과 Apple Silicon. macOS가 서명되지 않은 빌드를 열지 않으면: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64와 ARM. `.deb`, `.rpm`, `.AppImage`, Arch 패키지. 그리고 **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**의 Flatpak도 있습니다. 각 릴리스의 x86_64 `.deb`를 감싸고 릴리스와 함께 업데이트되는 커뮤니티 Flatpak 원격 저장소입니다
 - ✅ **Android** · 휴대폰과 태블릿
-- ✅ **iOS / iPadOS** · iPhone과 iPad, 사이드로드
 
 ✅ 지원 · 🚧 작업 중 · 🧪 테스트 예정
 
@@ -103,7 +102,7 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 > [!IMPORTANT]
 > 가장 좋은 기여는 [Releases](https://github.com/jub0t/Concat/releases) 페이지에서 빌드를 받아 써 보는 것입니다: 어디서 깨지는지 찾고, 어디가 더 나아질 수 있는지 말해 주세요.
 >
-> 코드를 쓸 준비가 되셨나요? [CONTRIBUTING.md](../CONTRIBUTING.md)에 설정, 트리 구조, 실행할 검사, 기여의 라이선스가 적혀 있습니다. 스크립트, 서비스, 에이전트에서 Concat을 다루시나요? [개발자 문서](https://concat.standalones.org/docs)에 Concat API와 전송 방식(JSON-RPC, gRPC)이 있습니다. 프로젝트는 [이 Discussion](https://github.com/jub0t/Concat/discussions/3)에서 공개되었습니다.
+> 코드를 쓸 준비가 되셨나요? [CONTRIBUTING.md](../CONTRIBUTING.md)에 설정, 트리 구조, 실행할 검사, 기여의 라이선스가 적혀 있습니다. 스크립트, 서비스, 에이전트에서 Concat을 다루시나요? [개발자 문서](https://concat.standalones.org/docs)에 Concat API와 전송 방식(JSON-RPC)이 있습니다. 프로젝트는 [이 Discussion](https://github.com/jub0t/Concat/discussions/3)에서 공개되었습니다.
 > 
 > 기여자는 Discord 서버에서 `@Contributor` 역할을 받을 수 있습니다. 요청만 하세요.
 

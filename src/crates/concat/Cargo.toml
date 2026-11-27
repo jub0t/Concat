@@ -9,8 +9,7 @@ description = "Concat, the editor window: the Slint front end that drives the en
 
 # The product's name is the binary's name, unsuffixed: `concat` is what a
 # user launches, and the concat-* crates are what it is made of. The window
-# itself is the library, so that the desktop and iOS entry points are each a
-# few lines over the same code.
+# itself is the library, and the entry point is a few lines over it.
 [lib]
 path = "src/lib.rs"
 
@@ -28,9 +27,6 @@ path = "src/main.rs"
 # entirely. The rest of this list is slint's default set, reproduced verbatim
 # minus that one renderer.
 #
-# 1.18 at least: the iOS scene delegate that iOS 27 requires (see
-# scripts/ios-app.sh).
-#
 # Skia is the one renderer, on every platform: its text is gamma-correct,
 # and it takes the engine's wgpu 30 device (gpu.rs, `unstable-wgpu-30`): one
 # wgpu in the build, and the one with HDR surfaces (SurfaceColorSpace).
@@ -38,10 +34,22 @@ path = "src/main.rs"
 # to wgpu 30; nothing shipped it, and the Nix package, its one user, now
 # links Skia's prebuilt binaries (flake.nix).
 #
-# Two feature sets: the desktop and iOS both draw through the winit
-# backend, iOS without the system tray. The renderer and wgpu features are
-# the same on both.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+# Native Wayland file drops; see wayland_drop.rs. winit 0.30 reports a
+# dropped file on X11 and not on Wayland, so the window listens for one
+# itself on the display winit opened. The same two crates winit draws
+# with, libwayland loaded at run time as winit loads it; libc for the
+# pipe the drop is read through and the poll that waits on it.
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
+libc = "0.2"
+
+# `_exit`, the way out past the C++ libraries' static destructors; see
+# `leave` in lib.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dependencies]
 # Where the desktop really is: Windows' known folder, which OneDrive may
 # have moved, and the XDG user dirs, which name it in the desktop's own
 # language. New projects default to a folder on it.
@@ -70,52 +78,6 @@ slint = { version = "1.18", default-features = false, features = [
 rfd = "0.17"
 # Reveal an exported file in the platform's file manager.
 opener = { version = "0.8", features = ["reveal"] }
-
-# Native Wayland file drops; see wayland_drop.rs. winit 0.30 reports a
-# dropped file on X11 and not on Wayland, so the window listens for one
-# itself on the display winit opened. The same two crates winit draws
-# with, libwayland loaded at run time as winit loads it; libc for the
-# pipe the drop is read through and the poll that waits on it.
-[target.'cfg(target_os = "linux")'.dependencies]
-wayland-client = "0.31"
-wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
-libc = "0.2"
-
-# `_exit`, the way out past the C++ libraries' static destructors; see
-# `leave` in lib.rs.
-[target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-slint = { version = "1.18", default-features = false, features = [
-    "std",
-    "backend-winit",
-    "renderer-software",
-    "renderer-skia",
-    "accessibility",
-    "compat-1-2",
-    "unstable-winit-030",
-    "unstable-wgpu-30",
-    # The base fonts registered for the window from the bytes concat-text
-    # embeds, so a preset card is drawn in its own face; see fonts.rs.
-    "unstable-fontique-011",
-] }
-# The system's pickers for Import and Photos for an export, through the
-# Objective-C runtime; see src/ios.rs. The versions Slint's winit backend
-# already builds on iOS, so nothing new is compiled for them.
-objc2 = "0.6"
-block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = [
-    "std",
-    "block2",
-    "NSArray",
-    "NSError",
-    "NSObject",
-    "NSString",
-    "NSURL",
-] }
-
-[dependencies]
 # The log facade. The window writes `log::warn!`; where that ends up is
 # concat-host's logs.rs, opened by whichever entry point started this run.
 log = "0.4"
@@ -130,7 +92,8 @@ pollster.workspace = true
 # the monitor and the export; the CPU compositor stays as the fallback.
 concat-core.workspace = true
 concat-media.workspace = true
-concat-project.workspace = true
+# The document: its model, its commands and its ids.
+concat-doc.workspace = true
 concat-export.workspace = true
 # The compositor's limits the window's device is opened with
 # (`gpu::MEMORY_BUDGET`); linked through the host already.
@@ -139,7 +102,7 @@ concat-host = { workspace = true, features = ["gpu"] }
 concat-worker.workspace = true
 concat-speech = { workspace = true, features = ["beats", "chatterbox", "isolate"] }
 # The Settings sheet's Automation page: the Concat API on a socket while the
-# window is open. JSON-RPC only; the gRPC feature stays with concat-cli.
+# window is open, as JSON-RPC lines.
 concat-server.workspace = true
 concat-api.workspace = true
 # `concat --mcp`: the same API to an AI agent, as an MCP server on standard

@@ -289,7 +289,7 @@ fn an_agent_edits_previews_and_exports_a_project_headless() {
     );
 
     agent.tool("project_save", json!({ "path": path }));
-    let saved = std::fs::read_to_string(Path::new(&path).join("concat.json")).expect("saved");
+    let saved = std::fs::read_to_string(Path::new(&path).join("project.concat")).expect("saved");
     assert!(saved.contains("Hello, agent"));
 
     let output = home.join("agent.mp4").to_string_lossy().into_owned();
@@ -414,7 +414,7 @@ fn through_a_running_server_the_agent_shares_its_api() {
         "window",
         &[
             ("CONCAT_API_ADDRESS", address.clone()),
-            ("CONCAT_API_TOKEN", server.token().to_owned()),
+            ("CONCAT_API_TOKEN", server.token()),
         ],
     );
     let version = agent.tool("concat_version", json!({}));
@@ -428,7 +428,7 @@ fn through_a_running_server_the_agent_shares_its_api() {
     // caller of that server sees it.
     let mut other = concat_server::client::Client::connect(
         server.json_addr().expect("listening"),
-        server.token(),
+        &server.token(),
         Duration::from_secs(5),
     )
     .expect("in");

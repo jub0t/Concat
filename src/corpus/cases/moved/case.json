@@ -9,7 +9,7 @@
     { "method": "media.import", "path": "$project", "file": "$file.a", "as": "a" },
     { "method": "media.import", "path": "$project", "file": "$file.b", "as": "b" },
     { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$a", "start": 0 } },
-    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB", "bind": { "track": "/project/timelines/0/clips/1/trackId" } },
+    { "method": "edit.apply", "path": "$project", "command": { "op": "addClipAtFirstFree", "mediaId": "$b", "start": 2 }, "as": "clipB", "bind": { "track": "/project/items/$clipB/lane" } },
     { "method": "edit.apply", "path": "$project", "command": { "op": "moveClips", "moves": [{ "clipId": "$clipB", "start": 3, "trackId": "$track" }] } },
     { "step": "closeAndReopen" }
   ],

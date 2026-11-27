@@ -14,10 +14,11 @@
 
 use std::sync::Arc;
 
-use concat_project::Command;
-use concat_project::commands::{self, IdMint};
-use concat_project::model::{MediaKind, Project};
+use concat_doc::commands::{self, Command};
+use concat_doc::model::{Media, MediaKind, Model};
+use concat_doc::{Document, Origin, Tick};
 
+use crate::doc_view;
 use crate::studio::Studio;
 use crate::ui::SourcePreview;
 use slint::{ComponentHandle, SharedString};
@@ -41,25 +42,51 @@ pub struct Source {
     timer: slint::Timer,
 }
 
-/// The project as it is, with its active timeline holding only `media_id`
-/// from zero: what the source preview draws and plays.
-fn scratch(project: &Project, media_id: &str) -> Option<Project> {
-    let mut scratch = project.clone();
-    let timeline = scratch.active_mut();
-    timeline.clips.clear();
-    let track_id = timeline.tracks.first()?.id.clone();
-    commands::apply(
+/// A document of its own: one timeline in the frame of the one showing in
+/// `doc`, `media` in its bin and one clip of it from zero, and how long that
+/// clip runs. What the source preview draws and plays; nothing of it
+/// reaches the project.
+fn scratch(doc: &Model, media: &Media) -> Option<(Document<Model>, f64)> {
+    fn run(scratch: &mut Document<Model>, command: Command) -> Option<commands::Applied> {
+        let outcome = commands::run(scratch, &command, Origin(0)).ok()?;
+        if let Some(commit) = outcome.commit {
+            *scratch = commit.into_document();
+        }
+        Some(outcome.applied)
+    }
+    let mut scratch: Document<Model> = Document::new();
+    run(&mut scratch, Command::AddTimeline)?;
+    let sequence = doc_view::showing(&scratch)?;
+    if let Some(shown) = doc_view::sequence(doc) {
+        run(
+            &mut scratch,
+            Command::SetTimelineVideo {
+                sequence,
+                frame: shown.frame.clone(),
+            },
+        )?;
+    }
+    let added = run(
         &mut scratch,
-        &mut IdMint::default(),
+        Command::AddMedia {
+            media: media.clone(),
+        },
+    )?;
+    let media = added.created?.typed()?;
+    let lane = *doc_view::lanes(&scratch).first()?;
+    run(
+        &mut scratch,
         Command::AddClip {
-            media_id: media_id.to_owned(),
-            track_id,
-            start: 0.0,
+            media,
+            lane,
+            start: Tick::ZERO,
             ripple: false,
         },
-    )
-    .ok()?;
-    Some(scratch)
+    )?;
+    let duration = doc_view::items(&scratch)
+        .first()
+        .map_or(0.0, |(_, item)| doc_view::len_s(item));
+    Some((scratch, duration))
 }
 
 impl Studio {
@@ -75,7 +102,10 @@ impl Studio {
             }
             return;
         }
-        let Some(media) = self.project().media_by_id(media_id).cloned() else {
+        let Some(media) = doc_view::parse(media_id)
+            .and_then(|id| doc_view::media(self.committed(), id))
+            .cloned()
+        else {
             return;
         };
         let Some(project_dir) = self
@@ -85,7 +115,7 @@ impl Studio {
         else {
             return;
         };
-        let Some(scratch) = scratch(self.project(), media_id) else {
+        let Some((scratch, duration)) = scratch(self.committed(), &media) else {
             return;
         };
         // The timeline stops: the speakers and the monitor are the
@@ -94,24 +124,16 @@ impl Studio {
         if let Some(old) = self.source.take() {
             old.timer.stop();
         }
-        let clips = Arc::new(concat_export::flatten::flatten_timeline_in(
-            &scratch,
-            None,
-            Some(&project_dir),
-        ));
-        let duration = scratch
-            .active()
-            .clips
-            .first()
-            .map_or(0.0, |clip| clip.duration);
+        let clips = Arc::new(doc_view::flattened(&scratch, Some(&project_dir)));
         self.host
             .playback
             .set_clips(project_dir, crate::studio::audio_specs(&clips));
         self.host.playback.seek(0.0);
+        let sound = media.kind == MediaKind::Audio;
         self.source = Some(Source {
             media_id: media_id.to_owned(),
             name: media.name.clone(),
-            kind: media.kind,
+            kind: media.kind.clone(),
             row,
             card: String::new(),
             clips,
@@ -120,7 +142,7 @@ impl Studio {
             playing: false,
             timer: slint::Timer::default(),
         });
-        if media.kind == MediaKind::Audio {
+        if sound {
             self.source_toggle();
         }
         self.request_preview();
@@ -151,45 +173,24 @@ impl Studio {
                 return;
             }
         };
-        // The scratch project with the file in its bin, under an id no
-        // real item has, and the one clip cut from it.
-        let mut scratch = self.project().clone();
-        scratch.media.retain(|item| item.path != summary.path);
-        let mut mint = IdMint::default();
-        mint.adopt_project(&scratch);
-        let Ok(Some(media_id)) = commands::apply(
-            &mut scratch,
-            &mut mint,
-            Command::AddMedia {
-                item: summary.to_new_media(),
-            },
-        )
-        .map(|outcome| outcome.created_id) else {
-            return;
-        };
-        let Some(scratch) = self::scratch(&scratch, &media_id) else {
+        // A document of its own with the file in its bin and the one clip
+        // cut from it: the project's bin is not touched.
+        let Some((scratch, duration)) = self::scratch(self.committed(), &summary.to_new_media())
+        else {
             return;
         };
         self.pause();
         if let Some(old) = self.source.take() {
             old.timer.stop();
         }
-        let clips = Arc::new(concat_export::flatten::flatten_timeline_in(
-            &scratch,
-            None,
-            Some(&project_dir),
-        ));
-        let duration = scratch
-            .active()
-            .clips
-            .first()
-            .map_or(0.0, |clip| clip.duration);
+        let clips = Arc::new(doc_view::flattened(&scratch, Some(&project_dir)));
         self.host
             .playback
             .set_clips(project_dir, crate::studio::audio_specs(&clips));
         self.host.playback.seek(0.0);
+        // No id of the bin: the file is not in it, and the card names it.
         self.source = Some(Source {
-            media_id,
+            media_id: String::new(),
             name: name.to_owned(),
             kind: MediaKind::Audio,
             row: -1,

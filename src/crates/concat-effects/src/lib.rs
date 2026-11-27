@@ -24,6 +24,7 @@
 //! `{ id, params, enabled }`, and an id the catalogue does not know is
 //! skipped at render time.
 
+pub mod applied;
 pub mod catalogue;
 pub mod cube;
 pub mod expr;
@@ -37,6 +38,7 @@ mod builtins {
     include!(concat!(env!("OUT_DIR"), "/builtins.rs"));
 }
 
+pub use applied::{AppliedFilter, ParamKey};
 pub use catalogue::{At, Catalogue, Fixture, Package, Probe, package_folders, package_stamp};
 pub use manifest::{CardSettings, FORMAT, Kind, Manifest, Param, ParamType, Space};
 pub use shader::{Contract, Shader, TransitionShader};
@@ -66,8 +68,6 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-
-    use concat_project::model::AppliedFilter;
 
     use super::*;
 

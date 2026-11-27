@@ -213,10 +213,13 @@ pub enum Cover {
         /// How far into the sequence; not below zero.
         into: TickDur,
     },
-    /// A picture from disk, fitted to the frame and cut at its edges.
+    /// A still from the bin, fitted to the frame and cut at its edges.
+    /// A file of the bin and not a path, so it travels with the project
+    /// when the project is moved or packed as a template.
     Picture {
-        /// Where the file is.
-        path: String,
+        /// The still. Not a video or a recording, and not taken out of
+        /// the bin while it is the cover.
+        media: MediaId,
     },
     /// A cover this build does not know.
     Unknown(Raw),

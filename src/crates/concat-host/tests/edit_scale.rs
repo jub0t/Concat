@@ -13,11 +13,30 @@
 
 use std::time::Instant;
 
-use concat_export::flatten::flatten_timeline_in;
+use concat_doc::commands::{self, Command};
+use concat_doc::model::{ItemId, Media, MediaId, MediaKind, Model, SequenceId, Size, Title};
+use concat_doc::{Document, Tick, TickLen};
 use concat_host::{AppDirs, Titles};
-use concat_project::commands::NewMedia;
-use concat_project::model::{MediaKind, TextStyle};
-use concat_project::{Command, DocumentSettings, Editor};
+
+/// The flattened clips of the timeline showing.
+fn flatten_timeline_in(
+    project: &Model,
+    _sequence: Option<SequenceId>,
+    dir: Option<&std::path::Path>,
+) -> Vec<concat_export::ExportClip> {
+    let sequence = project.view.showing.expect("a timeline shows");
+    concat_export::flatten::clips(project, sequence, dir)
+}
+
+fn tick(seconds: f64) -> Tick {
+    Tick::from_display_seconds(seconds).expect("a place")
+}
+
+fn made(editor: &mut Document<Model>, command: Command) -> commands::Applied {
+    let (after, applied) = commands::made(editor, &command).expect("applies");
+    *editor = after;
+    applied
+}
 
 fn median(mut samples: Vec<f64>) -> f64 {
     samples.sort_by(f64::total_cmp);
@@ -37,58 +56,58 @@ fn timed(runs: usize, mut work: impl FnMut()) -> f64 {
     )
 }
 
-fn project(captions: usize) -> (Editor, Vec<String>) {
-    let mut editor = Editor::new();
+fn project(captions: usize) -> (Document<Model>, Vec<ItemId>) {
+    let mut editor = Document::new();
+    made(&mut editor, Command::AddTimeline);
     let length = captions as f64 * 1.5 + 1.0;
-    let media = editor
-        .apply(Command::AddMedia {
-            item: NewMedia {
+    let media: MediaId = made(
+        &mut editor,
+        Command::AddMedia {
+            media: Media {
                 path: "/footage/interview.mp4".into(),
                 name: "interview.mp4".into(),
-                duration: Some(length),
                 kind: MediaKind::Video,
-                width: Some(1920),
-                height: Some(1080),
-                frame_rate: None,
-                frame_rate_fraction: None,
-                video_codec: None,
-                audio_codec: None,
-                has_audio: true,
-                audio_tracks: Vec::new(),
-                origin: None,
-                color_space: Default::default(),
+                length: TickLen::try_from(tick(length).get()).ok(),
+                size: Size::new(1920, 1080),
+                has_sound: true,
+                ..Media::default()
             },
-        })
-        .expect("adds media")
-        .created_id
-        .expect("an id");
-    let track = editor.project().timelines[0].tracks[0].id.clone();
-    editor
-        .apply(Command::AddClip {
-            media_id: media,
-            track_id: track,
-            start: 0.0,
+        },
+    )
+    .created
+    .and_then(|id| id.typed())
+    .expect("an id");
+    let sequence = editor.view.showing.expect("a timeline");
+    let lane = editor.lanes.index().of(sequence).next().expect("a lane").0;
+    made(
+        &mut editor,
+        Command::AddClip {
+            media,
+            lane,
+            start: Tick::ZERO,
             ripple: false,
-        })
-        .expect("adds the video");
+        },
+    );
     let mut ids = Vec::new();
     for index in 0..captions {
-        let style = TextStyle {
+        let title = Title {
             content: format!("caption number {index}, a line of what was said"),
-            ..TextStyle::default()
+            ..Title::default()
         };
-        let id = editor
-            .apply(Command::AddTextClip {
-                track_id: None,
+        let id: ItemId = made(
+            &mut editor,
+            Command::AddTextClip {
+                lane: None,
                 above: true,
-                start: index as f64 * 1.5,
-                style: Some(style),
-                duration: Some(1.4),
+                start: tick(index as f64 * 1.5),
+                title: Some(title),
+                len: TickLen::try_from(tick(1.4).get()).ok(),
                 offset_y: Some(0.35),
-            })
-            .expect("adds a caption")
-            .created_id
-            .expect("an id");
+            },
+        )
+        .created
+        .and_then(|id| id.typed())
+        .expect("an id");
         ids.push(id);
     }
     (editor, ids)
@@ -104,14 +123,6 @@ fn edit_scale() {
         .collect();
     let dir = std::env::temp_dir().join("concat-edit-scale");
     let dirs = AppDirs::under(&dir);
-    let settings = DocumentSettings {
-        name: "scale".into(),
-        width: 1920,
-        height: 1080,
-        rate_num: 30,
-        rate_den: 1,
-        canvas: [0, 0, 0, 255],
-    };
     eprintln!(
         "{:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
         "titles", "apply", "flatten", "paint", "live", "plan", "document", "drag step"
@@ -119,23 +130,24 @@ fn edit_scale() {
     for count in counts {
         let (mut editor, ids) = project(count);
         let titles = Titles::new(&dirs);
-        let target = ids[ids.len() / 2].clone();
+        let target = ids[ids.len() / 2];
         let mut nudge = 0.0;
         let apply = timed(20, || {
             nudge += 0.001;
-            editor
-                .apply(Command::SetClipTransform {
-                    clip_id: target.clone(),
+            made(
+                &mut editor,
+                Command::SetClipTransform {
+                    item: target,
                     scale: None,
                     offset_x: Some(nudge),
                     offset_y: None,
                     rotation: None,
                     stretch_x: None,
                     stretch_y: None,
-                })
-                .expect("moves");
+                },
+            );
         });
-        let project = editor.project().clone();
+        let project = editor.clone();
         let flatten = timed(20, || {
             std::hint::black_box(flatten_timeline_in(&project, None, Some(&dir)));
         });
@@ -193,8 +205,7 @@ fn edit_scale() {
             ));
         });
         let document = timed(10, || {
-            let value = editor.to_document(&settings);
-            std::hint::black_box(serde_json::to_string_pretty(&value).expect("writes"));
+            std::hint::black_box(concat_doc::file::write(&editor));
         });
         // One pointer step of a drag on the stage, as the monitor does it:
         // the echo flattened fresh, every title painted live, a new plan.

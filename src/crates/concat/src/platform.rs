@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
-//! What the window asks of the platform it runs on.
-//!
-//! Four things differ between a desk and a phone: how the backend is
+//! What the window asks of the platform it runs on: how the backend is
 //! chosen, how a file or folder is picked, whether the window has a title
-//! strip of its own to drag, and whether a file dragged in from outside the
-//! window is even a thing that can happen. Everything else in the crate is
-//! the same tree, the same state and the same callbacks, so the differences
-//! live here and nowhere else.
+//! strip of its own to drag, and how a file dragged in from outside the
+//! window arrives. Everything else in the crate is the same tree, the same
+//! state and the same callbacks, so the differences live here and nowhere
+//! else.
 //!
-//! Desktop and iOS draw through the winit backend. File dialogs are the desktop's: on a phone a pick goes through
-//! the system's document picker, which arrives with the phone layout. A drag
-//! in from the OS is a desktop thing for the same reason: winit reports
-//! `DroppedFile` on macOS, Windows and X11, and not on iOS, which has no
-//! such gesture - nor on Wayland, where the window listens for the drop
-//! itself; see [`crate::wayland_drop`].
+//! Every desktop draws through the winit backend, and its file dialogs are
+//! the platform's own. winit reports a file dragged in as `DroppedFile` on
+//! macOS, Windows and X11, and not on Wayland, where the window listens for
+//! the drop itself; see [`crate::wayland_drop`].
 
 use std::path::PathBuf;
 
@@ -212,7 +208,7 @@ impl DropHandler {
             on_pressed_away: Box::new(on_pressed_away),
             on_focused: Box::new(on_focused),
             on_exiting: Box::new(on_exiting),
-            edges: cfg!(not(any(target_os = "macos", target_os = "ios"))) && !phone(),
+            edges: cfg!(not(target_os = "macos")) && !phone(),
             edge: None,
         }
     }
@@ -408,24 +404,20 @@ static NO_DRIVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// Whether this machine has no graphics driver Concat can use, so
 /// everything draws on the processor (see [`select_backend`]): the window
 /// says so once at the start, with what fixes it, rather than leaving a
-/// slow editor unexplained. Never on a phone, which always has its GPU.
+/// slow editor unexplained.
 pub fn no_graphics_driver() -> bool {
     NO_DRIVER.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether the window is a phone's: one screen, held upright, driven by a
-/// finger. The editor then wears the phone shell (ui/phone/) rather than
-/// the strip and the dock, whatever the screen's size - a tablet is a big
-/// phone here, not a small desk. True on Android and iOS; on a desk,
-/// `CONCAT_PHONE=1` in the environment asks for the same shell in a window,
-/// which is how the phone layout is worked on without a phone. That window
-/// keeps the platform's own title bar - the phone shell has no strip to
-/// drag by and no window buttons, and a phone has no such buttons to show
-/// over its screen - so the desk's chrome sits above the phone's screen,
-/// the way a simulator's does, and never on it.
+/// Whether the window wears the phone shell (ui/phone/) rather than the
+/// strip and the dock: one screen, held upright, driven by a finger.
+/// `CONCAT_PHONE=1` in the environment asks for it, which is how the phone
+/// layout is worked on without a phone. That window keeps the platform's
+/// own title bar - the phone shell has no strip to drag by and no window
+/// buttons - so the desk's chrome sits above the phone's screen, the way a
+/// simulator's does, and never on it.
 pub fn phone() -> bool {
-    cfg!(target_os = "ios")
-        || std::env::var_os("CONCAT_PHONE").is_some_and(|value| !value.is_empty() && value != "0")
+    std::env::var_os("CONCAT_PHONE").is_some_and(|value| !value.is_empty() && value != "0")
 }
 
 /// Chooses and installs the backend, and hands back the device the
@@ -589,21 +581,16 @@ pub fn select_backend(
 /// nowhere. The log file is named so the reader has something to attach.
 /// https://github.com/jub0t/Concat/issues/135
 pub fn report_startup_failure(error: &str) {
-    #[cfg(not(target_os = "ios"))]
-    {
-        let mut description = format!("Concat could not start.\n\n{error}");
-        if let Some(path) = concat_host::logs::current() {
-            description.push_str(&format!("\n\nLog: {}", path.display()));
-        }
-        rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Error)
-            .set_title("Concat")
-            .set_description(description)
-            .set_buttons(rfd::MessageButtons::Ok)
-            .show();
+    let mut description = format!("Concat could not start.\n\n{error}");
+    if let Some(path) = concat_host::logs::current() {
+        description.push_str(&format!("\n\nLog: {}", path.display()));
     }
-    #[cfg(target_os = "ios")]
-    let _ = error;
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("Concat")
+        .set_description(description)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
 }
 
 /// Whether the strip should draw its own window buttons: everywhere the
@@ -626,8 +613,7 @@ pub fn keys(parts: &[&str]) -> String {
 /// with Shift in front for the ripple delete. Either key deletes
 /// (app.slint); these are the names each platform's own menus use.
 pub fn delete_key(shift: bool) -> String {
-    let apple = cfg!(any(target_os = "macos", target_os = "ios"));
-    match (apple, shift) {
+    match (MACOS, shift) {
         (true, false) => "⌫".into(),
         (true, true) => "⇧⌫".into(),
         (false, false) => "Del".into(),
@@ -701,19 +687,11 @@ pub fn toggle_maximize(window: &slint::Window) {
 
 /// Asks for a folder, starting at `start` when there is one.
 pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
-    #[cfg(not(target_os = "ios"))]
-    {
-        let mut dialog = rfd::FileDialog::new().set_title(title);
-        if let Some(folder) = existing_folder(start) {
-            dialog = dialog.set_directory(folder);
-        }
-        dialog.pick_folder()
+    let mut dialog = rfd::FileDialog::new().set_title(title);
+    if let Some(folder) = existing_folder(start) {
+        dialog = dialog.set_directory(folder);
     }
-    #[cfg(target_os = "ios")]
-    {
-        let _ = (title, start);
-        None
-    }
+    dialog.pick_folder()
 }
 
 /// Where a folder dialog asked to start at `start` can open: `start`
@@ -722,350 +700,50 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
 /// GNOME's chooser (Nautilus, behind the portal) fails on a folder that is
 /// not there, where GTK's quietly opens elsewhere.
 /// https://github.com/jub0t/Concat/issues/331
-#[cfg(not(target_os = "ios"))]
 fn existing_folder(start: &str) -> Option<&std::path::Path> {
     std::path::Path::new(start)
         .ancestors()
         .find(|folder| folder.is_dir())
 }
 
-/// What a phone does when asked for files: shows the system's picker for
-/// the kinds asked for (see [`PickKinds`]) and calls back, later, with what
-/// was chosen - an empty list for nothing. Installed by the phone's own
-/// crate before the window runs; see [`install_file_picker`].
-#[cfg(target_os = "ios")]
-pub type FilePicker = Box<dyn Fn(PickKinds, Box<dyn FnOnce(Vec<PathBuf>) + Send>) + Send + Sync>;
-
-/// What a phone's picker is asked to offer, from the desktop dialog's
-/// list of extensions: media - some of video, sound and pictures - which
-/// the phone's own pickers know by kind, or files by their extensions
-/// (subtitles, fonts), which a phone's providers type so variously that
-/// the extensions are all there is to go on.
-#[cfg(any(target_os = "ios", test))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PickKinds {
-    /// Media, by kind; every kind when no list was given.
-    Media {
-        video: bool,
-        audio: bool,
-        image: bool,
-    },
-    /// Anything else, by extension, lowercase and without the dot.
-    Files(Vec<String>),
-}
-
-#[cfg(any(target_os = "ios", test))]
-impl PickKinds {
-    /// The kinds a dialog filter's extensions ask for. No filter is every
-    /// kind of media, as Import asks.
-    pub fn of(extensions: Option<&[&str]>) -> Self {
-        let Some(extensions) = extensions.filter(|list| !list.is_empty()) else {
-            return PickKinds::Media {
-                video: true,
-                audio: true,
-                image: true,
-            };
-        };
-        let (mut video, mut audio, mut image) = (false, false, false);
-        for extension in extensions {
-            match media_kind(extension) {
-                Some(MediaKind::Video) => video = true,
-                Some(MediaKind::Audio) => audio = true,
-                Some(MediaKind::Image) => image = true,
-                None => {
-                    return PickKinds::Files(
-                        extensions
-                            .iter()
-                            .map(|ext| ext.to_ascii_lowercase())
-                            .collect(),
-                    );
-                }
-            }
-        }
-        PickKinds::Media {
-            video,
-            audio,
-            image,
-        }
-    }
-}
-
-#[cfg(any(target_os = "ios", test))]
-pub(crate) enum MediaKind {
-    Video,
-    Audio,
-    Image,
-}
-
-#[cfg(any(target_os = "ios", test))]
-/// Which kind of media a file with this extension is, if it is media.
-pub(crate) fn media_kind(extension: &str) -> Option<MediaKind> {
-    match extension.to_ascii_lowercase().as_str() {
-        "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" | "mts" | "m2ts" | "3gp" => {
-            Some(MediaKind::Video)
-        }
-        "mp3" | "wav" | "aac" | "m4a" | "flac" | "ogg" | "opus" | "aif" | "aiff" => {
-            Some(MediaKind::Audio)
-        }
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "heic" | "heif"
-        | "svg" | "svgz" => Some(MediaKind::Image),
-        _ => None,
-    }
-}
-
-#[cfg(target_os = "ios")]
-static FILE_PICKER: std::sync::OnceLock<FilePicker> = std::sync::OnceLock::new();
-
-/// Installs the picker a phone answers [`pick_files_async`] with. Once;
-/// a second call is ignored.
-#[cfg(target_os = "ios")]
-pub fn install_file_picker(picker: FilePicker) {
-    let _ = FILE_PICKER.set(picker);
-}
-
-/// What a phone does with a finished export: moves the file to where the
-/// phone's own gallery and file manager show it, and says where. The
-/// export itself writes into the app's own folder, which on a phone
-/// nothing but the app can open. Installed by the phone's own crate before
-/// the window runs, where the phone can be asked at all; see
-/// [`install_export_publisher`].
-#[cfg(target_os = "ios")]
-pub struct ExportPublisher {
-    /// Where the files go, as the phone names it: "Movies/Concat".
-    pub folder: String,
-    /// Moves the file there and answers with its path under the phone's
-    /// storage, or with why it could not, leaving the file where it was.
-    /// It copies a whole video, so it is called off the window's thread.
-    pub publish: Box<dyn Fn(&std::path::Path) -> Result<String, String> + Send + Sync>,
-    /// The same for a small file that is not a video - a subtitle file -
-    /// with its MIME type: moved to where the phone's file manager shows
-    /// it (Android's Download/Concat, the iPhone's Files), never over
-    /// another file, and answered with where, as the person would look
-    /// for it.
-    pub publish_document:
-        Box<dyn Fn(&std::path::Path, &str) -> Result<String, String> + Send + Sync>,
-}
-
-#[cfg(target_os = "ios")]
-static EXPORT_PUBLISHER: std::sync::OnceLock<ExportPublisher> = std::sync::OnceLock::new();
-
-/// Installs where a phone puts a finished export. Once; a second call is
-/// ignored.
-#[cfg(target_os = "ios")]
-pub fn install_export_publisher(publisher: ExportPublisher) {
-    let _ = EXPORT_PUBLISHER.set(publisher);
-}
-
-/// Whether the app may record from the microphone, asking when it has not
-/// been told: on a phone, false puts the system's question up and comes
-/// back at once, and the answer is read the next time this is asked.
-/// Installed by the phone's own crate; see [`install_microphone_access`].
-#[cfg(target_os = "ios")]
-pub type MicrophoneAccess = Box<dyn Fn() -> bool + Send + Sync>;
-
-#[cfg(target_os = "ios")]
-static MICROPHONE_ACCESS: std::sync::OnceLock<MicrophoneAccess> = std::sync::OnceLock::new();
-
-/// Installs how a phone is asked for its microphone. Once; a second call
-/// is ignored.
-#[cfg(target_os = "ios")]
-pub fn install_microphone_access(access: MicrophoneAccess) {
-    let _ = MICROPHONE_ACCESS.set(access);
-}
-
 /// Opens a web address in the system's browser: the launch screen's
-/// guides, the repository, the release notes. A desktop hands it to the
-/// platform's opener, iOS to UIApplication. An address that goes nowhere says why.
+/// guides, the repository, the release notes, through the platform's
+/// opener. An address that goes nowhere says why.
 pub fn open_link(url: &str) -> Result<(), String> {
-    #[cfg(not(target_os = "ios"))]
-    {
-        opener::open(url).map_err(|error| error.to_string())
-    }
-    #[cfg(target_os = "ios")]
-    {
-        crate::ios::open_link(url)
-    }
-}
-
-/// Whether the microphone may be opened now. A desktop asks when the
-/// device opens, which is the system's business, so it is always yes here;
-/// a phone with nothing installed is too, and the device's own error says
-/// the rest.
-pub fn microphone_allowed() -> bool {
-    #[cfg(target_os = "ios")]
-    {
-        MICROPHONE_ACCESS.get().is_none_or(|access| access())
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        true
-    }
-}
-
-/// Where a finished export ends up on this device when that is not the
-/// folder the export writes into: a phone's "Movies/Concat". None on a
-/// desktop, and on a phone too old to be asked, where the file stays where
-/// the sheet says.
-pub fn published_folder() -> Option<&'static str> {
-    #[cfg(target_os = "ios")]
-    {
-        EXPORT_PUBLISHER
-            .get()
-            .map(|publisher| publisher.folder.as_str())
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        None
-    }
-}
-
-/// Hands a finished export to the phone on a thread of its own, and calls
-/// `on_done` with where it went or why it did not - on that thread; the
-/// caller hops to the window's. False when there is nothing to hand it to:
-/// the file stays where it was written, and `on_done` is never called.
-pub fn publish_export(
-    path: std::path::PathBuf,
-    on_done: impl FnOnce(Result<String, String>) + Send + 'static,
-) -> bool {
-    #[cfg(target_os = "ios")]
-    {
-        let Some(publisher) = EXPORT_PUBLISHER.get() else {
-            return false;
-        };
-        std::thread::Builder::new()
-            .name("export publish".into())
-            .spawn(move || on_done((publisher.publish)(&path)))
-            .is_ok()
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        let _ = (path, on_done);
-        false
-    }
-}
-
-/// [`publish_export`] for a document - a subtitle file - of MIME type
-/// `mime`: handed to the phone on a thread of its own, `on_done` told
-/// where it went or why not. False when there is nothing to hand it to -
-/// a desktop, where the file was written where the person chose, or a
-/// phone too old to be asked - and `on_done` is never called.
-pub fn publish_document(
-    path: std::path::PathBuf,
-    mime: &'static str,
-    on_done: impl FnOnce(Result<String, String>) + Send + 'static,
-) -> bool {
-    #[cfg(target_os = "ios")]
-    {
-        let Some(publisher) = EXPORT_PUBLISHER.get() else {
-            return false;
-        };
-        std::thread::Builder::new()
-            .name("document publish".into())
-            .spawn(move || on_done((publisher.publish_document)(&path, mime)))
-            .is_ok()
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
-        let _ = (path, mime, on_done);
-        false
-    }
-}
-
-/// Asks for files and calls `on_picked` with them, on whichever thread the
-/// platform answers from - the caller hops to the window's thread itself.
-///
-/// On a desktop the dialog blocks and the callback runs before this
-/// returns. On a phone the system's picker is another screen: this returns
-/// at once and the callback comes when the picker is dismissed, through
-/// the picker the phone's crate installed. `filter` is the desktop
-/// dialog's; a phone's picker is asked for the same kinds of file, as
-/// [`PickKinds`] reads them from it.
-pub fn pick_files_async(
-    title: &str,
-    filter: Option<(&str, &[&str])>,
-    on_picked: impl FnOnce(Vec<PathBuf>) + Send + 'static,
-) {
-    #[cfg(not(target_os = "ios"))]
-    {
-        if let Some(paths) = pick_files(title, filter) {
-            on_picked(paths);
-        }
-    }
-    #[cfg(target_os = "ios")]
-    {
-        let _ = title;
-        let kinds = PickKinds::of(filter.map(|(_, extensions)| extensions));
-        match FILE_PICKER.get() {
-            Some(picker) => picker(kinds, Box::new(on_picked)),
-            None => log::warn!(
-                "import: wanted the system's file picker and this platform has none yet; nothing was picked"
-            ),
-        }
-    }
+    opener::open(url).map_err(|error| error.to_string())
 }
 
 /// Asks where to write a file, starting in `directory` with `name` filled
 /// in, limited to the family `filter` names. None when the dialog was
-/// dismissed - and on a phone, which has no such dialog: the caller writes
-/// where it would have suggested, and says where.
+/// dismissed.
 pub fn save_file(
     title: &str,
     directory: &std::path::Path,
     name: &str,
     filter: (&str, &[&str]),
 ) -> Option<PathBuf> {
-    #[cfg(not(target_os = "ios"))]
-    {
-        let (family, extensions) = filter;
-        rfd::FileDialog::new()
-            .set_title(title)
-            .set_directory(directory)
-            .set_file_name(name)
-            .add_filter(family, extensions)
-            .save_file()
-    }
-    #[cfg(target_os = "ios")]
-    {
-        let _ = (title, directory, name, filter);
-        None
-    }
+    let (family, extensions) = filter;
+    rfd::FileDialog::new()
+        .set_title(title)
+        .set_directory(directory)
+        .set_file_name(name)
+        .add_filter(family, extensions)
+        .save_file()
 }
 
 /// Asks for files. `filter` names a family and its extensions, and limits
 /// the dialog to them.
 pub fn pick_files(title: &str, filter: Option<(&str, &[&str])>) -> Option<Vec<PathBuf>> {
-    #[cfg(not(target_os = "ios"))]
-    {
-        let mut dialog = rfd::FileDialog::new().set_title(title);
-        if let Some((name, extensions)) = filter {
-            dialog = dialog.add_filter(name, extensions);
-        }
-        dialog.pick_files()
+    let mut dialog = rfd::FileDialog::new().set_title(title);
+    if let Some((name, extensions)) = filter {
+        dialog = dialog.add_filter(name, extensions);
     }
-    #[cfg(target_os = "ios")]
-    {
-        let _ = (title, filter);
-        None
-    }
+    dialog.pick_files()
 }
 
 /// Shows a written file in the platform's file manager.
-///
-/// A phone has no file manager to hand a path to, and says so rather than
-/// appearing to work: a control that silently does nothing is worse than one
-/// that explains itself. The path is in the message, which is the part a
-/// developer on a cable can still use.
 pub fn reveal(path: &str) -> Result<(), String> {
-    #[cfg(not(target_os = "ios"))]
-    {
-        opener::reveal(path).map_err(|error| error.to_string())
-    }
-    #[cfg(target_os = "ios")]
-    {
-        Err(format!(
-            "this device has no file manager to open {path} with"
-        ))
-    }
+    opener::reveal(path).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -1105,7 +783,6 @@ mod tests {
     /// A folder dialog opens on a folder that exists: a default location
     /// not made yet opens on the folder it would be made in, one that
     /// exists opens as given, and no location asks for none.
-    #[cfg(not(target_os = "ios"))]
     #[test]
     fn a_folder_dialog_starts_at_a_folder_that_exists() {
         let root = std::env::temp_dir().join(format!("concat-pick-{}", std::process::id()));
@@ -1121,35 +798,5 @@ mod tests {
         );
         assert_eq!(existing_folder(""), None);
         std::fs::remove_dir_all(&root).unwrap();
-    }
-
-    /// A phone's picker is asked for what the desktop dialog would show:
-    /// media by kind, and subtitles or fonts by their extensions - an
-    /// .srt is not media, and a picker that offered only media hid it.
-    #[test]
-    fn a_phone_picker_is_asked_for_the_dialogs_kinds() {
-        let every = PickKinds::Media {
-            video: true,
-            audio: true,
-            image: true,
-        };
-        assert_eq!(PickKinds::of(None), every);
-        assert_eq!(PickKinds::of(Some(&["mp4", "WAV", "png"])), every);
-        assert_eq!(
-            PickKinds::of(Some(&["mp3", "flac"])),
-            PickKinds::Media {
-                video: false,
-                audio: true,
-                image: false,
-            }
-        );
-        assert_eq!(
-            PickKinds::of(Some(&["SRT"])),
-            PickKinds::Files(vec!["srt".to_owned()])
-        );
-        assert_eq!(
-            PickKinds::of(Some(&["ttf", "otf"])),
-            PickKinds::Files(vec!["ttf".to_owned(), "otf".to_owned()])
-        );
     }
 }

@@ -12,7 +12,7 @@ description = "What the editor window needs that is not the edit itself: session
 gpu = ["concat-export/gpu", "concat-render/gpu"]
 # A JSON Schema for every reply type, so the API can state its whole
 # contract; see concat_api::contract_schema.
-schema = ["dep:schemars", "concat-project/schema"]
+schema = ["dep:schemars"]
 
 [dependencies]
 concat-core.workspace = true
@@ -20,7 +20,10 @@ concat-worker.workspace = true
 # The run's log: the file, the console, and operations timed step by step.
 concat-log.workspace = true
 concat-media.workspace = true
-concat-project.workspace = true
+concat-doc.workspace = true
+# A project of an earlier Concat is made into a document as it opens; see
+# session.rs.
+concat-import.workspace = true
 concat-export.workspace = true
 # The lanes every job that computes is handed to, sized to the machine.
 concat-sched.workspace = true

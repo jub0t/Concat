@@ -15,18 +15,18 @@ impl Studio {
         let opened = self.open_project_timed(info);
         match &opened {
             Ok(()) => {
-                if let Some(session) = &self.session {
-                    let timeline = session.project().active();
-                    let tracks = match timeline.tracks.len() {
+                if self.session.is_some() {
+                    let doc = self.committed();
+                    let tracks = match doc_view::lanes(doc).len() {
                         1 => "1 track".to_owned(),
                         count => format!("{count} tracks"),
                     };
                     log::info!(
                         "project: opened {name} in {} · {tracks}, {}, {}",
                         concat_log::span(began.elapsed()),
-                        clips_of(timeline.clips.len()),
+                        clips_of(doc_view::items(doc).len()),
                         concat_log::span(std::time::Duration::from_secs_f64(
-                            timeline.duration().max(0.0)
+                            doc_view::secs(doc_view::duration(doc)).max(0.0)
                         )),
                     );
                 }
@@ -130,16 +130,14 @@ impl Studio {
                 // as a range they no longer are, go now: nothing else
                 // sweeps cache/proxy.
                 let project_dir = std::path::Path::new(session.path());
-                let kept: HashSet<std::path::PathBuf> = session
-                    .project()
-                    .media
-                    .iter()
-                    .filter_map(|item| {
+                let document = session.document();
+                let kept: HashSet<std::path::PathBuf> = doc_view::bin(&document)
+                    .filter_map(|(_, item)| {
                         concat_host::proxy::path_for(
                             project_dir,
                             &item.path,
-                            item.color_range.map(concat_export::engine_range),
-                            item.color_space.is_hdr(),
+                            item.range.as_ref().and_then(concat_export::engine_range),
+                            matches!(item.color, model::ColorSpace::Hlg | model::ColorSpace::Pq),
                         )
                     })
                     .collect();
@@ -151,6 +149,7 @@ impl Studio {
                     );
                 }
                 self.session = Some(session);
+                self.refresh_document();
                 // The relink dialog belongs to the project that opened it;
                 // this project's own check follows below.
                 self.relink = Default::default();
@@ -202,11 +201,7 @@ impl Studio {
 
                 // Effects this build no longer has, named once as the project
                 // opens: their links stay in the clips, marked not installed.
-                let retired = self
-                    .session
-                    .as_ref()
-                    .map(|session| retired_effects(session.project()))
-                    .unwrap_or_default();
+                let retired = retired_effects(self.committed());
                 if !retired.is_empty() {
                     self.notify(&tf("studio.retiredEffects", &[&retired.join(", ")]), false);
                 }
@@ -223,37 +218,22 @@ impl Studio {
                         false,
                     );
                 }
-                // Clips that played backwards or moved by a preset in an
-                // earlier version, which this one does not read: named,
-                // with the way back where there is one.
-                let retired = self
-                    .session
-                    .as_ref()
-                    .map(|session| session.retired().clone())
-                    .unwrap_or_default();
-                if !retired.reversed.is_empty() {
-                    self.notify(
-                        &tf("studio.clipsNowForwards", &[&few(&retired.reversed)]),
-                        false,
-                    );
-                }
-                if !retired.animated.is_empty() {
-                    self.notify(
-                        &tf("studio.clipsLostAnimations", &[&few(&retired.animated)]),
-                        false,
-                    );
-                }
                 // Parts of the file this build cannot read - from a newer
                 // Concat, or damaged - are kept in it unchanged, and the
                 // person told once, after the other notices of this open.
-                let unread = self
-                    .session
-                    .as_ref()
-                    .and_then(|session| unread_notice(session.unread()));
+                // A project of an earlier Concat, just made into one of
+                // this one, is said instead: its document is new, so it
+                // has nothing unread.
+                let unread = self.session.as_ref().and_then(|session| {
+                    session
+                        .imported()
+                        .map(earlier_notice)
+                        .or_else(|| unread_notice(session.notes()))
+                });
 
                 // Log missing media to file for debugging
-                if let Some(session) = &self.session {
-                    let missing = session.project().missing_media();
+                if self.session.is_some() {
+                    let missing = crate::panes::relink::missing_media(self.committed());
                     if !missing.is_empty() {
                         let log_path = std::path::Path::new(&info.path)
                             .join("cache")
@@ -309,11 +289,7 @@ impl Studio {
         if self.on_start || self.session.is_none() {
             return false;
         }
-        let missing = self
-            .session
-            .as_ref()
-            .map(|session| session.project().missing_media())
-            .unwrap_or_default();
+        let missing = crate::panes::relink::missing_media(self.committed());
         let before: Vec<String> = self
             .relink
             .items
@@ -387,9 +363,8 @@ impl Studio {
         // written is not a close, and the jobs it would have stopped are
         // not ours to throw away.
         if let Some(session) = self.session.as_mut() {
-            let (path, document) = session.prepare_save(None);
-            let ticket = projects::ticket();
-            if let Err(error) = projects::save_ordered(&path, &document, ticket) {
+            let pending = session.prepare_save(None);
+            if let Err(error) = concat_host::session::write_save(&pending) {
                 log::error!(
                     "project: saving {} to close it failed: {error}; it stays open",
                     self.project_name
@@ -442,6 +417,7 @@ impl Studio {
             self.host.open_projects.release(session.path());
         }
         self.session = None;
+        self.refresh_document();
         // Whatever a worker still brings back for this project is dropped
         // at delivery; the sheets that were waiting on one stop waiting.
         crate::host::next_project_epoch();
@@ -598,62 +574,74 @@ impl Studio {
 
 /// What the person is told when part of the project opened cannot be shown,
 /// or None when all of it can.
-pub(super) fn unread_notice(unread: concat_project::UnreadSummary) -> Option<String> {
-    let what: Vec<String> = [
-        match unread.clips {
-            0 => None,
-            1 => Some(t("studio.unreadClipOne")),
-            n => Some(tf("studio.unreadClipsMany", &[&n.to_string()])),
-        },
-        match unread.media {
-            0 => None,
-            1 => Some(t("studio.unreadMediaOne")),
-            n => Some(tf("studio.unreadMediaMany", &[&n.to_string()])),
-        },
-        match unread.timelines {
-            0 => None,
-            1 => Some(t("studio.unreadTimelineOne")),
-            n => Some(tf("studio.unreadTimelinesMany", &[&n.to_string()])),
-        },
-        match unread.parts {
-            0 => None,
-            1 => Some(t("studio.unreadPartOne")),
-            n => Some(tf("studio.unreadPartsMany", &[&n.to_string()])),
-        },
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    (!what.is_empty()).then(|| tf("studio.unreadKept", &[&what.join(", ")]))
+/// The open's notes are the document's own words - what it set aside or
+/// put right, and where - said in full in the notice, each once.
+pub(super) fn unread_notice(notes: &[concat_doc::file::Note]) -> Option<String> {
+    let mut said: Vec<String> = Vec::new();
+    for note in notes {
+        let line = note.to_string();
+        if !said.contains(&line) {
+            said.push(line);
+        }
+    }
+    (!said.is_empty()).then(|| tf("studio.unreadKept", &[&said.join("; ")]))
+}
+
+/// What the person is told when the project opened was made with an
+/// earlier Concat: that it is one of this Concat's now, that its original
+/// file is kept in the project folder, and how many parts came over only
+/// approximately. The log lists each of those.
+pub(super) fn earlier_notice(notes: &[concat_doc::file::Note]) -> String {
+    match notes.len() {
+        0 => t("studio.earlierProject"),
+        1 => t("studio.earlierProjectOne"),
+        n => tf("studio.earlierProjectMany", &[&n.to_string()]),
+    }
 }
 
 /// The Details panel's short count of what the project holds and cannot
 /// show, or empty when it shows everything.
-pub(super) fn unread_count(unread: concat_project::UnreadSummary) -> String {
-    let what: Vec<String> = [
-        match unread.clips {
-            0 => None,
-            1 => Some(t("configPane.notShownClipOne")),
-            n => Some(tf("configPane.notShownClipsMany", &[&n.to_string()])),
-        },
-        match unread.media {
-            0 => None,
-            1 => Some(t("configPane.notShownMediaOne")),
-            n => Some(tf("configPane.notShownMediaMany", &[&n.to_string()])),
-        },
-        match unread.timelines {
-            0 => None,
-            1 => Some(t("configPane.notShownTimelineOne")),
-            n => Some(tf("configPane.notShownTimelinesMany", &[&n.to_string()])),
-        },
-        match unread.parts {
-            0 => None,
-            1 => Some(t("configPane.notShownPartOne")),
-            n => Some(tf("configPane.notShownPartsMany", &[&n.to_string()])),
-        },
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    what.join(", ")
+pub(super) fn unread_count(notes: &[concat_doc::file::Note]) -> String {
+    match notes.len() {
+        0 => String::new(),
+        1 => t("configPane.notShownPartOne"),
+        n => tf("configPane.notShownPartsMany", &[&n.to_string()]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{earlier_notice, unread_count, unread_notice};
+    use concat_doc::file::Note;
+
+    #[test]
+    fn a_project_of_an_earlier_concat_says_how_many_parts_came_over_approximately() {
+        let note = Note {
+            place: "clip \"a.mov\"".to_owned(),
+            what: "its speed curve is approximated".to_owned(),
+        };
+        let none = earlier_notice(&[]);
+        let one = earlier_notice(std::slice::from_ref(&note));
+        let three = earlier_notice(&[note.clone(), note.clone(), note]);
+        assert!(!none.is_empty());
+        assert!(none != one && one != three);
+        assert!(three.contains('3'), "{three}");
+    }
+
+    #[test]
+    fn a_project_that_opened_whole_says_nothing() {
+        assert_eq!(unread_notice(&[]), None);
+        assert_eq!(unread_count(&[]), "");
+    }
+
+    #[test]
+    fn each_note_is_said_once() {
+        let note = Note {
+            place: "item c12".to_owned(),
+            what: "an effect this build cannot read is kept".to_owned(),
+        };
+        let notice = unread_notice(&[note.clone(), note.clone()]).expect("a notice");
+        assert_eq!(notice.matches("item c12").count(), 1);
+        assert!(!unread_count(&[note]).is_empty());
+    }
 }

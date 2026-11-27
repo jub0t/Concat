@@ -19,7 +19,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use concat_project::model::{Cutout, CutoutMode, Stroke, Subject};
+use concat_doc::model::{Cutout, CutoutMode, Stroke, Subject};
 
 use crate::{MASK_RATE, Mask, strokes};
 
@@ -39,12 +39,22 @@ const CACHED: usize = 300;
 /// and for the same reason: a flat, portable name that cannot escape the
 /// folder. The subject is in it too, so a clip asked to keep the person
 /// and one asked to keep the object never read each other's answer.
-pub fn mask_dir(project: &Path, media_path: &str, subject: Subject) -> PathBuf {
+pub fn mask_dir(project: &Path, media_path: &str, subject: &Subject) -> PathBuf {
     project.join("cache").join("masks").join(format!(
         "{:016x}-{}",
         fnv1a(media_path.as_bytes()),
-        subject.key()
+        subject_key(subject)
     ))
+}
+
+/// A subject's name in the folders its masks are kept in.
+pub fn subject_key(subject: &Subject) -> &'static str {
+    match subject {
+        Subject::Auto => "auto",
+        Subject::Person => "person",
+        Subject::Object => "object",
+        Subject::Unknown(_) => "other",
+    }
 }
 
 /// The file naming the model that made a directory's masks.
@@ -193,7 +203,7 @@ impl MaskStore {
             cutout
                 .strokes
                 .iter()
-                .filter(|stroke| stroke.is_smart())
+                .filter(|stroke| strokes::is_smart(stroke))
                 .map(|stroke| {
                     (
                         strokes::stroke_key(stroke),
@@ -405,7 +415,16 @@ fn load(file: &Path) -> Option<Arc<Mask>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use concat_project::model::{BrushTool, Stroke};
+    use concat_doc::model::{BrushTool, Stroke};
+
+    fn auto() -> Cutout {
+        Cutout {
+            mode: CutoutMode::Auto,
+            subject: Subject::Auto,
+            feather: 0.0,
+            strokes: Vec::new(),
+        }
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -422,9 +441,9 @@ mod tests {
 
     #[test]
     fn the_directory_is_named_by_the_file_and_the_model() {
-        let a = mask_dir(Path::new("/p"), "/footage/a.mp4", Subject::Auto);
-        let b = mask_dir(Path::new("/p"), "/footage/b.mp4", Subject::Auto);
-        let c = mask_dir(Path::new("/p"), "/footage/a.mp4", Subject::Object);
+        let a = mask_dir(Path::new("/p"), "/footage/a.mp4", &Subject::Auto);
+        let b = mask_dir(Path::new("/p"), "/footage/b.mp4", &Subject::Auto);
+        let c = mask_dir(Path::new("/p"), "/footage/a.mp4", &Subject::Object);
         assert_ne!(a, c);
         assert_ne!(a, b);
         assert!(a.starts_with("/p/cache/masks"));
@@ -467,7 +486,7 @@ mod tests {
         let dir = scratch("resolved");
         let mut store = MaskStore::open(&dir);
         store.put(0, &Mask::filled(16, 16, 20)).expect("writes");
-        let plain = Cutout::auto();
+        let plain = auto();
         assert_eq!(
             store.resolved(0.0, &plain, 1.0).map(|m| m.at(8, 8)),
             Some(20)
@@ -504,7 +523,7 @@ mod tests {
         let dir = scratch("blank");
         let mut store = MaskStore::open(&dir);
         store.put(0, &Mask::filled(16, 16, 0)).expect("writes");
-        assert!(store.resolved(0.0, &Cutout::auto(), 1.0).is_none());
+        assert!(store.resolved(0.0, &auto(), 1.0).is_none());
         let painted = Cutout {
             mode: CutoutMode::Custom,
             subject: Subject::Auto,

@@ -71,14 +71,15 @@
 //! 4. The file a cut is of exists. *a_cut_of_no_file_is_refused*
 //! 5. The sequence an item nests exists. *a_nest_of_no_sequence_is_refused*
 //! 6. An enhanced copy exists. *an_enhanced_copy_that_is_not_there_is_refused*
-//! 7. A background still, of a sequence or of an item, exists and is not
-//!    a video or a recording. *a_background_that_is_not_a_still_is_refused*
+//! 7. A background still, of a sequence or of an item, and the cover's
+//!    picture, exist and are not a video or a recording.
+//!    *a_background_that_is_not_a_still_is_refused*
 //! 8. What an item is tied to exists. *a_link_to_nothing_is_refused*
 //! 9. The mask an effect works inside is one of the same item's.
 //!    *an_effect_on_a_mask_of_another_item_is_refused*
 //! 10. The sequence showing, and every tab, exist. *a_view_of_no_sequence_is_refused*
-//! 11. A file is not taken out of the bin while an item or a sequence
-//!     names it. *removing_a_file_in_use_is_refused*
+//! 11. A file is not taken out of the bin while an item, a sequence or
+//!     the cover names it. *removing_a_file_in_use_is_refused*
 //! 12. A sequence is not taken out while a lane is in it or an item
 //!     nests it. *removing_a_sequence_in_use_is_refused*
 //! 13. A lane is not taken out while an item is on it.
@@ -176,6 +177,14 @@
 //! 49. A caption lane's look has no words and no runs of its own: each
 //!     caption's are the caption's. *a_caption_look_with_words_is_refused*
 //!
+//! **Speed graphs**
+//!
+//! 50. The speed graph a keyed time map was drawn with has at least one
+//!     point; its numbers are finite; each point's share is from 0 to 1
+//!     and the points are in order of their shares; each speed is from a
+//!     sixteenth to sixteen times; and its span is within the range.
+//!     *a_broken_speed_graph_is_refused*
+//!
 //! The empty document keeps every rule (*an_empty_document_is_valid*).
 //! A random run of edits is checked two ways, by what changed and by
 //! reading the whole result as a file is read, and the two always agree
@@ -212,12 +221,14 @@ pub mod sequence;
 use crate::document::{ChangePart, ChangeSet, Changed, Schema};
 use crate::id::{AnyId, RawId, TypedId};
 use crate::table::{AnyTable, Table, TableChanges};
+use crate::time::Tick;
 
 pub use animated::{Animated, Ease, Key};
 pub use check::{Rule, Violation};
 pub use effect::{Effect, Mask, MaskMode, MaskShape, MaskSource, Param};
 pub use ids::{
-    EffectId, Entry, HeldId, ItemId, LaneId, MarkerId, MaskId, MediaId, Raw, Residual, SequenceId,
+    Derived, EffectId, Entry, HeldId, ItemId, LaneId, MarkerId, MaskId, MediaId, Raw, Residual,
+    SequenceId,
 };
 pub use index::{Derive, Indexed, ItemIndex, Items, LaneIndex, Lanes, SequenceIndex, Sequences};
 pub use item::{
@@ -235,8 +246,8 @@ pub use media::{
 pub use order::{NotAnOrderKey, OrderKey};
 pub use sequence::{Background, Color, Cover, Font, Frame, Held, Lane, Marker, Sequence, View};
 pub use timing::{
-    FASTEST, SLOWEST, Speed, TICK_LIMIT, TimeCurve, TimeMap, TimePoint, dur_in_range, len_in_range,
-    tick_in_range,
+    FASTEST, GraphFault, SLOWEST, Speed, SpeedGraph, SpeedPoint, TICK_LIMIT, TimeCurve, TimeMap,
+    TimePoint, dur_in_range, len_in_range, tick_in_range,
 };
 
 /// A table of rows, as the comparison reads it: a plain one, or one that
@@ -381,6 +392,27 @@ model! {
         view: View, check::view;
         /// The document's own fields that this build does not know.
         residual: Residual, check::residual;
+    }
+}
+
+impl Model {
+    /// Where a sequence ends: where the last item on any of its lanes
+    /// does. Zero for a sequence with nothing on it.
+    pub fn end_of(&self, sequence: SequenceId) -> Tick {
+        self.lanes
+            .index()
+            .of(sequence)
+            .filter_map(|(lane, _)| self.items.index().on_lane(lane).last())
+            .map(|(_, _, end)| end)
+            .max()
+            .unwrap_or(Tick::ZERO)
+    }
+
+    /// Where the sequence showing ends; zero when none is showing.
+    pub fn showing_end(&self) -> Tick {
+        self.view
+            .showing
+            .map_or(Tick::ZERO, |sequence| self.end_of(sequence))
     }
 }
 

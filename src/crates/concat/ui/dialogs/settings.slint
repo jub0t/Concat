@@ -9,7 +9,7 @@ import { Button, DialogSection, Field, Progress, Sheet } from "../primitives/mod
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
-import { Fmt } from "../util.slint";
+import { Fmt, Focus } from "../util.slint";
 import { Select } from "../primitives/select.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 import { HairlineSplitter } from "../workspace/splitter.slint";
@@ -95,12 +95,25 @@ export struct SettingsData {
     download-base: string,
     /// the Concat API served on a socket while the window is open
     server-enabled: bool,
-    /// the two halves of "127.0.0.1:7420"
+    /// the two halves of "127.0.0.1:7420", as typed: what is applied
+    /// until a field is edited, and the edit after
     server-host: string,
     server-port: int,
     /// what a connection presents first: the chosen one, or the one the
-    /// server made up when none was chosen
+    /// server made up when none was chosen; as typed, like the address
     server-token: string,
+    /// what is wrong with each field as typed, said beside it; empty when
+    /// it is fine
+    server-host-note: string,
+    server-port-note: string,
+    server-token-note: string,
+    /// something typed is not applied yet: the Apply row shows
+    server-pending: bool,
+    /// and it can be applied: every field is fine
+    server-can-apply: bool,
+    /// why the last Apply did not take: the address could not be listened
+    /// on, and what was in effect still is
+    server-apply-error: string,
     /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
     server-status: string,
     /// 0 off, 1 listening, 2 could not start: the status line's dot
@@ -686,6 +699,10 @@ export component SettingsDialog inherits Sheet {
     callback server-token-edited(text: string);
     /// A fresh random token, in place of whatever is there.
     callback server-token-generated();
+    /// What was typed in the address, port and token put into effect, or
+    /// dropped.
+    callback server-apply();
+    callback server-revert();
     /// the Version page: look for the releases, pick one, put it in place
     callback check-updates();
     callback version-chosen(index: int);
@@ -1402,6 +1419,12 @@ export component SettingsDialog inherits Sheet {
                         background: Theme.field;
                         clip: true;
 
+                        // The port field holds its own value once it has
+                        // been typed in; a Revert, or an Apply that comes
+                        // back to the same number, is put back into it here.
+                        property <int> shown-port: root.data.server-port;
+                        changed shown-port => { port-field.value = self.shown-port; }
+
                         HorizontalLayout {
                             spacing: 0;
 
@@ -1423,18 +1446,27 @@ export component SettingsDialog inherits Sheet {
                                 vertical-alignment: center;
                             }
 
-                            NumberField {
+                            port-field := NumberField {
                                 width: 72px;
                                 horizontal-stretch: 0;
                                 radius-left: 0px;
                                 value: root.data.server-port;
-                                minimum: 0;
+                                minimum: 1;
                                 maximum: 65535;
                                 step: 1;
                                 precision: 0;
                                 changed(port) => { root.server-port-edited(port); }
                             }
                         }
+                    }
+
+                    // Checked as it is typed: what is wrong, beside the
+                    // field, and nothing applied until it is right.
+                    if root.data.server-host-note != "" || root.data.server-port-note != "": Text {
+                        text: root.data.server-host-note != "" ? root.data.server-host-note : root.data.server-port-note;
+                        color: Theme.danger;
+                        font-size: Theme.fs-prose;
+                        wrap: word-wrap;
                     }
 
                     // Past loopback, said where it is decided, with the way
@@ -1532,6 +1564,59 @@ export component SettingsDialog inherits Sheet {
                             interval: 1500ms;
                             running: root.token-copied;
                             triggered => { root.token-copied = false; }
+                        }
+                    }
+
+                    if root.data.server-token-note != "": Text {
+                        text: root.data.server-token-note;
+                        color: Theme.danger;
+                        font-size: Theme.fs-prose;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // The address, port and token take effect here and nowhere
+                // else: a keystroke never restarts the server, and a value
+                // that is wrong is never applied. Leaving the page drops
+                // what was not applied, as Revert does.
+                if root.data.server-pending: HorizontalLayout {
+                    spacing: 8px;
+                    padding-top: 4px;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.server-apply-error != "" ? root.data.server-apply-error
+                            : I18n.t("settings.serverChangesPending");
+                        color: root.data.server-apply-error != "" ? Theme.danger : Theme.fg-muted;
+                        font-size: Theme.fs-prose;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            ghost: true;
+                            label: I18n.t("settings.revert");
+                            clicked => {
+                                // Out of the field first, so the field shows
+                                // what is applied rather than what was typed.
+                                Focus.release();
+                                root.server-revert();
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            primary: true;
+                            label: I18n.t("common.apply");
+                            enabled: root.data.server-can-apply;
+                            clicked => {
+                                Focus.release();
+                                root.server-apply();
+                            }
                         }
                     }
                 }

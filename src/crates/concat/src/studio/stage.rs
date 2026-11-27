@@ -4,6 +4,23 @@
 
 use super::*;
 
+/// Where on its content time a clip is shown at the playhead, held to its
+/// window: where a keyed number is read and written.
+fn at_playhead(clip: &Item, playhead: f32) -> Tick {
+    doc_view::content_at(clip, doc_view::tick(f64::from(playhead)))
+}
+
+/// What one of a clip's numbers shows at `at`: its value, or its keys'.
+fn shown_at(clip: &Item, property: KeyProperty, at: Tick) -> f64 {
+    doc_view::value_at(doc_view::animated(clip, property), at)
+}
+
+/// Writes one of a clip's numbers as a gesture means it: its value while
+/// it has no keys, the key at `at` once it rides.
+fn write_number(clip: &mut Item, property: KeyProperty, value: f64, at: Tick) {
+    doc_view::write_at(doc_view::animated_mut(clip, property), value, at);
+}
+
 impl Studio {
     // ── the stage ──
     //
@@ -15,24 +32,29 @@ impl Studio {
 
     /// Where `clip` lands in the output frame. The compositor's own rule —
     /// contain-fitted, then the transform — restated in fractions.
-    pub fn footprint(&self, clip: &Clip) -> Footprint {
+    pub fn footprint(&self, clip: &Item) -> Footprint {
         let (width, height) = self.output_size();
         let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
-        let painted = matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape)
-            .then(|| self.title_blocks.get(&clip.id).copied())
+        let kind = self.kind(clip);
+        let scale = clip.picture.scale.value;
+        let painted = matches!(kind, Kind::Text | Kind::Shape)
+            .then(|| {
+                let id = doc_view::id_of(self.doc(), clip)?;
+                self.title_blocks.get(&id.to_string()).copied()
+            })
             .flatten();
         let (w, h) = if let Some(((bw, bh), _)) = painted {
             // The painter said how big the block came out.
             (
-                f64::from(bw) * clip.scale / width,
-                f64::from(bh) * clip.scale / height,
+                f64::from(bw) * scale / width,
+                f64::from(bh) * scale / height,
             )
-        } else if clip.kind == model::ClipKind::Text {
+        } else if kind == Kind::Text {
             // Not painted yet: a reading of the style until it is. An em is
             // `font_size` of the frame's height, a glyph runs about six
             // tenths of one, and a little air is left around the block the
             // way the plate would.
-            let text = clip.text.clone().unwrap_or_default();
+            let text = doc_view::title(clip).cloned().unwrap_or_default();
             let lines: Vec<&str> = text.content.lines().collect();
             let rows = lines.len().max(1) as f64;
             let longest = lines
@@ -44,25 +66,20 @@ impl Studio {
             let em = text.font_size.max(0.005) * height;
             let glyph = 0.6 * em + text.tracking * height;
             (
-                (longest * glyph + 0.6 * em) * clip.scale / width,
-                (rows * em * text.line_height.max(0.5) + 0.5 * em) * clip.scale / height,
+                (longest * glyph + 0.6 * em) * scale / width,
+                (rows * em * text.line_height.max(0.5) + 0.5 * em) * scale / height,
             )
-        } else if clip.kind == model::ClipKind::Shape {
+        } else if kind == Kind::Shape {
             // Not painted yet: the figure's box from its style, the way the
             // painter sizes it, until the painter says.
-            let (w, h) = clip.shape.clone().unwrap_or_default().figure_box();
-            (
-                w * height * clip.scale / width,
-                h * height * clip.scale / height,
-            )
+            let (w, h) = doc_view::figure_box(&doc_view::shape(clip).cloned().unwrap_or_default());
+            (w * height * scale / width, h * height * scale / height)
         } else {
-            let media = self.project().media_by_id(&clip.media_id);
-            let source = media
-                .and_then(|item| Some((item.width?, item.height?)))
-                .filter(|(w, h)| *w > 0 && *h > 0)
-                .map(|(w, h)| (f64::from(w), f64::from(h)))
+            let source = doc_view::media_of(self.doc(), clip)
+                .and_then(|item| item.size)
+                .map(|size| (f64::from(size.width.get()), f64::from(size.height.get())))
                 // What is left after the crop is what gets fitted.
-                .map(|(w, h)| match clip.crop {
+                .map(|(w, h)| match clip.picture.crop {
                     Some(crop) => (
                         w * (1.0 - crop.left - crop.right).max(0.1),
                         h * (1.0 - crop.top - crop.bottom).max(0.1),
@@ -72,38 +89,35 @@ impl Studio {
             match source {
                 Some((sw, sh)) => {
                     let fit = (width / sw).min(height / sh);
-                    (
-                        sw * fit * clip.scale / width,
-                        sh * fit * clip.scale / height,
-                    )
+                    (sw * fit * scale / width, sh * fit * scale / height)
                 }
                 // Dimensions never learnt: the frame's own shape, which is
                 // what the compositor falls back to as well.
-                None => (clip.scale, clip.scale),
+                None => (scale, scale),
             }
         };
         // The placement at the playhead: the clip's own, or its ride's
         // where a property is keyed, so the box follows the keys.
-        let at = place_in(clip, self.playhead);
+        let at = at_playhead(clip, self.playhead);
         let base = concat_core::timeline::Transform {
-            scale: shown(clip, model::KeyProperty::Scale, at),
-            offset_x: shown(clip, model::KeyProperty::OffsetX, at),
-            offset_y: shown(clip, model::KeyProperty::OffsetY, at),
-            rotation: shown(clip, model::KeyProperty::Rotation, at),
-            stretch_x: shown(clip, model::KeyProperty::StretchX, at),
-            stretch_y: shown(clip, model::KeyProperty::StretchY, at),
+            scale: shown_at(clip, KeyProperty::Scale, at),
+            offset_x: shown_at(clip, KeyProperty::OffsetX, at),
+            offset_y: shown_at(clip, KeyProperty::OffsetY, at),
+            rotation: shown_at(clip, KeyProperty::Rotation, at),
+            stretch_x: shown_at(clip, KeyProperty::StretchX, at),
+            stretch_y: shown_at(clip, KeyProperty::StretchY, at),
         };
         // Then pulled along each axis, as the compositor pulls it - a
         // picture, that is. A title's box is its style's, and the compositor
         // never stretches one; see titles.rs.
         // https://github.com/jub0t/Concat/issues/119
-        let (w, h) = if clip.kind == model::ClipKind::Text {
+        let (w, h) = if kind == Kind::Text {
             (w, h)
         } else {
             (w * base.stretch_x, h * base.stretch_y)
         };
         let placed = base;
-        let factor = placed.scale / clip.scale.max(1e-6);
+        let factor = placed.scale / scale.max(1e-6);
         // A title anchored on an edge paints its block beside the clip's
         // position, not on it; the box goes where the block is. The offset
         // is canvas pixels, so it scales, stretches and turns with the clip
@@ -131,49 +145,41 @@ impl Studio {
 
     /// The pictures under the playhead on lanes that are showing, bottom of
     /// the stack first — the order the compositor lays them down, and the
-    /// order the overlay draws them in.
-    pub(super) fn stage_clips(&self) -> Vec<&Clip> {
-        let timeline = self.timeline();
-        let playhead = f64::from(self.playhead);
-        let showing: HashSet<&str> = timeline
-            .tracks
-            .iter()
-            .filter(|track| track.visible)
-            .map(|track| track.id.as_str())
-            .collect();
-        let mut clips: Vec<&Clip> = timeline
-            .clips
-            .iter()
-            .map(|clip| clip.as_ref())
-            .filter(|clip| {
-                (clip.kind.is_visual()
-                    || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
-                    && showing.contains(clip.track_id.as_str())
+    /// order the overlay draws them in — each with its id as the panels
+    /// hold it.
+    pub(super) fn stage_clips(&self) -> Vec<(String, &Item)> {
+        let doc = self.doc();
+        let playhead = doc_view::tick(f64::from(self.playhead));
+        // The lanes come bottom first, and each lane's items in time
+        // order, so the stack's order is the order they come in.
+        doc_view::items(doc)
+            .into_iter()
+            .filter(|(_, clip)| {
+                self.kind(clip).is_visual()
+                    && doc_view::lane(doc, clip.lane).is_some_and(|lane| lane.visible)
                     && clip.start <= playhead
-                    && playhead < clip.start + clip.duration
+                    && playhead < doc_view::end(clip)
             })
-            .collect();
-        // Rows count from the top; the bottom of the stack is the highest.
-        clips.sort_by_key(|clip| std::cmp::Reverse(self.row_of(&clip.track_id)));
-        clips
+            .map(|(id, clip)| (id.to_string(), clip))
+            .collect()
     }
 
     pub fn stage_items(&self) -> Vec<StageItemData> {
         self.stage_clips()
             .into_iter()
-            .map(|clip| {
+            .map(|(id, clip)| {
                 let footprint = self.footprint(clip);
-                let selected = self.selection.iter().any(|id| id == &clip.id);
+                let selected = self.selection.contains(&id);
                 let mut item = StageItemData {
-                    id: clip.id.as_str().into(),
-                    kind: kind_of(clip),
+                    id: id.as_str().into(),
+                    kind: kind_of(self.doc(), clip),
                     selected,
                     cx: footprint.cx as f32,
                     cy: footprint.cy as f32,
                     w: footprint.w as f32,
                     h: footprint.h as f32,
                     rotation: footprint.rotation as f32,
-                    scale: clip.scale as f32,
+                    scale: clip.picture.scale.value as f32,
                     mask: -1,
                     ..Default::default()
                 };
@@ -183,7 +189,7 @@ impl Studio {
                     && let Some(frame) = self.mask_frame(clip)
                 {
                     let grips = frame.grips().map(|grip| frame.fraction(grip));
-                    item.mask = model::MaskShape::ALL
+                    item.mask = concat_core::mask::MaskShape::ALL
                         .iter()
                         .position(|shape| *shape == frame.mask.shape)
                         .map_or(-1, |index| index as i32);
@@ -203,19 +209,19 @@ impl Studio {
     /// The clip's mask placed in the frame at the playhead, its keyed
     /// numbers at their ride's values; None for a clip with no mask or one
     /// that is not a picture.
-    fn mask_frame(&self, clip: &Clip) -> Option<MaskFrame> {
-        if !clip.kind.is_visual() {
+    fn mask_frame(&self, clip: &Item) -> Option<MaskFrame> {
+        if !self.kind(clip).is_visual() {
             return None;
         }
-        let at = place_in(clip, self.playhead);
+        let at = at_playhead(clip, self.playhead);
         let mask = masking::MaskAt::of(self.current_mask(clip)?, at)?;
         Some(MaskFrame::new(
             mask,
             &self.footprint(clip),
             self.output_size(),
             (
-                shown(clip, model::KeyProperty::StretchX, at),
-                shown(clip, model::KeyProperty::StretchY, at),
+                shown_at(clip, KeyProperty::StretchX, at),
+                shown_at(clip, KeyProperty::StretchY, at),
             ),
         ))
     }
@@ -227,9 +233,9 @@ impl Studio {
         self.stage_clips()
             .into_iter()
             .rev()
-            .filter(|clip| !self.locked(&clip.track_id))
-            .find(|clip| self.footprint(clip).contains(x, y, frame))
-            .map(|clip| clip.id.clone())
+            .filter(|(_, clip)| !self.lane_locked(clip.lane))
+            .find(|(_, clip)| self.footprint(clip).contains(x, y, frame))
+            .map(|(id, _)| id)
     }
 
     /// A press on the stage floor: resolve the selection, then arm a move
@@ -242,11 +248,11 @@ impl Studio {
             self.pick_colour_at(pick, f64::from(x), f64::from(y));
             return;
         }
-        if let Some(clip) = self.paint_target() {
+        if let (Some(clip), Some(id)) = (self.paint_target().cloned(), self.sole_selection()) {
             let point = self.stage_to_source(&clip, f64::from(x), f64::from(y));
             self.gesture = Gesture::Paint {
-                clip: clip.id.clone(),
-                tool: BRUSHES[self.brush.min(BRUSHES.len() - 1)],
+                clip: id,
+                tool: BRUSHES[self.brush.min(BRUSHES.len() - 1)].clone(),
                 size: self.brush_size,
                 at: self.source_at_playhead(&clip),
                 points: vec![point],
@@ -282,20 +288,21 @@ impl Studio {
             self.gesture = Gesture::None;
             return;
         }
+        let playhead = self.playhead;
         let origins: Vec<StageOrigin> = self
             .stage_clips()
             .into_iter()
-            .filter(|clip| {
-                self.selection.iter().any(|held| held == &clip.id) && !self.locked(&clip.track_id)
+            .filter(|(shown, clip)| {
+                self.selection.iter().any(|held| held == shown) && !self.lane_locked(clip.lane)
             })
-            .map(|clip| {
+            .map(|(shown, clip)| {
                 // A keyed clip is dragged from where its ride has it at
                 // the playhead, not from a constant nothing shows.
-                let at = place_in(clip, self.playhead);
+                let at = at_playhead(clip, playhead);
                 StageOrigin {
-                    clip: clip.id.clone(),
-                    offset_x: shown(clip, model::KeyProperty::OffsetX, at),
-                    offset_y: shown(clip, model::KeyProperty::OffsetY, at),
+                    clip: shown,
+                    offset_x: shown_at(clip, KeyProperty::OffsetX, at),
+                    offset_y: shown_at(clip, KeyProperty::OffsetY, at),
                 }
             })
             .collect();
@@ -332,9 +339,10 @@ impl Studio {
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
+        let kind = self.kind(&clip);
         let (width, height) = self.output_size();
         // A grip of the mask: the mask is what moves, not the picture.
         if let Some(grip) = MaskGrip::of(grip) {
@@ -362,40 +370,38 @@ impl Studio {
         let dx = f64::from(x) * f64::from(width) - centre.0;
         let dy = f64::from(y) * f64::from(height) - centre.1;
         let half = footprint.half_bounds((width, height));
+        let at = at_playhead(&clip, self.playhead);
+        let rotation = clip.picture.rotation.value;
         self.flush_commit();
         self.begin_echo();
         self.gesture = if grip == 4 {
             Gesture::StageRotate {
                 clip: id.to_owned(),
-                rotation: shown(
-                    &clip,
-                    model::KeyProperty::Rotation,
-                    place_in(&clip, self.playhead),
-                ),
+                rotation: shown_at(&clip, KeyProperty::Rotation, at),
                 centre,
                 from: dy.atan2(dx),
             }
-        } else if (grip == 6 || grip == 8) && clip.kind == model::ClipKind::Text {
+        } else if (grip == 6 || grip == 8) && kind == Kind::Text {
             // A title's side grips set where its words wrap, not how wide
             // its glyphs are; see `Gesture::TextWidth`.
             Gesture::TextWidth {
                 clip: id.to_owned(),
                 centre,
-                rotation: clip.rotation,
+                rotation,
             }
-        } else if (grip == 5 || grip == 7) && clip.kind == model::ClipKind::Text {
+        } else if (grip == 5 || grip == 7) && kind == Kind::Text {
             // And the top and bottom grips size its box, never its glyphs.
             // https://github.com/jub0t/Concat/issues/119
             Gesture::TextHeight {
                 clip: id.to_owned(),
                 centre,
-                rotation: clip.rotation,
+                rotation,
             }
         } else if grip >= 5 {
             // 5 top, 6 right, 7 bottom, 8 left: the pointer's offset from
             // the centre, turned back into the box's own frame.
             let across = grip == 6 || grip == 8;
-            let (sin, cos) = clip.rotation.to_radians().sin_cos();
+            let (sin, cos) = rotation.to_radians().sin_cos();
             let along = if across {
                 dx * cos + dy * sin
             } else {
@@ -404,17 +410,9 @@ impl Studio {
             // A shape's side grips pull its own width and height, which
             // keeps its outline even and its corners round; a picture's
             // pull its stretch.
-            let figure = clip
-                .shape
-                .as_ref()
-                .filter(|_| {
-                    clip.kind == model::ClipKind::Shape
-                        && !clip
-                            .shape
-                            .as_ref()
-                            .is_some_and(|s| s.kind.is_line() && !across)
-                })
-                .map(|shape| shape.figure_box());
+            let figure = doc_view::shape(&clip)
+                .filter(|shape| !doc_view::is_line(&shape.kind) || across)
+                .map(doc_view::figure_box);
             Gesture::StageStretch {
                 clip: id.to_owned(),
                 across,
@@ -422,29 +420,17 @@ impl Studio {
                     (Some((w, _)), true) => w,
                     (Some((_, h)), false) => h,
                     // A keyed pull is dragged from where its ride has it.
-                    (None, true) => shown(
-                        &clip,
-                        model::KeyProperty::StretchX,
-                        place_in(&clip, self.playhead),
-                    ),
-                    (None, false) => shown(
-                        &clip,
-                        model::KeyProperty::StretchY,
-                        place_in(&clip, self.playhead),
-                    ),
+                    (None, true) => shown_at(&clip, KeyProperty::StretchX, at),
+                    (None, false) => shown_at(&clip, KeyProperty::StretchY, at),
                 },
                 centre,
                 from: along.abs().max(1.0),
-                rotation: clip.rotation,
+                rotation,
             }
         } else {
             Gesture::StageScale {
                 clip: id.to_owned(),
-                scale: shown(
-                    &clip,
-                    model::KeyProperty::Scale,
-                    place_in(&clip, self.playhead),
-                ),
+                scale: shown_at(&clip, KeyProperty::Scale, at),
                 centre,
                 from: dx.hypot(dy).max(1.0),
                 half,
@@ -472,6 +458,7 @@ impl Studio {
         }
         let (x, y) = (f64::from(x), f64::from(y));
         let (width, height) = self.output_size();
+        let playhead = self.playhead;
         match &gesture {
             Gesture::StageMove {
                 primary,
@@ -507,8 +494,8 @@ impl Studio {
                         // staying put.
                         let mut xs = vec![0.0, 0.5, 1.0];
                         let mut ys = vec![0.0, 0.5, 1.0];
-                        for other in self.stage_clips() {
-                            if origins.iter().any(|origin| origin.clip == other.id) {
+                        for (other_id, other) in self.stage_clips() {
+                            if origins.iter().any(|origin| origin.clip == other_id) {
                                 continue;
                             }
                             let footprint = self.footprint(other);
@@ -536,17 +523,16 @@ impl Studio {
                         }
                     }
                 }
-                let playhead = self.playhead;
                 for origin in origins {
-                    if let Some(clip) = self.echo_clip_mut(&origin.clip) {
-                        let at = place_in(clip, playhead);
-                        let (x, y) = (
-                            (origin.offset_x + dx).clamp(-1.0, 1.0),
-                            (origin.offset_y + dy).clamp(-1.0, 1.0),
-                        );
-                        write_keyable(clip, model::KeyProperty::OffsetX, x, at);
-                        write_keyable(clip, model::KeyProperty::OffsetY, y, at);
-                    }
+                    let (x, y) = (
+                        (origin.offset_x + dx).clamp(-1.0, 1.0),
+                        (origin.offset_y + dy).clamp(-1.0, 1.0),
+                    );
+                    self.echo_edit(&origin.clip, |clip| {
+                        let at = at_playhead(clip, playhead);
+                        write_number(clip, KeyProperty::OffsetX, x, at);
+                        write_number(clip, KeyProperty::OffsetY, y, at);
+                    });
                 }
             }
             Gesture::StageScale {
@@ -573,8 +559,8 @@ impl Studio {
                     let (cx, cy) = (centre.0 / f64::from(width), centre.1 / f64::from(height));
                     let mut xs = vec![0.0, 0.5, 1.0];
                     let mut ys = vec![0.0, 0.5, 1.0];
-                    for other in self.stage_clips() {
-                        if other.id == *clip {
+                    for (other_id, other) in self.stage_clips() {
+                        if other_id == *clip {
                             continue;
                         }
                         let footprint = self.footprint(other);
@@ -615,11 +601,10 @@ impl Studio {
                         });
                     }
                 }
-                let playhead = self.playhead;
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    let at = place_in(clip, playhead);
-                    write_keyable(clip, model::KeyProperty::Scale, next.clamp(0.05, 8.0), at);
-                }
+                self.echo_edit(clip, |clip| {
+                    let at = at_playhead(clip, playhead);
+                    write_number(clip, KeyProperty::Scale, next.clamp(0.05, 8.0), at);
+                });
             }
             Gesture::StageStretch {
                 clip,
@@ -641,36 +626,23 @@ impl Studio {
                 if snap {
                     next = (next * 20.0).round() / 20.0;
                 }
-                let playhead = self.playhead;
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    let at = place_in(clip, playhead);
-                    let line = clip
-                        .shape
-                        .as_ref()
-                        .is_some_and(|shape| shape.kind.is_line());
-                    if clip.kind == model::ClipKind::Shape && (*across || !line) {
-                        let shape = clip.shape.get_or_insert_with(model::ShapeStyle::default);
-                        if *across {
+                let across = *across;
+                self.echo_edit(clip, |clip| {
+                    let at = at_playhead(clip, playhead);
+                    if let Some(shape) = doc_view::shape_mut(clip)
+                        && (across || !doc_view::is_line(&shape.kind))
+                    {
+                        if across {
                             shape.width = next.clamp(0.01, 4.0);
                         } else {
                             shape.height = next.clamp(0.01, 4.0);
                         }
-                    } else if *across {
-                        write_keyable(
-                            clip,
-                            model::KeyProperty::StretchX,
-                            next.clamp(0.1, 10.0),
-                            at,
-                        );
+                    } else if across {
+                        write_number(clip, KeyProperty::StretchX, next.clamp(0.1, 10.0), at);
                     } else {
-                        write_keyable(
-                            clip,
-                            model::KeyProperty::StretchY,
-                            next.clamp(0.1, 10.0),
-                            at,
-                        );
+                        write_number(clip, KeyProperty::StretchY, next.clamp(0.1, 10.0), at);
                     }
-                }
+                });
             }
             Gesture::TextWidth {
                 clip,
@@ -687,9 +659,11 @@ impl Studio {
                 if snap {
                     next = (next * 20.0).round() / 20.0;
                 }
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    clip.text.get_or_insert_with(TextStyle::default).max_width = next;
-                }
+                self.echo_edit(clip, |clip| {
+                    if let Some(text) = doc_view::title_mut(clip) {
+                        text.max_width = next;
+                    }
+                });
             }
             Gesture::TextHeight {
                 clip,
@@ -705,9 +679,11 @@ impl Studio {
                 if snap {
                     next = (next * 20.0).round() / 20.0;
                 }
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    clip.text.get_or_insert_with(TextStyle::default).max_height = next;
-                }
+                self.echo_edit(clip, |clip| {
+                    if let Some(text) = doc_view::title_mut(clip) {
+                        text.max_height = next;
+                    }
+                });
             }
             Gesture::StageMask {
                 clip,
@@ -721,11 +697,20 @@ impl Studio {
                     next.rotation = (next.rotation / 15.0).round() * 15.0;
                 }
                 let start = frame.mask;
-                let playhead = self.playhead;
                 let focus = self.mask_focus.clone();
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    let at = place_in(clip, playhead);
-                    let Some(index) = masks::current_index(&clip.masks, focus.as_deref()) else {
+                self.echo_edit(clip, |clip| {
+                    let at = at_playhead(clip, playhead);
+                    let Some(index) =
+                        masks::current_index(&doc_view::masks(&clip.masks), focus.as_deref())
+                    else {
+                        return;
+                    };
+                    let Some(mask) = clip
+                        .masks
+                        .iter_mut()
+                        .filter_map(model::Entry::known_mut)
+                        .nth(index)
+                    else {
                         return;
                     };
                     // Only the numbers the grip moves: a keyed one the drag
@@ -733,11 +718,13 @@ impl Studio {
                     for ((number, value), (_, was)) in
                         next.numbers().into_iter().zip(start.numbers())
                     {
-                        if value != was {
-                            clip.masks[index].write_at(number, value, at);
+                        if value != was
+                            && let Some(held) = doc_view::mask_number_mut(mask, number)
+                        {
+                            doc_view::write_at(held, doc_view::mask_clamp(number, value), at);
                         }
                     }
-                }
+                });
             }
             Gesture::StageRotate {
                 clip,
@@ -755,11 +742,10 @@ impl Studio {
                 // Kept in the inspector's range, wrapping rather than
                 // stopping: a turn through the bottom carries on.
                 next = (next + 180.0).rem_euclid(360.0) - 180.0;
-                let playhead = self.playhead;
-                if let Some(clip) = self.echo_clip_mut(clip) {
-                    let at = place_in(clip, playhead);
-                    write_keyable(clip, model::KeyProperty::Rotation, next, at);
-                }
+                self.echo_edit(clip, |clip| {
+                    let at = at_playhead(clip, playhead);
+                    write_number(clip, KeyProperty::Rotation, next, at);
+                });
             }
             _ => {
                 self.gesture = gesture;
@@ -786,7 +772,8 @@ impl Studio {
             | Gesture::StageRotate { clip, .. }
             | Gesture::StageStretch { clip, .. }
             | Gesture::StageMask { clip, .. }
-            | Gesture::TextWidth { clip, .. } => vec![clip],
+            | Gesture::TextWidth { clip, .. }
+            | Gesture::TextHeight { clip, .. } => vec![clip],
             Gesture::Paint {
                 clip,
                 tool,
@@ -798,17 +785,20 @@ impl Studio {
                 // The stroke becomes one command, and one undo step; a
                 // smart stroke then has its thing read from the frame, and
                 // stays drawn until it has been.
+                let smart = matches!(
+                    tool,
+                    model::BrushTool::SmartBrush | model::BrushTool::SmartEraser
+                );
                 let stroke = model::Stroke {
                     tool,
                     size,
-                    points: points.clone(),
-                    at: Some(at),
+                    points,
+                    at: Some(doc_view::tick(at)),
                 };
-                self.pending_stroke = stroke.is_smart().then_some(overlay).flatten();
-                self.apply(Command::AddCutoutStroke {
-                    clip_id: clip,
-                    stroke,
-                });
+                self.pending_stroke = smart.then_some(overlay).flatten();
+                if let Some(item) = doc_view::parse::<ItemId>(&clip) {
+                    self.apply(Command::AddCutoutStroke { item, stroke });
+                }
                 self.ensure_regions();
                 return;
             }
@@ -823,66 +813,72 @@ impl Studio {
         };
         let mut commands = Vec::new();
         for id in touched {
-            let (Some(after), Some(before)) = (
-                echo.active().clip(&id),
-                self.session
-                    .as_ref()
-                    .and_then(|session| session.project().active().clip(&id)),
+            let (Some(item), Some(after), Some(before)) = (
+                doc_view::parse::<ItemId>(&id),
+                doc_view::item_by(&echo, &id),
+                doc_view::item_by(self.committed(), &id),
             ) else {
                 continue;
             };
-            if after.scale != before.scale
-                || after.offset_x != before.offset_x
-                || after.offset_y != before.offset_y
-                || after.rotation != before.rotation
-                || after.stretch_x != before.stretch_x
-                || after.stretch_y != before.stretch_y
-            {
+            let (a, b) = (&after.picture, &before.picture);
+            let moved = [
+                (&a.scale, &b.scale),
+                (&a.offset_x, &b.offset_x),
+                (&a.offset_y, &b.offset_y),
+                (&a.rotation, &b.rotation),
+                (&a.stretch_x, &b.stretch_x),
+                (&a.stretch_y, &b.stretch_y),
+            ]
+            .iter()
+            .any(|(after, before)| after.value != before.value);
+            if moved {
                 commands.push(Command::SetClipTransform {
-                    clip_id: id.clone(),
-                    scale: Some(after.scale),
-                    offset_x: Some(after.offset_x),
-                    offset_y: Some(after.offset_y),
-                    rotation: Some(after.rotation),
-                    stretch_x: Some(after.stretch_x),
-                    stretch_y: Some(after.stretch_y),
+                    item,
+                    scale: Some(a.scale.value),
+                    offset_x: Some(a.offset_x.value),
+                    offset_y: Some(a.offset_y.value),
+                    rotation: Some(a.rotation.value),
+                    stretch_x: Some(a.stretch_x.value),
+                    stretch_y: Some(a.stretch_y.value),
                 });
             }
             // A keyed property is dragged as a key at the playhead, not as
-            // its constant - see `write_keyable` - so the keys the gesture
-            // put on the echo have to be committed too, or the picture
-            // snaps back to the ride the document still holds.
+            // its constant, so the keys the gesture put on the echo have to
+            // be committed too, or the picture snaps back to the ride the
+            // document still holds.
             // https://github.com/jub0t/Concat/issues/228
-            commands.extend(key_commands(&id, before, after));
+            commands.extend(key_commands(item, before, after));
             // A mask's grips move its numbers, held or keyed: the masks
             // carry their own keys, so the list is the whole of it.
             if after.masks != before.masks {
                 commands.push(Command::UpdateClip {
-                    clip_id: id.clone(),
-                    patch: ClipPatch {
-                        masks: Some(after.masks.clone()),
+                    item,
+                    patch: ItemPatch {
+                        masks: Some(doc_view::masks_owned(&after.masks)),
                         ..Default::default()
                     },
                 });
             }
             // A shape's width or height, from its side grips.
-            if after.shape != before.shape
-                && let Some(shape) = after.shape.clone()
+            if let Some(shape) = doc_view::shape(after)
+                && doc_view::shape(before) != Some(shape)
             {
                 commands.push(Command::UpdateClip {
-                    clip_id: id.clone(),
-                    patch: ClipPatch {
-                        shape: Some(shape),
+                    item,
+                    patch: ItemPatch {
+                        shape: Some(shape.clone()),
                         ..Default::default()
                     },
                 });
             }
-            // A title's wrap width, from its side grips.
-            if after.text != before.text {
+            // A title's wrap width or box height, from its grips.
+            if let Some(text) = doc_view::title(after)
+                && doc_view::title(before) != Some(text)
+            {
                 commands.push(Command::UpdateClip {
-                    clip_id: id,
-                    patch: ClipPatch {
-                        text: Some(after.text.clone()),
+                    item,
+                    patch: ItemPatch {
+                        title: Some(text.clone()),
                         ..Default::default()
                     },
                 });

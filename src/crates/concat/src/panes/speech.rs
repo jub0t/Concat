@@ -21,11 +21,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use concat_core::Halt;
+use concat_doc::commands::{Command, ItemPatch};
+use concat_doc::model::{ItemId, Media, MediaId, MediaOrigin};
 use concat_host::media::{self, MediaSummary};
 use concat_host::voices::{self, Heard, SavedVoice};
-use concat_project::Command;
-use concat_project::commands::ClipPatch;
-use concat_project::model::{AppliedFilter, ClipKind, MediaItem, MediaOrigin};
+
+use crate::doc_view::{self, Kind};
 use concat_speech::JobStage;
 use concat_speech::tts::{
     CHATTERBOX_CLONE, Family, Reference, VoiceInfo, family_of, is_clone, voice_family,
@@ -99,6 +100,11 @@ pub enum VoiceChoice {
     Saved(String),
     /// A style, by its row of [`STYLES`].
     Style(usize),
+}
+
+/// How long a recording runs, in seconds; nothing when its file did not say.
+fn length_of(media: &Media) -> f64 {
+    media.length.map_or(0.0, doc_view::len_secs)
 }
 
 /// Seconds a model takes to read one second of speech, before a read with
@@ -306,11 +312,11 @@ impl SpeechPane {
             // asked for again: closing it never stopped the reading.
             SpeechMsg::Open if self.running => self.open = true,
             SpeechMsg::Open => {
-                let title = studio
-                    .sole_selection()
-                    .and_then(|id| studio.clip(&id))
-                    .filter(|clip| clip.kind == ClipKind::Text)
-                    .cloned();
+                let title = studio.sole_selection().and_then(|id| {
+                    let clip = studio.clip(&id)?;
+                    let words = doc_view::title(clip)?.content.clone();
+                    Some((id, words))
+                });
                 let installed = installed(&studio.settings.voices);
                 let model = installed.iter().position(|model| model.active).unwrap_or(0);
                 let family = installed
@@ -319,10 +325,8 @@ impl SpeechPane {
                     .unwrap_or_default();
                 *self = SpeechPane {
                     open: true,
-                    clip: title.as_ref().map(|clip| clip.id.clone()),
-                    text: title
-                        .and_then(|clip| clip.text.map(|text| text.content))
-                        .unwrap_or_default(),
+                    clip: title.as_ref().map(|(id, _)| id.clone()),
+                    text: title.map(|(_, words)| words).unwrap_or_default(),
                     voice: 0,
                     model,
                     family,
@@ -516,39 +520,36 @@ impl SpeechPane {
                     Ok(summary) => {
                         // Marked as read aloud: the bin shelves it under
                         // Generated › Speech, apart from the imports.
-                        let mut item = summary.to_new_media();
-                        item.origin = Some(MediaOrigin::Speech);
-                        let created = studio.apply(Command::AddMedia { item });
-                        let media_id = created.or_else(|| {
-                            studio
-                                .project()
-                                .media
-                                .iter()
-                                .find(|item| item.path == summary.path)
-                                .map(|item| item.id.clone())
+                        let mut media = summary.to_new_media();
+                        media.origin = Some(MediaOrigin::Speech);
+                        let created = studio.apply(Command::AddMedia { media });
+                        let media_id = created.and_then(|id| id.typed::<MediaId>()).or_else(|| {
+                            doc_view::media_at_path(studio.committed(), &summary.path)
+                                .map(|(id, _)| id)
                         });
                         self.open = false;
-                        if let Some(media_id) = media_id {
+                        if let Some(media) = media_id {
                             let clip = studio.apply(Command::AddClipAtFirstFree {
-                                media_id,
-                                start: self.landing,
+                                media,
+                                start: doc_view::tick(self.landing),
                             });
                             // In a style: its effects on the clip, as the
                             // library would put them there.
-                            if let (Some(clip_id), Some(style)) =
-                                (clip, self.style.and_then(|row| STYLES.get(row)))
-                            {
+                            if let (Some(item), Some(style)) = (
+                                clip.and_then(|id| id.typed::<ItemId>()),
+                                self.style.and_then(|row| STYLES.get(row)),
+                            ) {
                                 studio.apply(Command::UpdateClip {
-                                    clip_id,
-                                    patch: ClipPatch {
+                                    item,
+                                    patch: ItemPatch {
                                         filters: Some(
                                             style
                                                 .effects
                                                 .iter()
-                                                .map(|id| AppliedFilter::new(*id))
+                                                .map(|id| doc_view::new_effect(id))
                                                 .collect(),
                                         ),
-                                        ..ClipPatch::default()
+                                        ..ItemPatch::default()
                                     },
                                 });
                             }
@@ -613,7 +614,7 @@ impl SpeechPane {
                 self.message = t("speech.pickSampleVoice");
                 return;
             };
-            let start = self.reference_offset(sample.duration.unwrap_or(0.0));
+            let start = self.reference_offset(length_of(&sample));
             (
                 voice,
                 Some(Reference {
@@ -645,7 +646,7 @@ impl SpeechPane {
             .clip
             .as_ref()
             .and_then(|id| studio.clip(id))
-            .map(|clip| clip.start)
+            .map(doc_view::start_s)
             .unwrap_or(f64::from(studio.playhead));
         // The read as the bar lays it out: the model loaded unless it
         // still is, the recording the voice comes from read in (the
@@ -753,18 +754,17 @@ impl SpeechPane {
 
     /// The recordings a voice can be taken from: everything in the bin with
     /// sound in it, in the bin's order.
-    pub fn samples<'a>(&self, studio: &'a Studio) -> Vec<&'a MediaItem> {
-        studio
-            .project()
-            .media
-            .iter()
-            .filter(|item| item.has_audio)
+    pub fn samples<'a>(&self, studio: &'a Studio) -> Vec<(MediaId, &'a Media)> {
+        doc_view::bin(studio.committed())
+            .filter(|(_, item)| item.has_sound)
             .collect()
     }
 
     /// The chosen sample.
-    fn sample_media<'a>(&self, studio: &'a Studio) -> Option<&'a MediaItem> {
-        self.samples(studio).get(self.sample).copied()
+    fn sample_media<'a>(&self, studio: &'a Studio) -> Option<&'a Media> {
+        self.samples(studio)
+            .get(self.sample)
+            .map(|(_, media)| *media)
     }
 
     /// The row to open the sample list on: the selected clip's recording,
@@ -773,12 +773,9 @@ impl SpeechPane {
         studio
             .sole_selection()
             .and_then(|id| studio.clip(&id))
-            .filter(|clip| clip.kind == ClipKind::Video || clip.kind == ClipKind::Audio)
-            .and_then(|clip| {
-                self.samples(studio)
-                    .iter()
-                    .position(|item| item.id == clip.media_id)
-            })
+            .filter(|clip| matches!(studio.kind(clip), Kind::Video | Kind::Audio))
+            .and_then(doc_view::media_id)
+            .and_then(|media| self.samples(studio).iter().position(|(id, _)| *id == media))
             .unwrap_or(0)
     }
 
@@ -917,7 +914,7 @@ impl SpeechPane {
     pub fn sample_rows(&self, studio: &Studio) -> Vec<SharedString> {
         self.samples(studio)
             .iter()
-            .map(|item| item.name.as_str().into())
+            .map(|(_, item)| item.name.as_str().into())
             .collect()
     }
 
@@ -927,16 +924,10 @@ impl SpeechPane {
     pub fn sample_wave_rows(&self, studio: &Studio) -> Vec<SharedString> {
         self.samples(studio)
             .iter()
-            .map(|item| match studio.peaks.get(&item.id) {
-                Some(peaks) => wave_path(
-                    peaks,
-                    0.0,
-                    item.duration.unwrap_or(0.0) as f32,
-                    64,
-                    0.75,
-                    WAVE_FLOOR,
-                )
-                .into(),
+            .map(|(id, item)| match studio.peaks.get(&id.to_string()) {
+                Some(peaks) => {
+                    wave_path(peaks, 0.0, length_of(item) as f32, 64, 0.75, WAVE_FLOOR).into()
+                }
                 None => SharedString::new(),
             })
             .collect()
@@ -946,8 +937,8 @@ impl SpeechPane {
     pub fn sample_detail_rows(&self, studio: &Studio) -> Vec<SharedString> {
         self.samples(studio)
             .iter()
-            .map(|item| {
-                let whole = item.duration.unwrap_or(0.0).round() as i64;
+            .map(|(_, item)| {
+                let whole = length_of(item).round() as i64;
                 format!("{}:{:02}", whole / 60, whole % 60).into()
             })
             .collect()
@@ -956,7 +947,7 @@ impl SpeechPane {
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> SpeechSheetData {
         let sample = self.sample_media(studio);
-        let length = sample.and_then(|item| item.duration).unwrap_or(0.0);
+        let length = sample.map_or(0.0, length_of);
         let named = self.offered().len();
         SpeechSheetData {
             // The sheet, which is up only while the dock is not showing the
@@ -1119,7 +1110,7 @@ impl SpeechPane {
             self.message = t("speech.pickSampleVoice");
             return;
         };
-        let start = self.reference_offset(sample.duration.unwrap_or(0.0));
+        let start = self.reference_offset(length_of(&sample));
         let picture = self.save_picture.clone();
         let dir = voices::dir_in(&studio.host.dirs);
         self.saving = true;

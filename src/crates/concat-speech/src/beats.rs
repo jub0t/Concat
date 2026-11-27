@@ -54,10 +54,10 @@ const F_MAX: f64 = 11_000.0;
 /// frames, a third of it at 750 - and from 750 frames (15 s) up the beats
 /// it finds are as good as at 1500 on every groove tried, where 300 frames
 /// (6 s) loses a tenth of them. A phone listens in the shorter windows.
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 pub const CHUNK: usize = 750;
 /// Frames a window of listening holds on a computer: 30 s.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "android"))]
 pub const CHUNK: usize = 1500;
 /// Frames each side of a window that are listened to but not kept.
 pub const BORDER: usize = 6;

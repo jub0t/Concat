@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+format = 2
+
+[effect]
+id = "concat.doors"
+name = "Doors"
+kind = "transition"
+category = "Slide"
+order = 20
+description = "The last shot splits down the middle and both halves slide away, opening onto the next one - or the next shot closes in from both sides."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+values = [0, 1, 2, 3]
+labels = ["Open Sideways", "Open Up and Down", "Close Sideways", "Close Up and Down"]
+default = 0
+min = 0
+max = 3
+
+[transition]
+entry = "effect.wgsl"
+xfade = "vertopen"
+fallback = "cross-fade"

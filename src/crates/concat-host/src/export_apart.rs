@@ -9,11 +9,14 @@
 //! the window's process, any of them crashing took the editor with it, and
 //! Direct3D 12 gives a process one device per adapter, so the export losing
 //! its device was the preview losing its own (#824, #868). In a worker it
-//! has a device of its own; a worker that dies costs the export one try,
-//! drawn again on the CPU ([`concat_worker::Policy::default`]), and the
-//! window goes on answering throughout.
+//! has a device of its own; a worker that dies in the graphics driver, or
+//! hangs, costs the export one try, drawn again on the CPU
+//! ([`concat_worker::Policy::default`]); one that dies anywhere else fails
+//! the export there and then, saying how (#762). The window goes on
+//! answering throughout.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
@@ -29,8 +32,8 @@ pub struct Export;
 /// Everything an export needs from the window.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Order {
-    /// A copy of the edit as it is now, saved or not.
-    pub project: concat_project::model::Project,
+    /// A copy of the edit as it is now, saved or not, as its file's text.
+    pub project: String,
     /// The project's folder, which its media's paths are relative to.
     pub project_dir: PathBuf,
     /// The file to write.
@@ -110,7 +113,7 @@ impl Order {
     /// `project`, at its own frame and rate.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        project: concat_project::model::Project,
+        project: &concat_doc::Document<concat_doc::model::Model>,
         project_dir: PathBuf,
         spec: &ExportSpec,
         width: u32,
@@ -119,7 +122,7 @@ impl Order {
         rate_den: i64,
     ) -> Order {
         Order {
-            project,
+            project: concat_doc::file::write(project),
             project_dir,
             output: spec.output.clone(),
             crf: spec.crf,
@@ -141,6 +144,13 @@ impl Order {
                 .map(|package| package.id().to_owned())
                 .collect(),
         }
+    }
+
+    /// The edit, read back.
+    fn document(&self) -> Result<concat_doc::Document<concat_doc::model::Model>, String> {
+        concat_doc::file::read(self.project.as_bytes())
+            .map(|opened| opened.document)
+            .map_err(|error| format!("the edit did not read back: {error}"))
     }
 
     /// The spec the window started from, read back.
@@ -174,41 +184,43 @@ impl concat_worker::Job for Export {
     /// titles painted at the export's frame, the edit flattened, and the
     /// render on a device this process opens.
     fn run(order: Order, context: &Context<Step>) -> Result<String, Halt> {
-        // For the smoke run that proves a worker's death costs one try and
-        // not the export: the first worker dies as a driver's crash would
-        // kill it, and the second, drawing on the CPU, is let live.
-        if std::env::var_os("CONCAT_TEST_EXPORT_WORKER_ABORT").is_some()
-            && !std::env::var("CONCAT_GPU").is_ok_and(|gpu| gpu == "software")
-        {
+        // For the runs that prove how a worker's death is taken. Set to
+        // `elsewhere`, every worker dies as a crash outside the driver
+        // does - the heap's own check, an abort - with no crash line, and
+        // the export fails at once, its caller told (#762). Set to anything
+        // else, the first worker dies as a crash in the driver kills it -
+        // the crash handler's line naming the driver's module, then the
+        // abort - and the second, drawing on the CPU, is let live.
+        let abort = std::env::var("CONCAT_TEST_EXPORT_WORKER_ABORT").ok();
+        if abort.as_deref() == Some("elsewhere") {
+            log::warn!("export: CONCAT_TEST_EXPORT_WORKER_ABORT=elsewhere; this worker aborts");
+            std::process::abort();
+        }
+        if abort.is_some() && !std::env::var("CONCAT_GPU").is_ok_and(|gpu| gpu == "software") {
             log::warn!("export: CONCAT_TEST_EXPORT_WORKER_ABORT is set; this worker aborts");
+            eprintln!(
+                "FATAL [main] crash: 0xC0000005 EXCEPTION_ACCESS_VIOLATION, reading 0x0, \
+                 in nvwgf2umx.dll+0x0 (CONCAT_TEST_EXPORT_WORKER_ABORT)"
+            );
             std::process::abort();
         }
         for (encoder, opened) in &order.encoders {
             concat_media::encode::assume_encoder(encoder, *opened);
         }
-        let spec = order.spec().map_err(Halt::Failed)?;
         let dirs = crate::dirs::AppDirs::locate().map_err(Halt::Failed)?;
         install_packages(&dirs.effects(), &order.packages);
-        let titles = crate::titles::Titles::new(&dirs);
-        let cancel = context.cancel_flag();
-        let Some(titles) = titles.clips_unless(&order.project, order.width, order.height, cancel)
-        else {
-            return Err(Halt::Cancelled);
-        };
-        let titles = titles.into_iter().map(|title| title.clip).collect();
-        let mut request =
-            crate::export::request_for(&order.project, &order.project_dir, &spec, titles);
-        request.width = order.width;
-        request.height = order.height;
-        request.rate_num = order.rate_num;
-        request.rate_den = order.rate_den;
-        crate::export::run_on(&request, None, cancel, |progress| {
-            context.progress(&Step {
-                frame: progress.frame,
-                total: progress.total,
-                stage: progress.stage.to_owned(),
-            });
-        })
+        render(
+            &order,
+            &dirs,
+            context.cancel_flag(),
+            &mut |progress: Progress| {
+                context.progress(&Step {
+                    frame: progress.frame,
+                    total: progress.total,
+                    stage: progress.stage.to_owned(),
+                });
+            },
+        )
     }
 
     /// Every frame drawn says so; the sound's mix and the mux say so only
@@ -219,6 +231,30 @@ impl concat_worker::Job for Export {
             _ => Duration::from_secs(5 * 60),
         }
     }
+}
+
+/// The export `order` asks for, drawn in this process: its titles painted
+/// at the export's frame, the edit flattened, and the render on a device
+/// this process opens.
+fn render(
+    order: &Order,
+    dirs: &crate::dirs::AppDirs,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<String, Halt> {
+    let spec = order.spec().map_err(Halt::Failed)?;
+    let document = order.document().map_err(Halt::Failed)?;
+    let titles = crate::titles::Titles::new(dirs);
+    let Some(titles) = titles.clips_unless(&document, order.width, order.height, cancel) else {
+        return Err(Halt::Cancelled);
+    };
+    let titles = titles.into_iter().map(|title| title.clip).collect();
+    let mut request = crate::export::request_for(&document, &order.project_dir, &spec, titles);
+    request.width = order.width;
+    request.height = order.height;
+    request.rate_num = order.rate_num;
+    request.rate_den = order.rate_den;
+    crate::export::run_on(&request, None, cancel, progress)
 }
 
 /// Loads the imported packages in `dir` that the window holds, `kept`,
@@ -248,9 +284,45 @@ fn install_packages(dir: &Path, kept: &[String]) {
     }
 }
 
+/// The program this process runs export workers of, once its `main` has
+/// said it serves them: see [`serve_from`].
+static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
+
+/// Says that `program` - this process's own executable - serves [`Export`]
+/// workers, so every export started here, the API's as well as the
+/// window's, runs in one and a crash in it costs the export, not the
+/// process: before, an API export that crashed took the CLI or the window
+/// with it, and its caller heard no `export.failed`, only the process
+/// gone (#762). A program that never says so - a test binary - exports in
+/// its own process.
+pub fn serve_from(program: PathBuf) {
+    let _ = PROGRAM.set(program);
+}
+
+/// The program [`serve_from`] named, unless `CONCAT_EXPORT_IN_PROCESS` is
+/// set, which keeps every export in this process for a debugger.
+pub fn program() -> Option<&'static Path> {
+    if std::env::var_os("CONCAT_EXPORT_IN_PROCESS").is_some() {
+        return None;
+    }
+    PROGRAM.get().map(PathBuf::as_path)
+}
+
+/// `order` drawn in this process, on the calling thread: for where no
+/// worker could be started. The process's own encoders and packages are
+/// already what the order names.
+pub fn run_here(
+    order: &Order,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<String, Halt> {
+    let dirs = crate::dirs::AppDirs::locate().map_err(Halt::Failed)?;
+    render(order, &dirs, cancel, progress)
+}
+
 /// The window's side: runs `order` in a worker of `program`, then once
-/// more drawing on the CPU if that worker died, and hands back how it
-/// went. `None` when no worker could be started at all, and the window
+/// more drawing on the CPU if that worker died in the graphics driver, and
+/// hands back how it went. `None` when no worker could be started at all, and the window
 /// renders in its own process, as before.
 pub fn run(
     program: &Path,
@@ -318,7 +390,7 @@ mod tests {
             hdr: false,
         };
         let order = Order::new(
-            concat_project::model::Project::default(),
+            &concat_doc::Document::new(),
             PathBuf::from("."),
             &spec,
             1920,
@@ -362,7 +434,7 @@ mod tests {
             hdr: true,
         };
         let order = Order::new(
-            concat_project::model::Project::new(),
+            &concat_doc::Document::new(),
             PathBuf::from("project"),
             &spec,
             1920,

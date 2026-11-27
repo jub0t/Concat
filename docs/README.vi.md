@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Giới thiệu
 
-Concat là trình biên tập video miễn phí, mã nguồn mở cho macOS, Windows, Linux, Android và iOS. Nó có những gì phần lớn các bản dựng cần: phụ đề tự động, tách giọng, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh và keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.
+Concat là trình biên tập video miễn phí, mã nguồn mở cho macOS, Windows, Linux và Android. Nó có những gì phần lớn các bản dựng cần: phụ đề tự động, tách giọng, chuyển văn bản thành giọng nói, xóa nền, hoạt ảnh và keyframe, hiệu ứng và tiêu đề, cắt nhiều track, xuất 4K. Không có bất kỳ ràng buộc nào: không watermark, không tài khoản, không đăng ký, không tải lên.
 
 Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp GPU. Cài đặt, kéo thả footage, cắt. Các mô hình AI cho phụ đề, giọng nói và tách nền tải một lần từ Cài đặt và sau đó hoạt động ngoại tuyến. Footage của bạn không bao giờ rời khỏi ổ đĩa của bạn.
 
@@ -72,8 +72,8 @@ Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp 
 - 📤 **Xuất.** H.264, HEVC, AV1, bằng bộ mã hóa riêng của máy tính. Tới 4K 60, màu 10-bit.
 - ⚡ **Nhanh.** Có sẵn proxy, nên 4K tua mượt. Tiêu đề được vẽ trên mọi nhân CPU, và mọi hiệu ứng sẵn sàng ngay khi cửa sổ mở.
 - 🛟 **Chạy tiếp trên mọi máy.** Khi chip đồ họa bỏ cuộc, bản xem trước vẫn tiếp tục vẽ.
-- 🤖 **Có thể lập trình.** API JSON-RPC để script và các tác nhân AI cắt video. Bản dựng từ mã nguồn có thêm gRPC và công cụ dòng lệnh.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
+- 🤖 **Có thể lập trình.** API JSON-RPC để script và các tác nhân AI cắt video. Bản dựng từ mã nguồn có thêm công cụ dòng lệnh.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
 
 ## Tải về
 
@@ -90,7 +90,6 @@ Concat đang ở giai đoạn **beta**: nó hoạt động, và vẫn còn vài 
 - ✅ **macOS** · Intel và Apple Silicon. Nếu macOS từ chối mở bản dựng chưa ký: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 và ARM. `.deb`, `.rpm`, `.AppImage` và gói Arch. Ngoài ra còn Flatpak trên **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, một kho Flatpak cộng đồng đóng gói `.deb` x86_64 của mỗi bản phát hành và cập nhật theo nó
 - ✅ **Android** · điện thoại và máy tính bảng
-- ✅ **iOS / iPadOS** · iPhone và iPad, qua sideload
 
 ✅ Được hỗ trợ · 🚧 Đang thực hiện · 🧪 Cần kiểm thử
 
@@ -103,7 +102,7 @@ Concat đang ở giai đoạn **beta**: nó hoạt động, và vẫn còn vài 
 > [!IMPORTANT]
 > Cách đóng góp tốt nhất là lấy một bản dựng từ trang [Releases](https://github.com/jub0t/Concat/releases) và dùng nó: tìm chỗ nó hỏng, và nói chỗ nó có thể tốt hơn.
 >
-> Sẵn sàng viết mã? [CONTRIBUTING.md](../CONTRIBUTING.md) mô tả cách thiết lập, bố cục cây mã nguồn, các kiểm tra cần chạy và cách cấp phép cho đóng góp. Điều khiển Concat từ script, dịch vụ hay tác nhân? [Tài liệu dành cho nhà phát triển](https://concat.standalones.org/docs) mô tả API của Concat và các phương thức truyền tải: JSON-RPC và gRPC. [Thảo luận này](https://github.com/jub0t/Concat/discussions/3) là nơi dự án được công bố.
+> Sẵn sàng viết mã? [CONTRIBUTING.md](../CONTRIBUTING.md) mô tả cách thiết lập, bố cục cây mã nguồn, các kiểm tra cần chạy và cách cấp phép cho đóng góp. Điều khiển Concat từ script, dịch vụ hay tác nhân? [Tài liệu dành cho nhà phát triển](https://concat.standalones.org/docs) mô tả API của Concat và phương thức truyền tải: JSON-RPC. [Thảo luận này](https://github.com/jub0t/Concat/discussions/3) là nơi dự án được công bố.
 > 
 > Người đóng góp có thể nhận vai trò `@Contributor` trên máy chủ Discord: chỉ cần hỏi.
 

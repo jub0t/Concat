@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.12"
+version = "0.2.13"
 edition = "2024"
 rust-version = "1.93"
 license = "AGPL-3.0-or-later"
@@ -12,7 +12,6 @@ license = "AGPL-3.0-or-later"
 concat-core = { path = "crates/concat-core" }
 concat-media = { path = "crates/concat-media" }
 concat-stretch = { path = "crates/concat-stretch" }
-concat-project = { path = "crates/concat-project" }
 concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
 concat-host = { path = "crates/concat-host" }
@@ -27,6 +26,7 @@ concat-log = { path = "crates/concat-log" }
 concat-sched = { path = "crates/concat-sched" }
 concat-worker = { path = "crates/concat-worker" }
 concat-doc = { path = "crates/concat-doc" }
+concat-import = { path = "crates/concat-import" }
 concat = { path = "crates/concat" }
 
 # float_roundtrip: every number a save writes is read back as the same
@@ -37,9 +37,9 @@ concat = { path = "crates/concat" }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 clap = { version = "4", features = ["derive", "env"] }
-# JSON Schemas for the API's request types, behind the `schema` features of
-# concat-project and concat-api: what concat-mcp hands an agent as each
-# tool's input schema, generated from the types so it cannot drift.
+# JSON Schemas for the API's request types, behind concat-api's `schema`
+# feature: what concat-mcp hands an agent as each tool's input schema,
+# generated from the types so it cannot drift.
 schemars = "1"
 
 # The GPU compositor, behind concat-render's `gpu` feature. A heavy tree, which
@@ -52,7 +52,7 @@ pollster = "0.4"
 
 # ONNX Runtime, for the cutout models. The binaries come prebuilt for every
 # target the app ships on, with the platform's own accelerator behind them:
-# CoreML on macOS and iOS, DirectML on Windows, NNAPI on Android.
+# CoreML on macOS, DirectML on Windows, NNAPI on Android.
 #
 # ort's default features less the API version, which is not one for every
 # target: the ONNX Runtime an Intel Mac gets is older than the others, and
@@ -74,8 +74,8 @@ codegen-units = 1
 
 # The window's crate, split for the compiler. Its Slint code expands to
 # about 970,000 lines of Rust (81,000 functions, 86 MB), and as one unit
-# that is compiled on one core: 74 of the 76 minutes of CI's iOS build,
-# and growing with every screen. In units it is compiled on every core,
+# that is compiled on one core: most of a release build's time, and
+# growing with every screen. In units it is compiled on every core,
 # and thin LTO still inlines across them. The engine crates, where the
 # frame time is spent, stay one unit each. The app profile's fat LTO
 # merges the units back into one module before optimising.

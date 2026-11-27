@@ -237,7 +237,7 @@ impl Studio {
             return;
         };
         let document = session.document();
-        let settings = session.settings();
+        let settings = session.frame();
         let path = session.path().to_owned();
         let name = format!("{} template", self.project_name);
         let config = self.host.dirs.config.clone();

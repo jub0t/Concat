@@ -3,8 +3,11 @@
 
 //! The project sheet: the Details panel's Modify button, as a form.
 
-use concat_project::Command;
-use concat_project::model::ColorSpace;
+use std::num::NonZeroU32;
+
+use concat_doc::Rate;
+use concat_doc::commands::Command;
+use concat_doc::model::{Color, ColorSpace, Frame};
 use slint::SharedString;
 
 use crate::studio::{OUTPUTS, RATES, Studio, custom_frame, custom_rate, fps_of};
@@ -60,8 +63,9 @@ impl ProjectPane {
             ProjectMsg::Open => {
                 // The project and its active timeline as they stand.
                 let (width, height) = studio.output_size();
-                let video = studio.project().active().video;
-                let (num, den) = (video.rate_num, video.rate_den);
+                let frame = crate::doc_view::sequence(studio.doc())
+                    .map_or_else(Frame::hd, |sequence| sequence.frame.clone());
+                let (num, den) = (i64::from(frame.rate.num()), i64::from(frame.rate.den()));
                 // A frame or a rate the lists do not carry opens as Custom
                 // with the project's own numbers, exact: an Apply that only
                 // renamed the project must not move its rate to the nearest
@@ -79,8 +83,13 @@ impl ProjectPane {
                         .unwrap_or(RATES.len()),
                     custom_size: (width, height),
                     custom_rate: (num, den),
-                    color_space: video.color_space,
-                    canvas: video.canvas,
+                    color_space: frame.color.clone(),
+                    canvas: [
+                        frame.canvas.r,
+                        frame.canvas.g,
+                        frame.canvas.b,
+                        frame.canvas.a,
+                    ],
                 };
             }
             ProjectMsg::Close => self.open = false,
@@ -108,7 +117,7 @@ impl ProjectPane {
             ProjectMsg::CustomFps(fps) => self.custom_rate = custom_rate(f64::from(fps)),
             ProjectMsg::ColorSpaceChanged(index) => {
                 self.color_space =
-                    COLOR_SPACES[(index.max(0) as usize).min(COLOR_SPACES.len() - 1)];
+                    COLOR_SPACES[(index.max(0) as usize).min(COLOR_SPACES.len() - 1)].clone();
             }
             ProjectMsg::CanvasChanged(canvas) => self.canvas = canvas,
             ProjectMsg::Apply => self.apply(studio),
@@ -124,22 +133,31 @@ impl ProjectPane {
         let name = sheet.name.trim().to_owned();
         let (width, height) = sheet.frame();
         let (num, den) = sheet.rate();
+        let Some(sequence) = crate::doc_view::showing(studio.doc()) else {
+            return;
+        };
         let Some(session) = studio.session.as_mut() else {
             return;
         };
-        let mut video = session.video();
-        video.width = width;
-        video.height = height;
-        video.rate_num = num;
-        video.rate_den = den;
-        video.color_space = sheet.color_space;
-        video.canvas = sheet.canvas;
+        let mut frame = session.frame();
+        let side = |value: u32| NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN);
+        frame.width = side(width);
+        frame.height = side(height);
+        if let (Ok(num), Ok(den)) = (u32::try_from(num), u32::try_from(den))
+            && let Ok(rate) = Rate::new(num, den)
+        {
+            frame.rate = rate;
+        }
+        frame.color = sheet.color_space.clone();
+        let [r, g, b, a] = sheet.canvas;
+        frame.canvas = Color { r, g, b, a };
+        // The name is the manifest's, not the document's: it is taken with
+        // the next save.
         session.prepare_save((!name.is_empty()).then_some(name.as_str()));
         if !name.is_empty() {
             studio.project_name = name;
         }
-        let timeline_id = studio.project().active_timeline_id.clone();
-        studio.apply(Command::SetTimelineVideo { timeline_id, video });
+        studio.apply(Command::SetTimelineVideo { sequence, frame });
         studio.request_preview();
     }
 
@@ -173,7 +191,10 @@ impl ProjectPane {
             open: self.open,
             name: self.name.as_str().into(),
             folder,
-            timeline: studio.timeline().name.as_str().into(),
+            timeline: crate::doc_view::sequence(studio.doc())
+                .map(|sequence| sequence.name.as_str())
+                .unwrap_or_default()
+                .into(),
             size: self.size as i32,
             rate: self.rate as i32,
             custom_width: width as f32,

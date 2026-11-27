@@ -30,9 +30,12 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+use concat_doc::commands::Command;
+use concat_doc::model::{ItemId, LaneId, MediaId};
 use concat_host::media;
 use concat_host::record::{self, Microphone};
-use concat_project::Command;
+
+use crate::doc_view;
 use slint::ComponentHandle;
 
 use crate::host::{on_ui, spawn_in_project};
@@ -204,7 +207,7 @@ struct Running {
 
 /// The take that landed last, for Retake.
 struct Last {
-    media_id: String,
+    media_id: MediaId,
     start: f64,
 }
 
@@ -413,13 +416,10 @@ impl VoiceoverPane {
         match self.phase {
             Phase::Recording | Phase::Paused => true,
             Phase::Counting(_) => false,
-            Phase::Ready => self.last.as_ref().is_some_and(|last| {
-                studio
-                    .project()
-                    .media
-                    .iter()
-                    .any(|item| item.id == last.media_id)
-            }),
+            Phase::Ready => self
+                .last
+                .as_ref()
+                .is_some_and(|last| studio.committed().media.contains(last.media_id)),
         }
     }
 
@@ -439,22 +439,6 @@ impl VoiceoverPane {
         self.meter = None;
         self.opened = None;
         self.error = None;
-        // An iPhone records only with its audio session set to play and
-        // record together; left as it is, the microphone hands over
-        // silence. Set before the device opens, and a failure said
-        // plainly rather than a take of nothing.
-        #[cfg(target_os = "ios")]
-        if let Err(error) = crate::ios::record_alongside_playback() {
-            log::warn!(
-                "voice: wanted the audio session set to record a voiceover and it would not be: {error}; nothing is recorded"
-            );
-            self.error = Some(tf("voiceover.failed", &[&error]));
-            return;
-        }
-        if !crate::platform::microphone_allowed() {
-            self.error = Some(t("voiceover.permission"));
-            return;
-        }
         self.opening = self.opening.wrapping_add(1);
         self.waiting = true;
         let token = self.opening;
@@ -746,7 +730,7 @@ impl VoiceoverPane {
                     return;
                 };
                 studio.apply(Command::RemoveMedia {
-                    media_id: last.media_id,
+                    media: last.media_id,
                 });
                 last.start
             }
@@ -769,44 +753,45 @@ impl VoiceoverPane {
         // The user's own media, like an import: shelved under Audio, not
         // under Generated.
         let created = studio.apply(Command::AddMedia {
-            item: summary.to_new_media(),
+            media: summary.to_new_media(),
         });
-        let Some(media_id) = created.or_else(|| {
-            studio
-                .project()
-                .media
-                .iter()
-                .find(|item| item.path == summary.path)
-                .map(|item| item.id.clone())
+        let Some(media_id) = created.and_then(|id| id.typed::<MediaId>()).or_else(|| {
+            doc_view::media_at_path(studio.committed(), &summary.path).map(|(id, _)| id)
         }) else {
             return;
         };
+        let landing = doc_view::tick(landed.take.landing);
         // The lane the last take went on, when it is free over this one.
-        let lane = self.lane.clone().filter(|lane| {
-            let timeline = studio.project().active();
-            timeline.tracks.iter().any(|track| track.id == *lane)
-                && timeline.is_free(lane, landed.take.landing, landed.take.seconds, &[])
-        });
+        let lane = self
+            .lane
+            .as_deref()
+            .and_then(doc_view::parse::<LaneId>)
+            .filter(|lane| {
+                let doc = studio.committed();
+                doc_view::lanes(doc).contains(lane)
+                    && doc_view::is_free(
+                        doc,
+                        *lane,
+                        landing,
+                        doc_view::len(landed.take.seconds),
+                        &[],
+                    )
+            });
         let clip = match lane {
-            Some(track_id) => studio.apply(Command::AddClip {
-                media_id: media_id.clone(),
-                track_id,
-                start: landed.take.landing,
+            Some(lane) => studio.apply(Command::AddClip {
+                media: media_id,
+                lane,
+                start: landing,
                 ripple: false,
             }),
             None => studio.apply(Command::AddClipAtFirstFree {
-                media_id: media_id.clone(),
-                start: landed.take.landing,
+                media: media_id,
+                start: landing,
             }),
         };
-        if let Some(clip) = clip {
-            self.lane = studio
-                .project()
-                .active()
-                .clips
-                .iter()
-                .find(|placed| placed.id == clip)
-                .map(|placed| placed.track_id.clone());
+        if let Some(clip) = clip.and_then(|id| id.typed::<ItemId>()) {
+            self.lane =
+                doc_view::item(studio.committed(), clip).map(|placed| placed.lane.to_string());
             self.last = Some(Last {
                 media_id,
                 start: landed.take.start,
@@ -882,11 +867,8 @@ pub fn recover_lost_takes(studio: &Studio, saved: Option<SystemTime>) {
         return;
     };
     let audio = Path::new(session.path()).join("audio");
-    let media: Vec<String> = studio
-        .project()
-        .media
-        .iter()
-        .map(|item| item.path.clone())
+    let media: Vec<String> = doc_view::bin(studio.committed())
+        .map(|(_, item)| item.path.clone())
         .collect();
     spawn_in_project(
         move || {
@@ -927,7 +909,7 @@ pub fn recover_lost_takes(studio: &Studio, saved: Option<SystemTime>) {
                 let name = crate::studio::file_name_of(&summary.path);
                 if studio
                     .apply(Command::AddMedia {
-                        item: summary.to_new_media(),
+                        media: summary.to_new_media(),
                     })
                     .is_some()
                 {

@@ -20,18 +20,17 @@
 //! `export.failed`. A refusal is an [`ApiError`]: a [`ErrorCode`] a program
 //! can branch on and the sentence a person would be shown.
 //!
-//! The edit vocabulary is not redefined here. [`Request::EditApply`] carries
-//! a `concat_project` [`Command`] as it is, so every operation the window
-//! can perform is one an API caller can perform, with the same clamps and
-//! the same refusals, and a new command needs nothing added here.
+//! The edit vocabulary is the document's. [`Request::EditApply`] carries a
+//! [`Command`] as the contract spells it, which `crate::wire` turns into
+//! the document's own command, so every operation the window can perform
+//! is one an API caller can perform, with the same clamps and the same
+//! refusals.
 
+use crate::wire::{Command, ShapeStyle, VideoSettings};
 use concat_host::export::Progress;
 use concat_host::media::MediaSummary;
-use concat_host::session::EditorView;
 use concat_host::templates::TemplateInfo;
 use concat_host::{AppDirs, ProjectInfo};
-use concat_project::Command;
-use concat_project::model::VideoSettings;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -529,6 +528,52 @@ pub struct ExportSpec {
     pub hdr: Option<bool>,
 }
 
+/// The project as it stands after a change: the document in its file's
+/// form, whether there is something to undo or redo, the settings, and
+/// the id a creating command made.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorView {
+    /// The whole document, as its file writes it.
+    pub project: Value,
+    /// Whether there is something to undo.
+    pub can_undo: bool,
+    /// Whether there is something to redo.
+    pub can_redo: bool,
+    /// The project's name and the frame of the timeline showing.
+    pub settings: SettingsView,
+    /// The id a creating command minted, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_id: Option<String>,
+}
+
+impl EditorView {
+    /// The document the view carries, read as its file is read.
+    pub fn document(&self) -> Result<concat_doc::Document<concat_doc::model::Model>, String> {
+        concat_doc::file::read(self.project.to_string().as_bytes())
+            .map(|opened| opened.document)
+            .map_err(|error| error.to_string())
+    }
+}
+
+/// The session's settings, as a caller reads them.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    /// Project name.
+    pub name: String,
+    /// Output width in pixels.
+    pub width: u32,
+    /// Output height in pixels.
+    pub height: u32,
+    /// Frame rate numerator.
+    pub rate_num: i64,
+    /// Frame rate denominator.
+    pub rate_den: i64,
+}
+
 /// What a request hands back. Serialised as the payload alone: the variant
 /// is implied by the method, so a caller that sent `project.get` reads an
 /// editor view and nothing wraps it.
@@ -601,7 +646,7 @@ pub struct ShapeCard {
     /// The card's id, stable: what `ShapeStyle` names as a preset.
     pub id: String,
     /// The look the card places, for `addShapeClip`'s `style`.
-    pub style: concat_project::model::ShapeStyle,
+    pub style: ShapeStyle,
 }
 
 /// A sound's loudness outline: one slice each `1 / per_second` seconds.
@@ -679,8 +724,8 @@ pub struct VersionInfo {
     /// What this build serves, as names a caller tests for membership:
     /// what the API itself provides in every build, `events`, and what
     /// only some builds do, `gpu` when frames composite on one; then what
-    /// the transport around it adds, `json-rpc`, `unix-socket` and `grpc`
-    /// for each of the socket transports listening. A name absent from
+    /// the transport around it adds, `json-rpc` and `unix-socket` for
+    /// each of the socket transports listening. A name absent from
     /// the list is not served, whatever the build; a name added later is
     /// not a version bump, so a caller ignores names it does not know.
     pub capabilities: Vec<String>,

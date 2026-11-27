@@ -6,13 +6,16 @@
 //! extreme sliders, Smooth and Straight, the drawn line, the presets' names,
 //! and the edits a change on the graph lands as.
 
-use concat_project::Command;
-use concat_project::model::{Clip, ClipKind, SpeedPoint};
-use concat_project::speed::is_eased;
+use concat_doc::commands::{Command, speed_from_decimal, speed_graph};
+use concat_doc::model::SpeedPoint;
+use concat_doc::model::{Item, ItemId, MediaKind};
 
+use super::chains::{curve_preview, speed_commands, time_map_mut};
+use crate::doc_view::{self, bench::Bench};
 use crate::speed_ramp::{
-    apply_easing, curve_path, drop_point, extreme_of, height_for, level_curve, move_selected,
-    place_point, preset_by_index, preset_index, preset_labels, speed_at_height, stretch_extreme,
+    apply_easing, curve_path, drop_point, extreme_of, height_for, is_eased, level_curve,
+    move_selected, place_point, preset_by_index, preset_index, preset_labels, speed_at_height,
+    stretch_extreme,
 };
 
 const TIGHT: f64 = 1e-9;
@@ -362,40 +365,155 @@ fn the_presets_are_listed_by_their_english_names() {
     assert_eq!(preset_index(&shaped), -1, "shaped by hand, custom");
 }
 
-fn curved(points: Option<Vec<SpeedPoint>>, speed: f64, duration: f64) -> Clip {
-    let mut clip = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, duration);
-    clip.speed = speed;
-    clip.speed_curve = points;
-    clip
+/// A ten-second video clip on a bench, and its id.
+fn placed() -> (Bench, ItemId) {
+    let mut bench = Bench::new();
+    let media = bench.add_media("clip.mp4", MediaKind::Video, 10.0);
+    let lane = bench.main_lane();
+    let id = bench.add_clip(media, lane, 0.0);
+    (bench, id)
+}
+
+fn item(bench: &Bench, id: ItemId) -> Item {
+    bench
+        .doc()
+        .items
+        .get(id)
+        .expect("the clip")
+        .as_ref()
+        .clone()
+}
+
+/// The clip as the Speed tab previews `curve` on the echo - None for a
+/// constant pace: the time map and the length the document would give it.
+fn previewed(bench: &Bench, id: ItemId, curve: Option<Vec<SpeedPoint>>) -> Item {
+    let (map, len) = curve_preview(&bench.document, id, curve).expect("the document takes it");
+    let mut after = item(bench, id);
+    *time_map_mut(&mut after).expect("a map") = map;
+    after.len = len;
+    after
 }
 
 #[test]
 fn a_change_on_the_graph_lands_as_one_curve_edit() {
-    let before = curved(None, 1.0, 10.0);
-    let after = curved(preset_by_index(1), 1.76, 10.0 / 1.76);
-    let commands = super::clip_edit_commands("c1", &before, &after, true);
-    assert_eq!(commands.len(), 1);
+    let (mut bench, id) = placed();
+    let before = item(&bench, id);
+    let curve = preset_by_index(1).expect("a preset");
+    let after = previewed(&bench, id, Some(curve.clone()));
+    // While it is dragged, the graph shows the points as they are set.
+    assert_eq!(speed_graph(&after), Some(curve.clone()));
+    let command = speed_commands(id, &before, &after, true);
     assert_eq!(
-        commands[0],
-        Command::SetClipSpeedCurve {
-            clip_id: "c1".to_owned(),
-            curve: preset_by_index(1),
+        command,
+        Some(Command::SetClipSpeedCurve {
+            item: id,
+            curve: Some(curve.clone()),
             ripple: true,
-        }
+        })
     );
+    // The command is taken: the clip plays the curve, at the length the
+    // echo showed, and the graph gives back the points as drawn.
+    bench.apply(&command.expect("an edit"));
+    let landed = item(&bench, id);
+    assert_eq!(doc_view::time_map(&landed), doc_view::time_map(&after));
+    assert_eq!(landed.len, after.len);
+    assert_eq!(speed_graph(&landed), Some(curve));
+}
+
+#[test]
+fn each_move_of_a_drag_is_previewed_from_the_clip_as_committed() {
+    let (mut bench, id) = placed();
+    bench.apply(&Command::SetClipSpeedCurve {
+        item: id,
+        curve: preset_by_index(0),
+        ripple: false,
+    });
+    let hero = preset_by_index(1).expect("a preset");
+    let once = previewed(&bench, id, Some(hero.clone()));
+    let again = previewed(&bench, id, Some(hero));
+    assert_eq!(once, again);
+}
+
+#[test]
+fn curve_mode_on_a_constant_clip_lands_as_a_curve_though_the_pace_is_the_same() {
+    for rate in [1.0, 2.0] {
+        let (mut bench, id) = placed();
+        if rate != 1.0 {
+            bench.apply(&Command::SetClipSpeed {
+                item: id,
+                speed: speed_from_decimal(rate).expect("a pace"),
+                ripple: false,
+            });
+        }
+        let before = item(&bench, id);
+        assert_eq!(speed_graph(&before), None, "a constant pace has no curve");
+        // Curve, level at the clip's own pace: nothing changes on screen.
+        let level = level_curve(rate);
+        let after = previewed(&bench, id, Some(level.clone()));
+        assert_eq!(after.len, before.len, "at {rate}x");
+        let command = speed_commands(id, &before, &after, false);
+        assert!(
+            matches!(
+                command,
+                Some(Command::SetClipSpeedCurve { curve: Some(_), .. })
+            ),
+            "at {rate}x: {command:?}"
+        );
+        bench.apply(&command.expect("an edit"));
+        let landed = item(&bench, id);
+        assert_eq!(speed_graph(&landed), Some(level), "at {rate}x");
+        assert_eq!(landed.len, before.len, "at {rate}x");
+    }
 }
 
 #[test]
 fn switching_to_constant_lands_as_the_curves_mean_rate() {
-    let before = curved(preset_by_index(1), 1.76, 10.0 / 1.76);
-    let after = curved(None, 1.76, 10.0 / 1.76);
-    let commands = super::clip_edit_commands("c1", &before, &after, false);
+    let (mut bench, id) = placed();
+    bench.apply(&Command::SetClipSpeedCurve {
+        item: id,
+        curve: preset_by_index(1),
+        ripple: false,
+    });
+    let before = item(&bench, id);
+    let (_, span) = doc_view::covered(&before).expect("a source");
+    let mean = span.get() as f64 / before.len.get() as f64;
+    let after = previewed(&bench, id, None);
+    assert_eq!(after.len, before.len, "the length is kept");
+    let command = speed_commands(id, &before, &after, false);
     assert_eq!(
-        commands,
-        vec![Command::SetClipSpeed {
-            clip_id: "c1".to_owned(),
-            speed: 1.76,
+        command,
+        Some(Command::SetClipSpeed {
+            item: id,
+            speed: speed_from_decimal(mean).expect("a pace"),
             ripple: false,
-        }]
+        })
     );
+    bench.apply(&command.expect("an edit"));
+    assert_eq!(speed_graph(&item(&bench, id)), None);
+    // Nothing changed is nothing to land.
+    assert_eq!(speed_commands(id, &before, &before, false), None);
+}
+
+#[test]
+fn a_curve_set_on_a_clip_is_given_back_as_drawn() {
+    let point = |at, speed, slope| SpeedPoint { at, speed, slope };
+    for drawn in [
+        vec![point(0.0, 1.0, None), point(1.0, 2.0, None)],
+        vec![
+            point(0.0, 0.5, Some(0.0)),
+            point(0.3, 3.0, Some(1.5)),
+            point(1.0, 1.0, Some(0.0)),
+        ],
+    ] {
+        let (mut bench, id) = placed();
+        bench.apply(&Command::SetClipSpeedCurve {
+            item: id,
+            curve: Some(drawn.clone()),
+            ripple: false,
+        });
+        assert_eq!(speed_graph(&item(&bench, id)), Some(drawn));
+    }
+    // A constant pace has no curve to give.
+    let (bench, id) = placed();
+    assert_eq!(speed_graph(&item(&bench, id)), None);
 }

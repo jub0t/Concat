@@ -3,7 +3,10 @@
 
 //! A save, cut at every step: by an error the save sees, and by the
 //! process dying there. Whatever happens, the project's file is the whole
-//! old save or the whole new one.
+//! old save or the whole new one, and a project saved so opens as the
+//! document before the save or the document after it.
+
+mod fixture;
 
 use std::collections::BTreeMap;
 use std::io;
@@ -11,7 +14,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use concat_doc::model::Model;
 use concat_doc::save::{self, Disk, SaveError, SaveStep, Saved, companion};
+use concat_doc::{Document, file};
+use fixture::*;
 
 const OLD: &[u8] = b"{\"old\":true}";
 const NEW: &[u8] = b"{\"new\":true,\"longer\":\"than the old one\"}";
@@ -290,4 +296,93 @@ fn on_the_real_disk_two_saves_leave_the_file_and_its_previous() {
         .collect();
     names.sort();
     assert_eq!(names, ["concat.json", "concat.json.prev"]);
+}
+
+/// A project, and the same project after an edit.
+fn before_and_after() -> (Document<Model>, Document<Model>) {
+    let mut fx = fixture();
+    place(&mut fx.doc, cut(fx.low, 0.0, 2.0, fx.video));
+    let before = fx.doc.clone();
+    place(&mut fx.doc, cut(fx.high, 1.0, 3.0, fx.song));
+    (before, fx.doc)
+}
+
+fn same(opened: &Document<Model>, doc: &Document<Model>) -> bool {
+    opened.tables() == doc.tables() && opened.mint() == doc.mint()
+}
+
+#[test]
+fn a_project_saved_through_any_failure_opens_as_it_was_before_or_after() {
+    let (before, after) = before_and_after();
+    for step in SaveStep::ALL {
+        for cut in [Cut::Error, Cut::Crash] {
+            let old = file::write(&before);
+            let mut disk = FakeDisk::with(&project(), old.as_bytes());
+            disk.cut = Some((step, cut));
+            let saved = catch_unwind(AssertUnwindSafe(|| {
+                save::save_document_on(&mut disk, &project(), &after)
+            }));
+            disk.cut = None;
+            let opened = save::open_on(&mut disk, &project())
+                .unwrap_or_else(|why| panic!("{step:?} {cut:?}: {why}"));
+            let doc = &opened.document;
+            assert!(
+                same(doc, &before) || same(doc, &after),
+                "{step:?} {cut:?} opened neither"
+            );
+            // A save left waiting is the newer, and the open puts it in place.
+            if let Ok(Err(SaveError::Held { .. })) = saved {
+                assert!(same(doc, &after), "{step:?} {cut:?}");
+                assert_eq!(opened.notes.len(), 1, "{:?}", opened.notes);
+                assert!(!disk.files.contains_key(&companion(&project(), ".new")));
+                assert_eq!(disk.files[&project()], file::write(&after).into_bytes());
+                assert_eq!(
+                    disk.files[&companion(&project(), ".prev")],
+                    old.clone().into_bytes()
+                );
+            } else {
+                assert_eq!(opened.notes, [], "{step:?} {cut:?}");
+            }
+            // The save after it lands, whatever the one before left.
+            save::save_document_on(&mut disk, &project(), &after).expect("the next save");
+            let reopened = save::open_on(&mut disk, &project()).expect("opens");
+            assert!(same(&reopened.document, &after), "{step:?} {cut:?}");
+        }
+    }
+}
+
+#[test]
+fn a_waiting_save_that_does_not_open_is_left_where_it_is_and_said() {
+    let (before, _) = before_and_after();
+    let mut disk = FakeDisk::with(&project(), file::write(&before).as_bytes());
+    let waiting = companion(&project(), ".new");
+    disk.files
+        .insert(waiting.clone(), b"{\"concat-project\":1,".to_vec());
+    let opened = save::open_on(&mut disk, &project()).expect("opens");
+    assert!(same(&opened.document, &before));
+    assert_eq!(opened.notes.len(), 1);
+    assert!(
+        opened.notes[0].what.contains("does not open"),
+        "{}",
+        opened.notes[0]
+    );
+    assert!(disk.files.contains_key(&waiting));
+}
+
+#[test]
+fn on_the_real_disk_a_document_saves_and_opens() {
+    let (before, after) = before_and_after();
+    let folder = tempfile::tempdir().expect("a folder");
+    let path = folder.path().join("film.concat");
+    save::save_document(&path, &before).expect("first");
+    save::save_document(&path, &after).expect("second");
+    let opened = save::open(&path).expect("opens");
+    assert!(same(&opened.document, &after));
+    let previous = std::fs::read(companion(&path, ".prev")).expect("the save before");
+    let previous = file::read(&previous).expect("opens");
+    assert!(same(&previous.document, &before));
+    assert!(matches!(
+        save::open(&folder.path().join("none.concat")),
+        Err(save::OpenError::Unread(_))
+    ));
 }

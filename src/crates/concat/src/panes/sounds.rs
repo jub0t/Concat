@@ -24,8 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use concat_core::Halt;
+use concat_doc::commands::Command;
+use concat_doc::model::MediaId;
 use concat_host::sounds::{self, Catalogue, Library, Sound};
-use concat_project::Command;
 use slint::SharedString;
 
 use crate::i18n::{t, tf};
@@ -562,7 +563,7 @@ impl Studio {
     /// the copy already there - then cut onto `track_id` at `start`, or at
     /// `start` on the first lane with room. Selects what it made.
     pub fn place_sound(&mut self, name: &str, path: &Path, track_id: Option<String>, start: f64) {
-        let media_id = match self.adopt_sound(name, path) {
+        let media = match self.adopt_sound(name, path) {
             Ok(id) => id,
             Err(error) => {
                 self.notify(&error, true);
@@ -571,14 +572,16 @@ impl Studio {
         };
         // Onto the timeline: the monitor and the speakers go back to it.
         self.close_source();
-        let created = match track_id {
-            Some(track_id) => self.apply(Command::AddClip {
-                media_id,
-                track_id,
+        let start = crate::doc_view::tick(start);
+        let lane = track_id.as_deref().and_then(crate::doc_view::parse);
+        let created = match lane {
+            Some(lane) => self.apply_making(Command::AddClip {
+                media,
+                lane,
                 start,
                 ripple: true,
             }),
-            None => self.apply(Command::AddClipAtFirstFree { media_id, start }),
+            None => self.apply_making(Command::AddClipAtFirstFree { media, start }),
         };
         if let Some(id) = created {
             self.selection = vec![id];
@@ -589,7 +592,7 @@ impl Studio {
     /// project's `audio` folder, made and imported when it is not there
     /// yet. A file of that name that is not this sound - another size -
     /// leaves it alone and the copy takes a numbered name.
-    fn adopt_sound(&mut self, name: &str, path: &Path) -> Result<String, String> {
+    fn adopt_sound(&mut self, name: &str, path: &Path) -> Result<MediaId, String> {
         let project = self
             .session
             .as_ref()
@@ -616,13 +619,13 @@ impl Studio {
             n += 1;
         }
         let target_text = target.to_string_lossy().into_owned();
-        if let Some(item) = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.path == target_text)
-        {
-            return Ok(item.id.clone());
+        let in_bin = |studio: &Studio| {
+            crate::doc_view::bin(studio.committed())
+                .find(|(_, media)| media.path == target_text)
+                .map(|(id, _)| id)
+        };
+        if let Some(id) = in_bin(self) {
+            return Ok(id);
         }
         if !target.exists() {
             std::fs::create_dir_all(&folder)
@@ -630,17 +633,12 @@ impl Studio {
                 .map_err(|error| tf("sounds.couldNotCopy", &[&name, &error]))?;
         }
         let summary = concat_host::media::probe(&target_text)?;
-        let mut item = summary.to_new_media();
-        item.name = format!("{name}{extension}");
-        let created = self.apply(Command::AddMedia { item });
+        let mut media = summary.to_new_media();
+        media.name = format!("{name}{extension}");
+        let created = self.apply(Command::AddMedia { media });
         created
-            .or_else(|| {
-                self.project()
-                    .media
-                    .iter()
-                    .find(|item| item.path == target_text)
-                    .map(|item| item.id.clone())
-            })
+            .and_then(|id| id.typed::<MediaId>())
+            .or_else(|| in_bin(self))
             .ok_or_else(|| tf("sounds.couldNotCopy", &[&name, &"?"]))
     }
 }

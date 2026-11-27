@@ -8,6 +8,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
+use concat_doc::commands::Command;
 use concat_host::{Session, projects};
 
 use crate::close_window;
@@ -79,6 +80,11 @@ fn a_relaunch_waiting_on_the_close_never_starts_when_the_save_fails() {
     assert!(!hidden.get(), "the window stays");
 }
 
+/// How many lanes the timeline showing has.
+fn lanes(session: &Session) -> usize {
+    crate::doc_view::lanes(&session.document()).len()
+}
+
 /// Saves the session in `slot` and lets it go only when the save landed,
 /// as closing a project does.
 fn save_and_let_go(slot: &RefCell<Option<Session>>) -> Result<(), String> {
@@ -107,11 +113,11 @@ fn a_close_that_cannot_save_keeps_the_session_and_a_retry_saves_it() {
 
     let mut session = Session::open_info(&info).expect("opens");
     session.save(None).expect("a first save");
-    let saved_tracks = session.project().active().tracks.len();
+    let saved_tracks = lanes(&session);
     session
-        .apply(concat_project::Command::AddTrack { bottom: false })
+        .apply(&Command::AddTrack { bottom: false })
         .expect("an edit not yet on disk");
-    let edited_tracks = session.project().active().tracks.len();
+    let edited_tracks = lanes(&session);
 
     // The project folder is taken away and a file stands in its place, as
     // when a drive is swapped under the app: nothing can be written there.
@@ -125,13 +131,7 @@ fn a_close_that_cannot_save_keeps_the_session_and_a_retry_saves_it() {
     assert!(outcome.is_err(), "the save could not land");
     assert!(!left.get(), "so nothing left");
     assert_eq!(
-        slot.borrow()
-            .as_ref()
-            .expect("the session is still held")
-            .project()
-            .active()
-            .tracks
-            .len(),
+        lanes(slot.borrow().as_ref().expect("the session is still held")),
         edited_tracks,
         "with its edit"
     );
@@ -142,7 +142,7 @@ fn a_close_that_cannot_save_keeps_the_session_and_a_retry_saves_it() {
     std::fs::rename(&aside, &root).expect("the folder is back");
     let on_disk = Session::open_info(&info).expect("reads what is saved");
     assert_eq!(
-        on_disk.project().active().tracks.len(),
+        lanes(&on_disk),
         saved_tracks,
         "the failed close wrote nothing"
     );
@@ -153,6 +153,6 @@ fn a_close_that_cannot_save_keeps_the_session_and_a_retry_saves_it() {
     assert!(left.get());
     assert!(slot.borrow().is_none(), "let go once saved");
     let reopened = Session::open_info(&info).expect("reopens");
-    assert_eq!(reopened.project().active().tracks.len(), edited_tracks);
+    assert_eq!(lanes(&reopened), edited_tracks);
     assert!(Path::new(&info.path).join("concat.json").is_file());
 }

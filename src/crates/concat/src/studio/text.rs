@@ -17,14 +17,7 @@ impl Studio {
             .installed_fonts
             .iter()
             .map(|(family, _)| family.clone())
-            .chain(
-                self.session
-                    .as_ref()
-                    .map(|session| session.project().fonts.clone())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|font| font.family),
-            )
+            .chain(self.doc().fonts.iter().map(|font| font.family.clone()))
             .filter(|family| !family.is_empty())
             .collect();
         own.sort_by_cached_key(|family| family.to_lowercase());
@@ -47,10 +40,8 @@ impl Studio {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.installed_fonts.hash(&mut hasher);
-        if let Some(session) = &self.session {
-            for font in &session.project().fonts {
-                font.family.hash(&mut hasher);
-            }
+        for font in &self.doc().fonts {
+            font.family.hash(&mut hasher);
         }
         self.system_fonts.hash(&mut hasher);
         hasher.finish()
@@ -109,13 +100,8 @@ impl Studio {
     /// project already carries, or one that is not the app's to register.
     pub(super) fn ensure_font(&mut self, family: &str) {
         let family = family.trim().trim_matches('"');
-        let carried = self.session.as_ref().is_some_and(|session| {
-            session
-                .project()
-                .fonts
-                .iter()
-                .any(|font| font.family == family)
-        });
+        let carried =
+            self.session.is_some() && self.doc().fonts.iter().any(|font| font.family == family);
         if carried {
             return;
         }
@@ -130,9 +116,11 @@ impl Studio {
         if field == ClipTextField::Color
             && let Some((id, start, end)) = self.styled_words()
         {
-            let patch = model::RunStyle {
-                color: Some(hex_of(value)),
-                ..model::RunStyle::default()
+            let mut opaque = doc_view::from_slint(value);
+            opaque.a = 255;
+            let patch = concat_doc::commands::RunStyle {
+                color: Some(opaque),
+                ..Default::default()
             };
             self.style_words(&id, start, end, &patch);
             return;
@@ -144,20 +132,22 @@ impl Studio {
         }
         self.commit_targets = ids.clone();
         self.begin_echo();
+        let colour = doc_view::from_slint(value);
         for id in ids {
-            let Some(clip) = self.echo_clip_mut(&id) else {
-                continue;
-            };
-            if clip.kind != model::ClipKind::Text {
-                continue;
-            }
-            let text = clip.text.get_or_insert_with(TextStyle::default);
-            match field {
-                ClipTextField::Color => text.color = hex_of(value),
-                ClipTextField::StrokeColor => text.stroke_color = hex_rgba(value),
-                ClipTextField::Background => text.background = hex_with_alpha(value),
-                _ => {}
-            }
+            self.echo_edit(&id, |clip| {
+                let Some(text) = doc_view::title_mut(clip) else {
+                    return;
+                };
+                match field {
+                    // The fill is the words' own colour; its strength is
+                    // the title's opacity.
+                    ClipTextField::Color => text.color = model::Color { a: 255, ..colour },
+                    ClipTextField::StrokeColor => text.stroke_color = colour,
+                    // A plate seen through entirely is no plate.
+                    ClipTextField::Background => text.plate = (colour.a > 0).then_some(colour),
+                    _ => {}
+                }
+            });
         }
     }
 
@@ -171,32 +161,39 @@ impl Studio {
         }
         self.commit_targets = ids.clone();
         self.begin_echo();
-        let hex = crate::format::hex_rgba(value);
+        let colour = doc_view::from_slint(value);
         for id in ids {
-            let Some(clip) = self.echo_clip_mut(&id) else {
-                continue;
-            };
-            if clip.kind != model::ClipKind::Shape {
-                continue;
-            }
-            let shape = clip.shape.get_or_insert_with(model::ShapeStyle::default);
-            match which {
-                0 => shape.fill = hex.clone(),
-                1 => {
-                    shape
-                        .gradient
-                        .get_or_insert_with(model::ShapeGradient::default)
-                        .color = hex.clone();
+            self.echo_edit(&id, |clip| {
+                let Some(shape) = doc_view::shape_mut(clip) else {
+                    return;
+                };
+                match which {
+                    0 => shape.fill = Some(colour),
+                    1 => {
+                        shape
+                            .gradient
+                            .get_or_insert(model::Gradient {
+                                color: colour,
+                                angle: 0.0,
+                                radial: false,
+                            })
+                            .color = colour;
+                    }
+                    2 => shape.stroke = Some(colour),
+                    3 => {
+                        shape
+                            .shadow
+                            .get_or_insert(model::ShapeShadow {
+                                color: colour,
+                                angle: 90.0,
+                                distance: 0.01,
+                                blur: 0.02,
+                            })
+                            .color = colour;
+                    }
+                    _ => {}
                 }
-                2 => shape.stroke = hex.clone(),
-                3 => {
-                    shape
-                        .shadow
-                        .get_or_insert_with(model::ShapeShadow::default)
-                        .color = hex.clone()
-                }
-                _ => {}
-            }
+            });
         }
     }
 
@@ -206,7 +203,7 @@ impl Studio {
     // own: drag over them in the Text tab's box and the colour, B/I/U/S
     // and size go on those words alone, the way After Effects recolours
     // a dragged-over word. They are runs on the title's style, kept
-    // with the words as they are typed; see `concat_project::runs`.
+    // with the words as they are typed.
 
     /// The text box's selection, from the box: where its anchor and its
     /// cursor are, as bytes into its words. A selection with nothing in it
@@ -218,8 +215,7 @@ impl Studio {
         };
         let Some(content) = self
             .clip(&id)
-            .filter(|clip| clip.kind == model::ClipKind::Text)
-            .and_then(|clip| clip.text.as_ref())
+            .and_then(doc_view::title)
             .map(|text| text.content.clone())
         else {
             self.words = None;
@@ -238,12 +234,8 @@ impl Studio {
         if self.sole_selection().as_deref() != Some(id.as_str()) {
             return None;
         }
-        let text = self
-            .clip(id)
-            .filter(|clip| clip.kind == model::ClipKind::Text)?
-            .text
-            .as_ref()?;
-        let count = text.char_count();
+        let text = doc_view::title(self.clip(id)?)?;
+        let count = doc_view::char_count(text);
         let (start, end) = ((*start).min(count), (*end).min(count));
         (start < end).then(|| (id.clone(), start, end))
     }
@@ -257,11 +249,11 @@ impl Studio {
         id: &str,
         field: ClipField,
         value: f64,
-    ) -> Option<model::RunStyle> {
-        let mut patch = model::RunStyle::default();
+    ) -> Option<concat_doc::commands::RunStyle> {
+        let mut patch = concat_doc::commands::RunStyle::default();
         match field {
             ClipField::FontSize => {
-                let size = self.clip(id)?.text.as_ref()?.font_size.max(0.005);
+                let size = doc_view::title(self.clip(id)?)?.font_size.max(0.005);
                 patch.font_scale = Some(value.clamp(0.01, 0.5) / size);
             }
             ClipField::FontWeight => patch.font_weight = Some(value.clamp(100.0, 900.0)),
@@ -280,13 +272,16 @@ impl Studio {
         id: &str,
         start: usize,
         end: usize,
-        patch: &model::RunStyle,
+        patch: &concat_doc::commands::RunStyle,
     ) {
         self.commit_targets = vec![id.to_owned()];
         self.begin_echo();
-        if let Some(text) = self.echo_clip_mut(id).and_then(|clip| clip.text.as_mut()) {
-            text.style_range(start, end, patch);
-        }
+        self.echo_edit(id, |clip| {
+            if let Some(text) = doc_view::title_mut(clip) {
+                text.runs =
+                    doc_view::restyle_runs(&text.runs, start as u32, end as u32, Some(patch));
+            }
+        });
     }
 
     /// The selected words back in the title's own look.
@@ -296,9 +291,11 @@ impl Studio {
         };
         self.commit_targets = vec![id.clone()];
         self.begin_echo();
-        if let Some(text) = self.echo_clip_mut(&id).and_then(|clip| clip.text.as_mut()) {
-            text.clear_range(start, end);
-        }
+        self.echo_edit(&id, |clip| {
+            if let Some(text) = doc_view::title_mut(clip) {
+                text.runs = doc_view::restyle_runs(&text.runs, start as u32, end as u32, None);
+            }
+        });
         self.clip_commit();
     }
 
@@ -312,8 +309,8 @@ impl Studio {
             .edit_targets()
             .first()
             .and_then(|id| self.clip(id))
-            .filter(|clip| clip.kind == model::ClipKind::Text)
-            .and_then(|clip| clip.text.clone())
+            .and_then(doc_view::title)
+            .cloned()
         else {
             return;
         };
@@ -321,7 +318,7 @@ impl Studio {
         // them: a run says nothing about another title's words.
         style.content.clear();
         style.runs.clear();
-        self.prefs.title_style = Some(style);
+        self.prefs.title_look = Some(crate::prefs::TitleLook::from_title(&style));
         self.prefs.save(&self.host.dirs);
         self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
     }
@@ -372,15 +369,21 @@ impl Studio {
         };
         let mut commands = Vec::new();
         for id in &ids {
+            let Some(item) = doc_view::parse::<ItemId>(id) else {
+                continue;
+            };
             let (Some(after), Some(before)) = (
-                echo.active().clip(id),
-                self.session
-                    .as_ref()
-                    .and_then(|session| session.project().active().clip(id)),
+                doc_view::item(&echo, item),
+                doc_view::item(self.committed(), item),
             ) else {
                 continue;
             };
-            commands.extend(clip_edit_commands(id, before, after, self.prefs.magnetic()));
+            commands.extend(clip_edit_commands(
+                item,
+                before,
+                after,
+                self.prefs.magnetic(),
+            ));
         }
         if commands.is_empty() {
             return;
@@ -390,22 +393,22 @@ impl Studio {
         // one look and captions laid on it later take this one.
         if ids.len() > 1
             && let Some(first) = ids.first()
-            && let Some(after) = echo.active().clip(first)
-            && let Some(style) = after.text.as_ref()
-            && let Some(track) = self.timeline().track(&after.track_id)
-            && let Some(look) = track.captions.as_ref()
+            && let Some(after) = doc_view::item_by(&echo, first)
+            && let Some(style) = doc_view::title(after)
+            && let Some(lane) = doc_view::lane(self.committed(), after.lane)
+            && let Some(look) = lane.captions.as_ref()
         {
             let next = model::CaptionLook {
-                style: TextStyle {
+                title: Title {
                     content: String::new(),
                     runs: Vec::new(),
                     ..style.clone()
                 },
                 offset_y: look.offset_y,
             };
-            if next.style != look.style {
+            if next.title != look.title {
                 commands.push(Command::SetCaptionLook {
-                    track_id: after.track_id.clone(),
+                    lane: after.lane,
                     look: Some(next),
                 });
             }

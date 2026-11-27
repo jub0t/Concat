@@ -3,8 +3,44 @@
 //! Cutouts, stabilization and Enhance.
 
 use concat_core::Halt;
+use concat_doc::model::{Cutout, CutoutMode, Media, MediaOrigin, Subject};
 
 use super::*;
+
+/// The narrowest and widest a cutout's brush may be, as shares of the
+/// picture's width: a hair's line to half the picture.
+pub(crate) const MIN_BRUSH: f64 = 0.005;
+pub(crate) const MAX_BRUSH: f64 = 0.5;
+
+/// How soft a new cutout's edge is, as a share of the picture's width.
+const FIRST_FEATHER: f64 = 0.01;
+
+/// A cutout as it is first turned on: the model's mask as it is, looking
+/// for whatever the picture is of.
+fn first_cutout() -> Cutout {
+    Cutout {
+        mode: CutoutMode::Auto,
+        subject: Subject::Auto,
+        feather: FIRST_FEATHER,
+        strokes: Vec::new(),
+    }
+}
+
+/// What a cutout keeps, as an analysis is named by it.
+fn subject_key(subject: &Subject) -> &str {
+    match subject {
+        Subject::Auto => "auto",
+        Subject::Person => "person",
+        Subject::Object => "object",
+        Subject::Unknown(raw) => raw.as_str(),
+    }
+}
+
+/// The source an item covers, in seconds from its in-point: how much of
+/// its file it plays, however fast.
+fn covered_seconds(clip: &Item) -> f64 {
+    doc_view::covered(clip).map_or(0.0, |(_, span)| doc_view::dur_secs(span).abs())
+}
 
 impl Studio {
     // ── cutouts ──
@@ -26,9 +62,14 @@ impl Studio {
         };
         let project = std::path::PathBuf::from(session.path());
         // One analysis per media and subject, keyed the way the job map is.
-        let wanted: Vec<(String, AnalyseRequest)> = Cutouts::requests(self.project(), &project)
+        let wanted: Vec<(String, AnalyseRequest)> = Cutouts::requests(self.doc(), &project)
             .into_iter()
-            .map(|(media_id, request)| (Self::analysis_key(&media_id, request.subject), request))
+            .map(|(media, request)| {
+                (
+                    Self::analysis_key(&media.to_string(), &request.subject),
+                    request,
+                )
+            })
             .collect();
         // One the app died analysing last time is skipped, and said once:
         // starting it again by itself closed the app on every open.
@@ -38,7 +79,7 @@ impl Studio {
                 continue;
             }
             let dir =
-                concat_vision::mask_dir(&request.project, &request.media_path, request.subject);
+                concat_vision::mask_dir(&request.project, &request.media_path, &request.subject);
             if self.failed_analyses.contains(&dir) {
                 continue;
             }
@@ -126,7 +167,8 @@ impl Studio {
         };
         let project = std::path::PathBuf::from(session.path());
         let mut next = None;
-        for (media_id, request) in concat_host::Stabilizers::requests(self.project(), &project) {
+        for (media, request) in concat_host::Stabilizers::requests(self.doc(), &project) {
+            let media_id = media.to_string();
             if concat_host::Stabilizers::outstanding(&request).is_empty() {
                 continue;
             }
@@ -199,7 +241,7 @@ impl Studio {
 
     /// The zoom a stabilized clip is drawn at and the zoom it would need
     /// to steady every frame, once its media's movement is measured.
-    pub(super) fn stabilize_readout(&self, clip: &Clip) -> Option<(f64, f64)> {
+    pub(super) fn stabilize_readout(&self, clip: &Item) -> Option<(f64, f64)> {
         let (correction, _) = self.stabilize_correction(clip)?;
         Some((correction.zoom, correction.needed))
     }
@@ -209,18 +251,19 @@ impl Studio {
     /// not stabilized or not measured yet.
     fn stabilize_correction(
         &self,
-        clip: &Clip,
+        clip: &Item,
     ) -> Option<(concat_vision::stabilize::Correction, f64)> {
-        let settings = clip.stabilize?;
+        let settings = clip.picture.stabilize.as_ref()?;
         let session = self.session.as_ref()?;
-        let media = self.project().media_by_id(&clip.media_id)?;
+        let media = doc_view::media_of(self.doc(), clip)?;
         let dir =
             concat_vision::stabilize::motion_dir(std::path::Path::new(session.path()), &media.path);
         let motion = concat_vision::stabilize::Motion::read(&dir)?;
-        let speed = clip.speed.max(0.0625);
+        let speed = doc_view::speed(clip).abs().max(0.0625);
+        let start = doc_view::in_point_s(clip);
         let correction = concat_vision::stabilize::path::correct(
             &motion,
-            (clip.source_start, clip.source_start + clip.duration * speed),
+            (start, start + covered_seconds(clip)),
             speed,
             &concat_vision::stabilize::Settings {
                 smoothness: settings.smoothness,
@@ -243,28 +286,23 @@ impl Studio {
     // frame under the playhead, so the person can judge both - and see
     // what the whole run will cost - before committing minutes to it.
 
-    /// Writes one clip's sound as it plays - trimmed, at its speed, with its
-    /// level, fades and effects baked in - to a WAV in the project's audio
-    /// folder, and puts the file in the bin under Generated › Processed. A
-    /// copy, not a replacement: the clip keeps its media and its settings,
-    /// and the file is independent of both, so it can be cut, moved and
-    /// exported like any import.
-    ///
-    /// The export's own audio path does the work, on the clip alone: the
-    /// project is flattened with just this clip on its timeline, the one
-    /// export clip that comes out is moved to the origin, and the mixer
-    /// writes it the way it writes an export's soundtrack.
     /// The clip's menu: its sound as it plays - trimmed, at its speed, with
     /// its level, fades and effects baked in - written to a WAV the user
     /// names, and brought into the bin as a file of its own, selected,
     /// with the bin showing all its media so the new file is in view.
+    ///
+    /// The export's own audio path does the work, on the clip alone: the
+    /// sequence is flattened as if just this clip were on it, the one export
+    /// clip that comes out is moved to the origin, and the mixer writes it
+    /// the way it writes an export's soundtrack.
     ///
     /// A plain import, not a Generated › Processed one: the user picked
     /// where the file goes and what it is called, which makes it theirs
     /// the way a file dragged in is. On a phone, which has no save dialog,
     /// it goes in the project's audio folder under the clip's name.
     pub fn export_clip_audio(&mut self, id: &str) {
-        let Some(clip) = self.clip(id).cloned() else {
+        let (Some(item_id), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id).cloned())
+        else {
             return;
         };
         if !self.clip_has_sound(&clip) {
@@ -278,13 +316,15 @@ impl Studio {
         else {
             return;
         };
-        let mut alone = self.project().clone();
-        alone.active_mut().clips.retain(|held| held.id == clip.id);
-        let Some(mut piece) =
-            concat_export::flatten::flatten_timeline_in(&alone, None, Some(&project_dir))
-                .into_iter()
-                .next()
-        else {
+        let alone = doc_view::showing(self.doc()).map_or_else(Vec::new, |sequence| {
+            concat_export::flatten::clips_of(
+                self.doc(),
+                sequence,
+                Some(&[item_id]),
+                Some(&project_dir),
+            )
+        });
+        let Some(mut piece) = alone.into_iter().next() else {
             self.notify(&t("studio.clipHasNoSound"), true);
             return;
         };
@@ -323,9 +363,6 @@ impl Studio {
         let ask_in = out_dir.clone();
         crate::host::after_dialog(
             move || {
-                if cfg!(target_os = "ios") {
-                    return Some(ask_in.join(&suggested));
-                }
                 let chosen = crate::platform::save_file(
                     &title,
                     &ask_in,
@@ -383,16 +420,13 @@ impl Studio {
             },
             move |studio, _, _, result| match result {
                 Ok(summary) => {
-                    let item = summary.to_new_media();
-                    let path = item.path.clone();
-                    let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
-                        studio
-                            .project()
-                            .media
-                            .iter()
-                            .find(|item| item.path == path)
-                            .map(|item| item.id.clone())
-                    });
+                    let media = summary.to_new_media();
+                    let path = media.path.clone();
+                    let minted = studio
+                        .apply(Command::AddMedia { media })
+                        .and_then(|id| id.typed::<MediaId>())
+                        .or_else(|| studio.media_at_path(&path))
+                        .map(|id| id.to_string());
                     // In view and in hand: the bin on all its media, with
                     // the new file the one thing selected.
                     studio.media.filter = MediaFilter::All;
@@ -427,13 +461,13 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let Some(clip) = self.clip(&id) else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(&id), self.clip(&id)) else {
             return;
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
-        let linked = clip.enhanced.is_some();
+        let linked = matches!(&clip.content, Content::Media(cut) if cut.enhanced.is_some());
         if !on && self.enhance_jobs.contains_key(&id) {
             self.host.enhancers.cancel();
         }
@@ -443,17 +477,20 @@ impl Studio {
             self.enhance_ticked.remove(&id);
         }
         if linked {
-            self.apply(Command::SetClipEnhanced { clip_id: id, on });
+            self.apply(Command::SetClipEnhanced { item, on });
             self.request_preview();
         }
     }
 
     /// Whether clip `clip`'s Enhance section is ticked: its copy shown, or,
     /// without a copy, the tick put on in this window.
-    pub(super) fn enhance_ticked(&self, clip: &Clip) -> bool {
-        match clip.enhanced.as_ref() {
-            Some(link) => link.on,
-            None => self.enhance_ticked.contains(&clip.id),
+    pub(super) fn enhance_ticked(&self, clip: &Item) -> bool {
+        match &clip.content {
+            Content::Media(cut) if cut.enhanced.is_some() => {
+                cut.enhanced.as_ref().is_some_and(|enhanced| enhanced.on)
+            }
+            _ => doc_view::id_of(self.doc(), clip)
+                .is_some_and(|id| self.enhance_ticked.contains(&id.to_string())),
         }
     }
 
@@ -497,34 +534,27 @@ impl Studio {
         }
         if self
             .clip(&id)
-            .is_some_and(|clip| !self.locked(&clip.track_id) && self.enhance_ticked(clip))
+            .is_some_and(|clip| !self.lane_locked(clip.lane) && self.enhance_ticked(clip))
         {
             self.enhance_clip(&id);
         }
     }
 
-    /// The file Enhance reads for `clip`: its original when it is showing,
-    /// or holding, a copy already - a second run restores the source, not
-    /// the first run's answer.
-    pub(super) fn enhance_source(&self, clip: &Clip) -> Option<model::MediaItem> {
-        let id = clip
-            .enhanced
-            .as_ref()
-            .map_or(&clip.media_id, |link| &link.original);
-        self.project()
-            .media
-            .iter()
-            .find(|item| &item.id == id)
-            .cloned()
+    /// The file Enhance reads for `clip`, with its id: always its original,
+    /// since the cut names the original and an enhanced copy beside it, so
+    /// a second run restores the source, not the first run's answer.
+    pub(super) fn enhance_source(&self, clip: &Item) -> Option<(String, Media)> {
+        let id = doc_view::media_id(clip)?;
+        let media = doc_view::media(self.doc(), id)?.clone();
+        Some((id.to_string(), media))
     }
 
     /// How many times larger `media` comes out at the section's Scale.
-    pub(super) fn enhance_scale_of(&self, media: &model::MediaItem) -> f32 {
-        concat_vision::enhance::scale_of(
-            self.enhance_scale,
-            media.width.unwrap_or(0),
-            media.height.unwrap_or(0),
-        )
+    pub(super) fn enhance_scale_of(&self, media: &Media) -> f32 {
+        let (width, height) = media
+            .size
+            .map_or((0, 0), |size| (size.width.get(), size.height.get()));
+        concat_vision::enhance::scale_of(self.enhance_scale, width, height)
     }
 
     /// "Preview this frame": the middle of the frame of the selected clip
@@ -546,24 +576,25 @@ impl Studio {
         let Some(clip) = self.clip(&id).cloned() else {
             return;
         };
-        if clip.kind != model::ClipKind::Video && clip.kind != model::ClipKind::Image {
+        let kind = self.kind(&clip);
+        if kind != Kind::Video && kind != Kind::Image {
             return;
         }
-        let Some(media) = self.enhance_source(&clip) else {
+        let Some((media_id, media)) = self.enhance_source(&clip) else {
             return;
         };
-        if media.width.unwrap_or(0) == 0 || media.height.unwrap_or(0) == 0 {
+        if media.size.is_none() {
             self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
         let scale = self.enhance_scale_of(&media);
-        // The moment under the playhead in the original's seconds, which is
-        // the file the preview reads, the clip may be showing a copy of a
-        // span that starts partway into it.
-        let seconds = if clip.kind == model::ClipKind::Image {
+        // The moment under the playhead in the original's seconds, which
+        // is the file the preview reads; a cut's times are always the
+        // original's, whichever of the two it shows.
+        let seconds = if kind == Kind::Image {
             0.0
         } else {
-            self.source_at_playhead(&clip) + Self::original_start(&clip) - clip.source_start
+            self.source_at_playhead(&clip)
         };
         let request = concat_host::enhance::PreviewRequest {
             media_path: media.path.clone(),
@@ -573,7 +604,6 @@ impl Studio {
         self.enhance_previewing = Some((id.clone(), false, 0.0));
         let enhancers = Arc::clone(&self.host.enhancers);
         let epoch = crate::host::project_epoch();
-        let media_id = media.id.clone();
         spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
@@ -623,17 +653,17 @@ impl Studio {
         );
     }
 
-    /// The preview on screen for `clip` read from `media` at `scale`, if
-    /// the last one made is that.
+    /// The preview on screen for clip `clip_id` read from file `media_id`
+    /// at `scale`, if the last one made is that.
     pub(super) fn enhance_preview_for(
         &self,
-        clip: &Clip,
-        media: &model::MediaItem,
+        clip_id: &str,
+        media_id: &str,
         scale: f32,
     ) -> Option<&EnhancePreview> {
         self.enhance_preview.as_ref().filter(|preview| {
-            preview.clip_id == clip.id
-                && preview.media_id == media.id
+            preview.clip_id == clip_id
+                && preview.media_id == media_id
                 && (preview.scale - scale).abs() < 1e-4
         })
     }
@@ -649,32 +679,33 @@ impl Studio {
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
-        if clip.kind != model::ClipKind::Video && clip.kind != model::ClipKind::Image {
+        let kind = self.kind(&clip);
+        if kind != Kind::Video && kind != Kind::Image {
             return;
         }
-        let Some(media) = self.enhance_source(&clip) else {
+        let Some((_, media)) = self.enhance_source(&clip) else {
             return;
         };
         let Some(session) = self.session.as_ref() else {
             return;
         };
         let project = std::path::PathBuf::from(session.path());
-        let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
-        if width == 0 || height == 0 {
+        if media.size.is_none() {
             self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
         let scale = self.enhance_scale_of(&media);
         let strength = self.enhance_strength;
-        let still = clip.kind == model::ClipKind::Image;
+        let still = kind == Kind::Image;
         // The span the clip shows of the original, and a second either side
         // so a small trim after is still inside the copy: the work is the
         // clip's, not the whole file's.
         let span = (!still).then(|| {
-            let start = Self::original_start(&clip);
-            let covered = clip.duration * clip.speed;
+            let start = doc_view::in_point_s(&clip);
+            let covered = covered_seconds(&clip);
+            let length = media.length.map_or(f64::MAX, doc_view::len_secs);
             let from = (start - ENHANCE_MARGIN).max(0.0);
-            let to = (start + covered + ENHANCE_MARGIN).min(media.duration.unwrap_or(f64::MAX));
+            let to = (start + covered + ENHANCE_MARGIN).min(length);
             (from, (to - from).max(covered))
         });
         let Some(target) =
@@ -692,7 +723,7 @@ impl Studio {
             span,
         };
         let percent = concat_host::enhance::strength_percent(strength);
-        let clip_id = clip.id.clone();
+        let clip_id = id.to_owned();
         self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
         self.notify(
             &tf(
@@ -763,32 +794,25 @@ impl Studio {
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
-        let audio_only = match clip.kind {
-            model::ClipKind::Video => false,
-            model::ClipKind::Audio => true,
+        let audio_only = match self.kind(&clip) {
+            Kind::Video => false,
+            Kind::Audio => true,
             _ => return,
         };
-        if self.locked(&clip.track_id) {
+        if self.lane_locked(clip.lane) {
             return;
         }
-        let Some(media) = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.id == clip.media_id)
-            .cloned()
-        else {
+        let Some(media) = doc_view::media_of(self.doc(), &clip).cloned() else {
             return;
         };
         let Some(session) = self.session.as_ref() else {
             return;
         };
         let project = std::path::PathBuf::from(session.path());
-        // The span the clip covers of the file: its in-point, and its
-        // length at its rate - the curve's mean when it has one, which is
-        // what `speed` holds then.
-        let start = clip.source_start;
-        let covered = clip.duration * clip.speed;
+        // The span the clip covers of the file: its in-point, and the
+        // footage its length plays at its pace, a curve's included.
+        let start = doc_view::in_point_s(&clip);
+        let covered = covered_seconds(&clip);
         let Some(target) =
             concat_host::reverse::target_for(&project, &media.path, start, covered, audio_only)
         else {
@@ -802,7 +826,7 @@ impl Studio {
             duration: covered,
             target,
         };
-        let clip_id = clip.id.clone();
+        let clip_id = id.to_owned();
         self.reverse_jobs.insert(clip_id.clone(), 0.0);
         self.notify(&tf("studio.reversing", &[&media.name]), false);
         let reversers = Arc::clone(&self.host.reversers);
@@ -842,11 +866,12 @@ impl Studio {
     /// its file meanwhile, in which case the copy covers a span the clip
     /// no longer shows, and the ask has to be made again.
     fn adopt_reversed(&mut self, id: &str, path: &std::path::Path, start: f64, covered: f64) {
-        let Some(clip) = self.clip(id).cloned() else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id).cloned())
+        else {
             return;
         };
-        if (clip.source_start - start).abs() > 1e-6
-            || (clip.duration * clip.speed - covered).abs() > 1e-6
+        if (doc_view::in_point_s(&clip) - start).abs() > 1e-6
+            || (covered_seconds(&clip) - covered).abs() > 1e-6
         {
             self.notify(&t("studio.clipChangedWhileBeing"), true);
             return;
@@ -858,34 +883,25 @@ impl Studio {
                 return;
             }
         };
-        let mut item = summary.to_new_media();
-        if let Some(original) = self.project().media.iter().find(|m| m.id == clip.media_id) {
-            item.name = format!("{} (reversed)", original.name);
+        let mut file = summary.to_new_media();
+        if let Some(original) = doc_view::media_of(self.doc(), &clip) {
+            file.name = format!("{} (reversed)", original.name);
         }
-        item.origin = Some(model::MediaOrigin::Processed);
+        file.origin = Some(MediaOrigin::Processed);
         self.apply(Command::ReplaceClipMedia {
-            clip_id: id.to_owned(),
             item,
-            source_start: Some(0.0),
+            file,
             enhanced: false,
-            offset: 0.0,
+            copy_start: TickDur::ZERO,
+            source_start: Some(Tick::ZERO),
         });
         self.request_preview();
         self.notify(&t("studio.reversedClipNowShows"), false);
     }
 
-    /// Clip `clip`'s in-point in its original's seconds: its own, or, while
-    /// it shows an enhanced copy of a span, its own moved by where that
-    /// copy starts.
-    fn original_start(clip: &Clip) -> f64 {
-        match &clip.enhanced {
-            Some(link) if link.on => clip.source_start + link.offset,
-            _ => clip.source_start,
-        }
-    }
-
     /// Points clip `id` at the enhanced copy at `path`, probed the way an
-    /// import is, and shows it.
+    /// import is, and shows it. The copy starts `offset` seconds into the
+    /// original, and the clip's times stay the original's.
     fn adopt_enhanced(
         &mut self,
         id: &str,
@@ -894,13 +910,14 @@ impl Studio {
         percent: u32,
         offset: f64,
     ) {
-        let Some(clip) = self.clip(id).cloned() else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(id), self.clip(id).cloned())
+        else {
             return;
         };
-        // The clip's in-point in the copy, which starts `offset` into the
-        // original; a clip moved off the copy's span while it was made is
-        // left as it is rather than pointed past the copy's ends.
-        let start = Self::original_start(&clip) - offset;
+        // The clip's in-point in the copy; a clip moved off the copy's span
+        // while it was made is left as it is rather than pointed past the
+        // copy's ends.
+        let start = doc_view::in_point_s(&clip) - offset;
         if start < -1e-6 {
             self.notify(&t("studio.clipChangedWhileBeing"), true);
             return;
@@ -912,25 +929,25 @@ impl Studio {
                 return;
             }
         };
-        let mut item = summary.to_new_media();
+        let mut file = summary.to_new_media();
         // The bin names the copy after the original, marked with what it
         // was made with - one file can have a copy for each setting -
         // rather than after its cache file.
-        if let Some(original) = self.clip(id).and_then(|clip| self.enhance_source(clip)) {
-            item.name = format!("{} (enhanced {}x, {percent}%)", original.name, times(scale));
+        if let Some((_, original)) = self.enhance_source(&clip) {
+            file.name = format!("{} (enhanced {}x, {percent}%)", original.name, times(scale));
         }
-        if let Some(length) = item.duration
-            && start + clip.duration * clip.speed > length + 1e-3
+        if let Some(length) = file.length.map(doc_view::len_secs)
+            && start + covered_seconds(&clip) > length + 1e-3
         {
             self.notify(&t("studio.clipChangedWhileBeing"), true);
             return;
         }
         self.apply(Command::ReplaceClipMedia {
-            clip_id: id.to_owned(),
             item,
-            source_start: Some(start.max(0.0)),
+            file,
             enhanced: true,
-            offset,
+            copy_start: doc_view::dur(offset),
+            source_start: None,
         });
         self.request_preview();
         self.notify(&t("studio.enhancedClipNowShows"), false);
@@ -942,17 +959,18 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let Some(clip) = self.clip(&id).cloned() else {
+        let (Some(item), Some(clip)) = (doc_view::parse::<ItemId>(&id), self.clip(&id).cloned())
+        else {
             return;
         };
-        let held = clip.cutout.clone().unwrap_or_else(model::Cutout::auto);
+        let held = clip.picture.cutout.clone().unwrap_or_else(first_cutout);
         let cutout = match mode {
-            1 => Some(model::Cutout {
-                mode: model::CutoutMode::Auto,
+            1 => Some(Cutout {
+                mode: CutoutMode::Auto,
                 ..held
             }),
-            2 => Some(model::Cutout {
-                mode: model::CutoutMode::Custom,
+            2 => Some(Cutout {
+                mode: CutoutMode::Custom,
                 ..held
             }),
             _ => None,
@@ -962,20 +980,17 @@ impl Studio {
         }
         // Turned on anew: an analysis that failed is tried again, since
         // the person asked.
-        if clip.cutout.is_none() && cutout.is_some() {
+        if clip.picture.cutout.is_none() && cutout.is_some() {
             self.failed_analyses.clear();
         }
-        if cutout != clip.cutout {
-            self.apply(Command::SetClipCutout {
-                clip_id: id,
-                cutout,
-            });
+        if cutout != clip.picture.cutout {
+            self.apply(Command::SetClipCutout { item, cutout });
         }
     }
 
     /// The name an analysis runs under: the media and what it keeps.
-    pub(super) fn analysis_key(media_id: &str, subject: model::Subject) -> String {
-        format!("{media_id}:{}", subject.key())
+    pub(super) fn analysis_key(media_id: &str, subject: &Subject) -> String {
+        format!("{media_id}:{}", subject_key(subject))
     }
 
     /// The Subject row: 0 automatic, 1 person, 2 object. A change means
@@ -984,20 +999,23 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let Some(cutout) = self.clip(&id).and_then(|clip| clip.cutout.clone()) else {
+        let Some(item) = doc_view::parse::<ItemId>(&id) else {
+            return;
+        };
+        let Some(cutout) = self.clip(&id).and_then(|clip| clip.picture.cutout.clone()) else {
             return;
         };
         let subject = match index {
-            1 => model::Subject::Person,
-            2 => model::Subject::Object,
-            _ => model::Subject::Auto,
+            1 => Subject::Person,
+            2 => Subject::Object,
+            _ => Subject::Auto,
         };
         if cutout.subject == subject {
             return;
         }
         self.apply(Command::SetClipCutout {
-            clip_id: id,
-            cutout: Some(model::Cutout { subject, ..cutout }),
+            item,
+            cutout: Some(Cutout { subject, ..cutout }),
         });
     }
 
@@ -1006,15 +1024,18 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let Some(cutout) = self.clip(&id).and_then(|clip| clip.cutout.clone()) else {
+        let Some(item) = doc_view::parse::<ItemId>(&id) else {
+            return;
+        };
+        let Some(cutout) = self.clip(&id).and_then(|clip| clip.picture.cutout.clone()) else {
             return;
         };
         if cutout.strokes.is_empty() {
             return;
         }
         self.apply(Command::SetClipCutout {
-            clip_id: id,
-            cutout: Some(model::Cutout {
+            item,
+            cutout: Some(Cutout {
                 strokes: Vec::new(),
                 ..cutout
             }),
@@ -1026,7 +1047,7 @@ impl Studio {
     }
 
     pub fn cutout_size(&mut self, size: f32) {
-        self.brush_size = f64::from(size).clamp(model::MIN_BRUSH, model::MAX_BRUSH);
+        self.brush_size = f64::from(size).clamp(MIN_BRUSH, MAX_BRUSH);
     }
 
     pub fn cutout_painting(&mut self, on: bool) {
@@ -1041,30 +1062,31 @@ impl Studio {
 
     /// The picture a press on the stage would paint: the one selected clip,
     /// under the playhead, with a custom cutout, while painting is on.
-    pub(super) fn paint_target(&self) -> Option<Clip> {
+    pub(super) fn paint_target(&self) -> Option<&Item> {
         if !self.painting {
             return None;
         }
         let id = self.sole_selection()?;
         let clip = self.clip(&id)?;
         let custom = clip
+            .picture
             .cutout
             .as_ref()
-            .is_some_and(|cutout| cutout.mode == model::CutoutMode::Custom);
-        if !custom || !clip.kind.is_visual() || self.locked(&clip.track_id) {
+            .is_some_and(|cutout| cutout.mode == CutoutMode::Custom);
+        if !custom || !self.kind(clip).is_visual() || self.lane_locked(clip.lane) {
             return None;
         }
         self.stage_clips()
             .into_iter()
-            .any(|shown| shown.id == clip.id)
-            .then(|| clip.clone())
+            .any(|(shown, _)| shown == id)
+            .then_some(clip)
     }
 
     /// Where a stage point lands in the source picture, in the fractions a
     /// stroke is stored in: the footprint's turn undone, then the crop and
     /// the flips, the same way a decoded pixel finds its mask, then a
     /// stabilized clip's correction at the playhead.
-    pub(super) fn stage_to_source(&self, clip: &Clip, x: f64, y: f64) -> [f64; 2] {
+    pub(super) fn stage_to_source(&self, clip: &Item, x: f64, y: f64) -> [f64; 2] {
         let footprint = self.footprint(clip);
         let (width, height) = self.output_size();
         let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
@@ -1077,6 +1099,7 @@ impl Studio {
         let py = down / (footprint.h * height).max(1e-6) + 0.5;
         let mapping = concat_vision::Mapping {
             crop: clip
+                .picture
                 .crop
                 .map(|crop| {
                     [
@@ -1087,8 +1110,8 @@ impl Studio {
                     ]
                 })
                 .unwrap_or([0.0; 4]),
-            flip_h: clip.flip_h,
-            flip_v: clip.flip_v,
+            flip_h: clip.picture.flip_h,
+            flip_v: clip.picture.flip_v,
         };
         let (u, v) = mapping.source_of(px as f32, py as f32);
         let (u, v) = (f64::from(u), f64::from(v));

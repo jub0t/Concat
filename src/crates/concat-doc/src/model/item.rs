@@ -145,32 +145,46 @@ impl Item {
     /// to place and to tie as it means to.
     ///
     /// Those ids are held once in the document (rule 44), so a copy made
-    /// by cloning the item is refused at commit. An entry this build
-    /// could not read is copied as its text: what is inside it, an id
-    /// included, cannot be seen here.
+    /// by cloning the item is refused at commit.
+    ///
+    /// What this build cannot see into is left behind: an effect, mask
+    /// or marker it could not read, whose ids it cannot make new, and
+    /// what the file marked as derived from the item or from anything in
+    /// it, which is the original's and not the copy's. Fields it does not
+    /// know are kept, as they are on any edit.
     pub fn with_new_ids(&self, draft: &mut Draft<Model>) -> Result<Item, MintError> {
         let mut copy = self.clone();
+        copy.residual.derived = None;
+        copy.effects.retain(|entry| entry.known().is_some());
+        copy.filters.retain(|entry| entry.known().is_some());
+        copy.masks.retain(|entry| entry.known().is_some());
+        copy.markers.retain(|entry| entry.known().is_some());
         let mut masks: BTreeMap<MaskId, MaskId> = BTreeMap::new();
         for mask in copy.masks.iter_mut().filter_map(Entry::known_mut) {
             let new = draft.mint()?;
             masks.insert(mask.id, new);
             mask.id = new;
+            mask.residual.derived = None;
         }
         let chains = copy.effects.iter_mut().chain(copy.filters.iter_mut());
         for effect in chains.filter_map(Entry::known_mut) {
             effect.id = draft.mint()?;
+            effect.residual.derived = None;
             if let Some(new) = effect.mask.and_then(|mask| masks.get(&mask)) {
                 effect.mask = Some(*new);
             }
         }
         if let Content::Transition(effect) = &mut copy.content {
             effect.id = draft.mint()?;
+            effect.residual.derived = None;
         }
         if let Some(cut) = &mut copy.cut_in {
             cut.effect.id = draft.mint()?;
+            cut.effect.residual.derived = None;
         }
         for marker in copy.markers.iter_mut().filter_map(Entry::known_mut) {
             marker.id = draft.mint()?;
+            marker.residual.derived = None;
         }
         Ok(copy)
     }

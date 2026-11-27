@@ -3,7 +3,7 @@
 
 //! What the editor window needs that is not the edit itself.
 //!
-//! The edit lives in `concat-project`, pixels in `concat-render` and
+//! The edit lives in `concat-doc`, pixels in `concat-render` and
 //! `concat-export`, files in `concat-media`. This crate is the layer the
 //! window talks to: it opens a project folder as a [`session::Session`],
 //! keeps the recents list, caches waveforms and filmstrips beside the
@@ -14,7 +14,7 @@
 //!
 //! The window calls these functions in-process, and the doctrine is that
 //! no editing decision is made here. If a function starts deciding what an
-//! edit means, it belongs in `concat-project`.
+//! edit means, it belongs in `concat-doc`.
 //!
 //! Nothing here knows about a window. Long work reports through callbacks
 //! and cancels through flags, and the caller decides which thread it runs on.
@@ -25,11 +25,11 @@ pub mod capcut;
 pub mod captions;
 pub mod cards;
 pub mod consolidate;
-#[cfg(test)]
-mod consolidate_tests;
 pub mod crash;
 pub mod cutout;
 pub mod dirs;
+#[cfg(test)]
+mod earlier_project_tests;
 pub mod enhance;
 pub mod export;
 pub mod export_apart;
@@ -54,6 +54,8 @@ pub mod session;
 pub mod sounds;
 pub mod stabilize;
 pub mod templates;
+#[cfg(test)]
+mod test_doc;
 pub mod titles;
 pub mod updates;
 pub mod voices;
@@ -65,7 +67,7 @@ pub use enhance::{EnhanceRequest, Enhancers};
 pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use reverse::{ReverseRequest, Reversers};
-pub use session::{EditorView, Session, SettingsView};
+pub use session::{Change, ProjectSettings, Session};
 pub use stabilize::{StabilizeRequest, Stabilizers};
 pub use titles::{TitleClip, Titles};
 

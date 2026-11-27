@@ -20,11 +20,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::Halt;
+use concat_doc::commands::{Command, Cue};
+use concat_doc::model::{LaneId, Title};
 use concat_host::captions::{CAPTION_OFFSETS, CAPTION_SIZES, place_captions};
-use concat_project::Command;
-use concat_project::model::CaptionCue;
-use concat_project::model::{ClipKind, TextStyle};
-use concat_project::srt;
+
+use crate::doc_view::{self, Kind};
+use crate::srt;
 use concat_speech::JobStage;
 use concat_speech::transcribe::Segment;
 
@@ -243,13 +244,17 @@ impl CaptionsPane {
                         };
                         let look = subject.look;
                         let (base, font) = caption_base(studio);
-                        let cues: Vec<CaptionCue> = segments
+                        let cues: Vec<Cue> = segments
                             .into_iter()
                             .filter(|segment| !segment.text.trim().is_empty())
-                            .map(|segment| CaptionCue {
-                                start: subject.start + segment.start / subject.speed,
-                                duration: ((segment.end - segment.start) / subject.speed).max(0.2),
-                                text: segment.text.trim().to_owned(),
+                            .map(|segment| Cue {
+                                start: doc_view::tick(
+                                    subject.start + segment.start / subject.speed,
+                                ),
+                                len: doc_view::len(
+                                    ((segment.end - segment.start) / subject.speed).max(0.2),
+                                ),
+                                words: segment.text.trim().to_owned(),
                             })
                             .collect();
                         let count = cues.len();
@@ -307,9 +312,7 @@ impl CaptionsPane {
     fn import_srt(&mut self, studio: &mut Studio, path: &Path) {
         let cues = std::fs::read(path)
             .map_err(|error| error.to_string())
-            .and_then(|bytes| {
-                srt::parse(&String::from_utf8_lossy(&bytes)).map_err(|error| error.to_string())
-            });
+            .map(|bytes| srt::parse(&String::from_utf8_lossy(&bytes)));
         let cues = match cues {
             Ok(cues) => cues,
             Err(error) => {
@@ -361,11 +364,6 @@ impl CaptionsPane {
             .as_ref()
             .map(|session| PathBuf::from(session.path()))
             .unwrap_or_else(|| PathBuf::from(crate::studio::home_folder("Documents")));
-        if cfg!(target_os = "ios") {
-            let path = unique_path(&folder, &name);
-            self.export_srt(studio, &path);
-            return;
-        }
         let title = t("captions.exportSrt");
         let family = t("captions.subRipSubtitles");
         crate::host::after_dialog(
@@ -392,14 +390,13 @@ impl CaptionsPane {
     }
 
     /// Writes the captions to `path` as SubRip, and says how many and
-    /// where - on a phone, once the phone has put the file where it shows
-    /// it.
+    /// where.
     fn export_srt(&mut self, studio: &mut Studio, path: &Path) {
         let Some(lane) = export_lane(studio) else {
             self.message = t("captions.noCaptionsToExport");
             return;
         };
-        let cues = srt::title_cues(studio.timeline(), Some(&lane.track_id));
+        let cues = srt::title_cues(studio.doc(), Some(lane.lane));
         if let Err(error) = std::fs::write(path, srt::write(&cues)) {
             log::warn!(
                 "captions: writing the subtitles to {} failed: {error}; nothing was exported",
@@ -418,43 +415,16 @@ impl CaptionsPane {
         // Which lane was written goes without saying when it was the
         // selected title's, or the only lane with titles; otherwise the
         // notice says it was the busiest, and how to pick another.
-        let busiest = lane.busiest && srt::title_lanes(studio.timeline()) > 1;
-        let say = move |studio: &mut Studio, place: &str| {
-            // Each key spelled out where it is used: scripts/locales.py
-            // finds the strings the source asks for by reading it.
-            let said = if busiest {
-                tf("captions.exportedBusiestLane", &[&count, &place])
-            } else {
-                tf("captions.exportedCaptions", &[&count, &place])
-            };
-            studio.notify(&said, false);
+        let busiest = lane.busiest && srt::title_lanes(studio.doc()) > 1;
+        // Each key spelled out where it is used: scripts/locales.py finds
+        // the strings the source asks for by reading it.
+        let place = path.display().to_string();
+        let said = if busiest {
+            tf("captions.exportedBusiestLane", &[&count, &place])
+        } else {
+            tf("captions.exportedCaptions", &[&count, &place])
         };
-        let written = path.to_path_buf();
-        let handed = crate::platform::publish_document(
-            path.to_path_buf(),
-            "application/x-subrip",
-            move |result| {
-                crate::host::on_ui(move |studio, _, _| match result {
-                    Ok(place) => say(studio, &place),
-                    Err(error) => {
-                        log::warn!(
-                            "captions: wanted {} handed to the phone's files and it was not: {error}; it stays in the project's folder",
-                            crate::studio::file_name_of(&written.to_string_lossy())
-                        );
-                        studio.notify(
-                            &tf(
-                                "captions.couldNotPublishSubtitles",
-                                &[&written.display(), &error],
-                            ),
-                            true,
-                        );
-                    }
-                });
-            },
-        );
-        if !handed {
-            say(studio, &path.display().to_string());
-        }
+        studio.notify(&said, false);
     }
 
     /// The sheet opened afresh. `clip` is the clip it was opened on, if
@@ -541,13 +511,13 @@ impl CaptionsPane {
         let look = self.look();
         let mut at = f64::from(studio.playhead);
         let (base, font) = caption_base(studio);
-        let cues: Vec<CaptionCue> = lines
+        let cues: Vec<Cue> = lines
             .into_iter()
             .map(|(text, seconds)| {
-                let cue = CaptionCue {
-                    start: at,
-                    duration: seconds,
-                    text,
+                let cue = Cue {
+                    start: doc_view::tick(at),
+                    len: doc_view::len(seconds),
+                    words: text,
                 };
                 at += seconds;
                 cue
@@ -581,10 +551,19 @@ impl CaptionsPane {
             self.message = t("captions.clipNoLongerTimeline");
             return;
         };
-        let Some(media) = studio.project().media_by_id(&clip.media_id).cloned() else {
+        let Some(media) = doc_view::media_of(studio.committed(), &clip).cloned() else {
             self.message = t("captions.clipHasNoFile");
             return;
         };
+        let stream = match &clip.content {
+            concat_doc::model::Content::Media(cut) => cut.stream,
+            _ => None,
+        };
+        let speed = doc_view::speed(&clip);
+        let window = doc_view::covered(&clip).map_or_else(
+            || doc_view::len_s(&clip) * speed.abs(),
+            |(_, span)| doc_view::dur_secs(span).abs(),
+        );
         let Some((model, megabytes)) = installed(&studio.settings.transcribers)
             .get(self.model)
             .map(|model| (model.id.clone(), model.megabytes))
@@ -594,9 +573,9 @@ impl CaptionsPane {
         };
         let request = concat_speech::transcribe::TranscribeRequest {
             path: media.path.clone(),
-            audio_stream: clip.audio_stream,
-            source_start: clip.source_start,
-            window: clip.duration * clip.speed,
+            audio_stream: stream,
+            source_start: doc_view::in_point_s(&clip),
+            window,
             model_id: model.clone(),
             language: (!concat_speech::transcribe::english_only(&model))
                 .then(|| self.language.clone())
@@ -625,8 +604,8 @@ impl CaptionsPane {
             (Stage::Working, windows * per_window),
         ]);
         self.subject = Some(Subject {
-            start: clip.start,
-            speed: clip.speed,
+            start: doc_view::start_s(&clip),
+            speed,
             look: self.look(),
             model,
             windows,
@@ -644,8 +623,7 @@ impl CaptionsPane {
                 // In a process of its own where the machine can start one:
                 // whisper failing there costs the captions one run and never
                 // the editor (#673, #736, #715). CONCAT_TRANSCRIBE_IN_PROCESS
-                // keeps it here, as it always was, and so does a phone.
-                #[cfg(not(target_os = "ios"))]
+                // keeps it here.
                 if std::env::var_os("CONCAT_TRANSCRIBE_IN_PROCESS").is_none()
                     && let Ok(program) = std::env::current_exe()
                     && let Some(heard) =
@@ -761,14 +739,16 @@ fn language_at(index: i32) -> Option<String> {
 /// Imported cues keep the file's timing, including captions shorter than
 /// generated speech segments. The title command applies the engine's minimum
 /// clip duration where needed.
-fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>) -> Vec<Command> {
+fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&Title>) -> Vec<Command> {
     let cues = cues
         .into_iter()
         .filter(|cue| !cue.text.trim().is_empty())
-        .map(|cue| CaptionCue {
+        .map(|cue| Cue {
             start: cue.start,
-            duration: cue.end - cue.start,
-            text: cue.text.trim().to_owned(),
+            len: (cue.end - cue.start)
+                .to_len()
+                .unwrap_or(concat_doc::commands::MIN_LEN),
+            words: cue.text.trim().to_owned(),
         })
         .collect();
     place_captions(cues, look, base).into_iter().collect()
@@ -776,7 +756,7 @@ fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>)
 
 /// The lane an SRT export writes out.
 struct ExportLane {
-    track_id: String,
+    lane: LaneId,
     /// Chosen as the lane with the most titles, not by a selected title.
     busiest: bool,
 }
@@ -790,15 +770,15 @@ fn export_lane(studio: &Studio) -> Option<ExportLane> {
     let selected = studio
         .sole_selection()
         .and_then(|id| studio.clip(&id))
-        .filter(|clip| clip.kind == ClipKind::Text)
-        .map(|clip| clip.track_id.clone());
+        .filter(|clip| studio.kind(clip) == Kind::Text)
+        .map(|clip| clip.lane);
     match selected {
-        Some(track_id) => Some(ExportLane {
-            track_id,
+        Some(lane) => Some(ExportLane {
+            lane,
             busiest: false,
         }),
-        None => srt::busiest_title_lane(studio.timeline()).map(|track_id| ExportLane {
-            track_id,
+        None => srt::busiest_title_lane(studio.doc()).map(|lane| ExportLane {
+            lane,
             busiest: true,
         }),
     }
@@ -810,7 +790,7 @@ fn file_stem(studio: &Studio) -> String {
     let name = studio
         .session
         .as_ref()
-        .map(|session| session.settings().name)
+        .map(|session| session.name().to_owned())
         .unwrap_or_default();
     let stem: String = name
         .trim()
@@ -829,23 +809,6 @@ fn file_stem(studio: &Studio) -> String {
     } else {
         stem.to_owned()
     }
-}
-
-/// `name` in `dir`, or `name (2)`, `name (3)`... until nothing there is
-/// written over.
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
-    let (stem, ext) = match name.rfind('.') {
-        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
-        _ => (name, ""),
-    };
-    (2..)
-        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|path| !path.exists())
-        .unwrap_or(first)
 }
 
 /// [`CaptionsPane::subject_clip`] with the studio taken out: `selected`
@@ -875,25 +838,22 @@ struct Source {
 /// The clips on the current timeline that have sound, in the order they
 /// play: an audio clip, or a video whose file has an audio stream.
 fn sources(studio: &Studio) -> Vec<Source> {
-    let project = studio.project();
-    let mut clips: Vec<_> = studio
-        .timeline()
-        .clips
-        .iter()
-        .filter(|clip| studio.clip_has_sound(clip))
-        .map(|clip| {
-            let name = project
-                .media_by_id(&clip.media_id)
+    let doc = studio.doc();
+    let mut clips: Vec<_> = doc_view::items(doc)
+        .into_iter()
+        .filter(|(_, clip)| studio.clip_has_sound(clip))
+        .map(|(id, clip)| {
+            let name = doc_view::media_of(doc, clip)
                 .map_or(clip.name.as_str(), |media| media.name.as_str());
-            (clip.start, clip.id.clone(), name.to_owned())
+            (clip.start, id, name.to_owned())
         })
         .collect();
-    clips.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    clips.sort_by_key(|(start, id, _)| (*start, *id));
     clips
         .into_iter()
         .map(|(start, id, name)| Source {
-            id,
-            label: source_label(&name, start),
+            id: id.to_string(),
+            label: source_label(&name, doc_view::secs(start)),
         })
         .collect()
 }
@@ -914,7 +874,7 @@ fn source_label(name: &str, start: f64) -> String {
 /// text preset picked on the sheet (`Preferences::caption_style`), with
 /// the font it brings registered on the project in the same undo step;
 /// or, for the plain preset or none, the look a title was kept as.
-fn caption_base(studio: &Studio) -> (Option<TextStyle>, Option<Command>) {
+fn caption_base(studio: &Studio) -> (Option<Title>, Option<Command>) {
     let picked = studio
         .prefs
         .caption_style
@@ -927,7 +887,14 @@ fn caption_base(studio: &Studio) -> (Option<TextStyle>, Option<Command>) {
             crate::presets::install_font(&studio.host.dirs, preset)
                 .map(|(family, path)| Command::AddFont { family, path }),
         ),
-        None => (studio.prefs.title_style.clone(), None),
+        None => (
+            studio
+                .prefs
+                .title_look
+                .as_ref()
+                .map(crate::prefs::TitleLook::to_title),
+            None,
+        ),
     }
 }
 
@@ -1035,28 +1002,21 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 mod tests {
     use super::{script_captions, source_label};
 
+    /// A file's cues land as one edit, a short one and a two-line one
+    /// kept as they were, and the captions written out read back as the
+    /// file's own cues.
     #[test]
     fn imported_srt_preserves_short_cues_and_multiline_text() {
-        let cues = concat_project::srt::parse(
+        let cues = crate::srt::parse(
             "1\n00:00:01,000 --> 00:00:01,100\nOlá\nAção\n\n2\n00:00:02,000 --> 00:00:03,000\nFim\n",
-        ).unwrap();
-        let commands = super::srt_commands(cues.clone(), (0.35, 0.04), None);
-        let mut editor = concat_project::Editor::new();
-        editor
-            .apply(concat_project::Command::Batch { commands })
-            .unwrap();
-        let exported = concat_project::srt::write(&concat_project::srt::title_cues(
-            editor.project().active(),
-            None,
-        ));
-        assert_eq!(concat_project::srt::parse(&exported).unwrap(), cues);
-        assert!(editor.undo());
-        assert!(editor.project().active().clips.is_empty());
-        assert!(editor.redo());
-        assert_eq!(
-            concat_project::srt::title_cues(editor.project().active(), None).len(),
-            2
         );
+        let commands = super::srt_commands(cues.clone(), (0.35, 0.04), None);
+        assert_eq!(commands.len(), 1, "one edit, so one undo takes them all");
+        let mut bench = crate::doc_view::bench::Bench::new();
+        bench.apply(&concat_doc::commands::Command::Batch { commands });
+        let exported = crate::srt::write(&crate::srt::title_cues(bench.doc(), None));
+        assert_eq!(crate::srt::parse(&exported), cues);
+        assert_eq!(crate::srt::title_cues(bench.doc(), None).len(), 2);
     }
 
     /// The panel floats over a live editor: a clip with sound selected
@@ -1113,9 +1073,9 @@ mod tests {
 
     #[test]
     fn imported_srt_ignores_empty_captions() {
-        let cues = vec![concat_project::srt::Cue {
-            start: 0.0,
-            end: 1.0,
+        let cues = vec![crate::srt::Cue {
+            start: concat_doc::Tick::ZERO,
+            end: crate::doc_view::tick(1.0),
             text: "  ".into(),
         }];
         assert!(super::srt_commands(cues, (0.35, 0.04), None).is_empty());

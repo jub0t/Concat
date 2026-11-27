@@ -18,19 +18,32 @@ struct VoiceRequest {
     dir: std::path::PathBuf,
     source: std::path::PathBuf,
     stream: Option<usize>,
-    kind: concat_project::model::VoiceKind,
+    kind: model::VoiceKind,
+}
+
+/// The sound stream an item plays, by its index in the file; none for the
+/// first, and for what is not a cut.
+fn stream_of(clip: &Item) -> Option<u32> {
+    match &clip.content {
+        Content::Media(cut) => cut.stream,
+        _ => None,
+    }
 }
 
 impl Studio {
     /// The parts of `clip`'s sound, as the flattener looks for them.
-    fn voice_dir(&self, clip: &Clip) -> Option<std::path::PathBuf> {
+    fn voice_dir(&self, clip: &Item) -> Option<std::path::PathBuf> {
         let session = self.session.as_ref()?;
-        let media = self.project().media_by_id(&clip.media_id)?;
+        let media = doc_view::media_of(self.doc(), clip)?;
+        let kind = clip.sound.voice.as_ref()?.kind.clone();
+        if matches!(kind, model::VoiceKind::Unknown(_)) {
+            return None;
+        }
         Some(concat_export::voice_stems_dir(
             std::path::Path::new(session.path()),
             &media.path,
-            clip.audio_stream,
-            clip.voice?.kind,
+            stream_of(clip),
+            &kind,
         ))
     }
 
@@ -42,7 +55,7 @@ impl Studio {
     /// How far splitting `clip`'s sound has got, 0 to 1, or -1 when nothing
     /// is splitting it: done, failed, or never asked; and whether that is
     /// the model still downloading.
-    pub(super) fn voice_progress(&self, clip: &Clip) -> (f32, bool) {
+    pub(super) fn voice_progress(&self, clip: &Item) -> (f32, bool) {
         self.voice_dir(clip)
             .and_then(|dir| self.voice_jobs.get(&dir).copied())
             .map_or((-1.0, false), |(fetching, fraction)| (fraction, fetching))
@@ -56,34 +69,34 @@ impl Studio {
             return;
         }
         let mut next = None;
-        for clip in &self.timeline().clips {
-            if clip.voice.is_none() {
+        for (_, clip) in doc_view::items(self.doc()) {
+            let Some(voice) = clip.sound.voice.as_ref() else {
                 continue;
-            }
+            };
             let Some(dir) = self.voice_dir(clip) else {
                 continue;
             };
             if Self::voice_ready(&dir) || self.voice_failed.contains(&dir) {
                 continue;
             }
-            let Some(media) = self.project().media_by_id(&clip.media_id) else {
+            let Some(media) = doc_view::media_of(self.doc(), clip) else {
                 continue;
             };
-            if !media.has_audio {
+            if !media.has_sound {
                 continue;
             }
             next = Some(VoiceRequest {
                 dir,
                 source: std::path::PathBuf::from(&media.path),
-                stream: clip.audio_stream.map(|index| index as usize),
-                kind: clip.voice.unwrap_or_default().kind,
+                stream: stream_of(clip).map(|index| index as usize),
+                kind: voice.kind.clone(),
             });
             break;
         }
         let Some(request) = next else {
             return;
         };
-        let vocals = request.kind == concat_project::model::VoiceKind::Vocals;
+        let vocals = request.kind == model::VoiceKind::Vocals;
         self.voice_jobs.insert(request.dir.clone(), (vocals, 0.0));
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.voice_cancel = Some(Arc::clone(&cancel));
@@ -129,7 +142,9 @@ impl Studio {
                         ))
                     })
                     .and_then(|()| match request.kind {
-                        concat_project::model::VoiceKind::Speech => {
+                        // A kind this build does not know is never asked
+                        // for: `voice_dir` passes it by.
+                        model::VoiceKind::Speech | model::VoiceKind::Unknown(_) => {
                             concat_speech::isolate::isolate(
                                 &request.source,
                                 request.stream,
@@ -139,7 +154,7 @@ impl Studio {
                                 &mut |fraction| step(false, fraction),
                             )
                         }
-                        concat_project::model::VoiceKind::Vocals => {
+                        model::VoiceKind::Vocals => {
                             // The two networks first, the first time: 39 MB.
                             let mut fetch = |id| {
                                 concat_host::cutout::fetch_model(
@@ -201,19 +216,11 @@ impl Studio {
     /// Sets the voice levels of every selected clip that has sound, or
     /// takes isolation off them: one undo step. A file that failed to
     /// split before is tried again, since asking again is asking.
-    pub fn set_voice(&mut self, mix: Option<concat_project::model::VoiceMix>) {
+    pub fn set_voice(&mut self, mix: Option<model::VoiceMix>) {
         let ids: Vec<String> = self
             .selection
             .iter()
-            .filter(|id| {
-                self.clip(id).is_some_and(|clip| {
-                    matches!(
-                        clip.kind,
-                        concat_project::model::ClipKind::Video
-                            | concat_project::model::ClipKind::Audio
-                    )
-                })
-            })
+            .filter(|id| matches!(self.kind_by(id), Kind::Video | Kind::Audio))
             .cloned()
             .collect();
         if ids.is_empty() {
@@ -225,10 +232,11 @@ impl Studio {
             }
         }
         let commands = ids
-            .into_iter()
-            .map(|clip_id| Command::SetClipVoice {
-                clip_id,
-                voice: mix,
+            .iter()
+            .filter_map(|id| doc_view::parse(id))
+            .map(|item| Command::SetClipVoice {
+                item,
+                voice: mix.clone(),
             })
             .collect();
         self.apply(Command::Batch { commands });

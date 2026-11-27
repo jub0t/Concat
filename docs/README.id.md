@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Tentang
 
-Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, Android, dan iOS. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, isolasi suara, teks ke suara, penghapusan latar, animasi dan keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
+Concat adalah penyunting video gratis dan sumber terbuka untuk macOS, Windows, Linux, dan Android. Ia mencakup yang dibutuhkan sebagian besar suntingan: teks otomatis, isolasi suara, teks ke suara, penghapusan latar, animasi dan keyframe, efek dan judul, pemotongan multi-trek, ekspor 4K. Tanpa jebakan apa pun: tanpa tanda air, tanpa akun, tanpa langganan, tanpa unggahan.
 
 Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatuhkan rekaman, potong. Model AI untuk teks, suara, dan pemotongan latar diunduh sekali dari Pengaturan dan setelah itu bekerja luring. Rekaman Anda tidak pernah meninggalkan disk Anda.
 
@@ -72,8 +72,8 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - 📤 **Ekspor.** H.264, HEVC, AV1, dengan encoder bawaan komputer Anda. Hingga 4K 60, warna 10-bit.
 - ⚡ **Cepat.** Proksi bawaan, jadi 4K digeser dengan mulus. Judul digambar di setiap inti, dan setiap efek siap begitu jendela terbuka.
 - 🛟 **Tetap jalan di mesin apa pun.** Saat chip grafis menyerah, pratinjau tetap menggambar.
-- 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan gRPC dan alat baris perintah.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 bahasa. Aplikasi yang sama, file proyek yang sama.
+- 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan alat baris perintah.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 bahasa. Aplikasi yang sama, file proyek yang sama.
 
 ## Unduh
 
@@ -90,7 +90,6 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 - ✅ **macOS** · Intel dan Apple Silicon. Jika macOS menolak membuka build tanpa tanda tangan: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 dan ARM. `.deb`, `.rpm`, `.AppImage`, dan paket Arch. Juga Flatpak di **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, remote Flatpak komunitas yang membungkus `.deb` x86_64 setiap rilis dan ikut memperbarui bersamanya
 - ✅ **Android** · ponsel dan tablet
-- ✅ **iOS / iPadOS** · iPhone dan iPad, lewat sideload
 
 ✅ Didukung · 🚧 Dalam pengerjaan · 🧪 Perlu diuji
 
@@ -103,7 +102,7 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 > [!IMPORTANT]
 > Cara terbaik berkontribusi adalah mengambil build dari halaman [Releases](https://github.com/jub0t/Concat/releases) dan memakainya: temukan di mana ia rusak, dan katakan di mana ia bisa lebih baik.
 >
-> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concat.standalones.org/docs) membahas API Concat dan transportnya: JSON-RPC dan gRPC. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
+> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concat.standalones.org/docs) membahas API Concat dan transportnya: JSON-RPC. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
 > 
 > Kontributor bisa mendapatkan peran `@Contributor` di server Discord: cukup minta saja.
 

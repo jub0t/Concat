@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## 關於
 
-Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Linux、Android 與 iOS。它涵蓋了大多數剪輯所需的功能：自動字幕、人聲分離、文字轉語音、背景移除、動畫與關鍵影格、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。
+Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Linux 與 Android。它涵蓋了大多數剪輯所需的功能：自動字幕、人聲分離、文字轉語音、背景移除、動畫與關鍵影格、特效與標題、多軌剪輯、4K 輸出。而且沒有任何陷阱：無浮水印、不需帳號、不需訂閱、不上傳。
 
 一切都在本機執行，基於帶 GPU 合成器的原生 Rust 引擎。安裝、拖入素材、開剪。字幕、語音與去背所用的 AI 模型只需在設定中下載一次，之後離線可用。您的素材永遠不會離開您的硬碟。
 
@@ -72,8 +72,8 @@ Concat 是一款免費、開源的影片編輯器，支援 macOS、Windows、Lin
 - 📤 **輸出。** H.264、HEVC、AV1，使用你電腦自備的編碼器。最高 4K 60，10 位元色彩。
 - ⚡ **快。** 內建代理檔，4K 拖曳也順暢。標題在每個核心上繪製，視窗一開啟，所有特效就已就緒。
 - 🛟 **任何機器上都能繼續運作。** 顯示晶片罷工時，預覽依然會繼續繪製。
-- 🤖 **可指令碼化。** 提供 JSON-RPC API，指令碼與 AI 代理可以用它剪影片。從原始碼建置還會加上 gRPC 與命令列工具。
-- 🖥️ **macOS、Windows、Linux、Android、iOS。** 27 種語言。同一個應用程式，同樣的專案檔。
+- 🤖 **可指令碼化。** 提供 JSON-RPC API，指令碼與 AI 代理可以用它剪影片。從原始碼建置還會加上命令列工具。
+- 🖥️ **macOS、Windows、Linux、Android。** 27 種語言。同一個應用程式，同樣的專案檔。
 
 ## 下載
 
@@ -90,7 +90,6 @@ Concat 處於 **測試版**：能用，但還有毛邊。遇到了請 [告訴我
 - ✅ **macOS** · Intel 與 Apple 晶片。如果 macOS 拒絕開啟未簽署版本：`xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 與 ARM。`.deb`、`.rpm`、`.AppImage` 與 Arch 套件。另有 **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** 上的 Flatpak，這是一個社群 Flatpak 儲存庫，封裝每個版本的 x86_64 `.deb` 並隨之更新
 - ✅ **Android** · 手機與平板
-- ✅ **iOS / iPadOS** · iPhone 與 iPad，需側載
 
 ✅ 已支援 · 🚧 開發中 · 🧪 待測試
 
@@ -103,7 +102,7 @@ Concat 處於 **測試版**：能用，但還有毛邊。遇到了請 [告訴我
 > [!IMPORTANT]
 > 最好的貢獻方式是從 [Releases](https://github.com/jub0t/Concat/releases) 頁面拿一個版本來用：找到它哪裡會壞，說出它哪裡可以更好。
 >
-> 準備寫程式了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介紹了環境建置、目錄結構、要執行的檢查以及貢獻的授權方式。要從指令碼、服務或代理驅動 Concat？[開發者文件](https://concat.standalones.org/docs) 介紹了 Concat API 及其傳輸方式：JSON-RPC 與 gRPC。專案在 [這個 Discussion](https://github.com/jub0t/Concat/discussions/3) 中發布。
+> 準備寫程式了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介紹了環境建置、目錄結構、要執行的檢查以及貢獻的授權方式。要從指令碼、服務或代理驅動 Concat？[開發者文件](https://concat.standalones.org/docs) 介紹了 Concat API 及其傳輸方式：JSON-RPC。專案在 [這個 Discussion](https://github.com/jub0t/Concat/discussions/3) 中發布。
 > 
 > 貢獻者可以在 Discord 伺服器申請 `@Contributor` 身分組，開口要就行。
 

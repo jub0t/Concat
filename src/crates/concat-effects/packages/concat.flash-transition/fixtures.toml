@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+# Pinned from the GPU's own rendering of one flat colour; see each name.
+
+[[probe]]
+name = "default, in the glare"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.45
+expect = [3.1074, 2.0781, 1.4043, 1]
+
+[[probe]]
+name = "dimmest"
+at = "min"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.45
+expect = [1.0967, 0.68896, 0.42212, 1]
+
+[[probe]]
+name = "brightest"
+at = "max"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.3
+expect = [1.0879, 0.69727, 0.42944, 1]

@@ -13,7 +13,7 @@
 //! around the three is the JSON-RPC 2.0 envelope in [`rpc`].
 //!
 //! The crate decides nothing about the edit either. Edits are
-//! `concat_project` [`Command`]s carried as they are; projects, media,
+//! `concat_doc` commands, as [`Command`] carries them; projects, media,
 //! templates, titles, cutouts and exports are `concat_host`'s. What this
 //! crate owns is the choreography the window performs by hand - probe then
 //! add, find masks and paint titles before rendering, save through the
@@ -35,6 +35,7 @@ pub mod message;
 #[cfg(test)]
 mod project_close_tests;
 pub mod rpc;
+pub mod wire;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -42,6 +43,9 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use concat_core::Halt;
+use concat_doc::commands::Command as DocCommand;
+use concat_doc::model::{self as dm, ItemId, Model};
+use concat_doc::{AnyId, Document};
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind;
 use concat_export::{ExportClip, ExportRequest};
@@ -49,17 +53,16 @@ pub use concat_host::AppDirs;
 use concat_host::cutout::{self, AnalyseRequest, Cutouts};
 use concat_host::export::{self, Exporter};
 use concat_host::preview::{FrameSpec, Monitor};
-use concat_host::session::EditorView;
 use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
-use concat_project::Command;
-use concat_project::model::{Cover, VideoSettings};
+pub use wire::{Command, VideoSettings};
 
 pub use message::{
-    API_VERSION, ApiError, CaptionSegment, ClipBounds, Dirs, Done, ErrorCode, Event, ExportSpec,
-    Fill, JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo, PeaksInfo, Picture,
-    Reply, Request, Response, ShapeCard, Started, VersionInfo, VoiceItem, Written,
+    API_VERSION, ApiError, CaptionSegment, ClipBounds, Dirs, Done, EditorView, ErrorCode, Event,
+    ExportSpec, Fill, JobState, JobStatus, ModelInfo, ModelsInfo, PackageInfo, ParamInfo,
+    PeaksInfo, Picture, Reply, Request, Response, SettingsView, ShapeCard, Started, VersionInfo,
+    VoiceItem, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -75,7 +78,7 @@ const CAPABILITIES: &[&str] = &["events", "captions", "models", "speech"];
 /// The JSON Schema of [`Request`]: one alternative per method, each the
 /// object its params are with `method` naming it, and every type a request
 /// carries - an edit [`Command`] and all it holds - under `$defs`. The
-/// descriptions are this crate's and `concat_project`'s doc comments, so
+/// descriptions are this crate's and `concat_doc`'s doc comments, so
 /// what a caller is told about a field is what its maintainer wrote next
 /// to it. Generated, never written by hand: a method or a command field
 /// added to the types is in the schema on the next build.
@@ -271,6 +274,12 @@ pub struct Stopper {
 }
 
 impl Stopper {
+    /// How many jobs this API started are running now: what a stop would
+    /// cancel, for a front end that asks before it stops them.
+    pub fn running(&self) -> usize {
+        self.book.running()
+    }
+
     /// Asks every job this API started to stop at its next frame - its
     /// own and no other, even where the export slot is shared with a
     /// window. Each then ends with [`ErrorCode::Cancelled`]. How many
@@ -463,20 +472,33 @@ impl Api {
                 Ok(Reply::Done(Done {}))
             }
             Request::ProjectList => Ok(Reply::Projects(self.recents())),
-            Request::ProjectGet { path } => view(self.session(&path)?.view()),
-            Request::ProjectDocument { path } => {
-                Ok(Reply::Document(self.session(&path)?.document()))
-            }
+            Request::ProjectGet { path } => view(view_of(self.session(&path)?, None)),
+            Request::ProjectDocument { path } => Ok(Reply::Document(document_json(
+                &self.session(&path)?.document(),
+            ))),
             Request::ProjectSave { path, name } => {
                 self.save(&path, name.as_deref())?;
                 Ok(Reply::Done(Done {}))
             }
             Request::ProjectSetVideo { path, video } => {
-                view(self.session_mut(&path)?.set_video(video).map_err(refused)?)
+                let frame = video.doc().map_err(ApiError::invalid)?;
+                let session = self.session(&path)?;
+                let sequence = session.showing().ok_or_else(|| {
+                    ApiError::new(ErrorCode::Refused, "There is no timeline open")
+                })?;
+                view(self.apply_doc(&path, DocCommand::SetTimelineVideo { sequence, frame })?)
             }
             Request::EditApply { path, command } => view(self.apply(&path, *command)?),
-            Request::EditUndo { path } => view(self.session_mut(&path)?.undo()),
-            Request::EditRedo { path } => view(self.session_mut(&path)?.redo()),
+            Request::EditUndo { path } => {
+                let session = self.session_mut(&path)?;
+                session.undo();
+                view(view_of(session, None))
+            }
+            Request::EditRedo { path } => {
+                let session = self.session_mut(&path)?;
+                session.redo();
+                view(view_of(session, None))
+            }
             Request::MediaProbe { path } => {
                 Ok(Reply::Media(media::probe(&path).map_err(ApiError::failed)?))
             }
@@ -646,6 +668,7 @@ impl Api {
         video: VideoSettings,
     ) -> Result<EditorView, ApiError> {
         self.writable(location)?;
+        let frame = video.doc().map_err(ApiError::invalid)?;
         let info = projects::create(
             location,
             name,
@@ -653,17 +676,26 @@ impl Api {
             video.height,
             video.rate_num,
             video.rate_den,
-            video.canvas,
+            video.canvas_rgba().map_err(ApiError::invalid)?,
         )
         .map_err(ApiError::failed)?;
-        self.adopt(info)
+        let path = info.path.clone();
+        let view = self.adopt(info)?;
+        // The colour the timeline is output in is the document's, not the
+        // manifest's.
+        if frame.color != dm::ColorSpace::Sdr
+            && let Some(sequence) = self.session(&path)?.showing()
+        {
+            return self.apply_doc(&path, DocCommand::SetTimelineVideo { sequence, frame });
+        }
+        Ok(view)
     }
 
     /// [`Request::ProjectOpen`].
     pub fn open(&mut self, path: &str) -> Result<EditorView, ApiError> {
         let key = key_of(path);
         if let Some(session) = self.sessions.get(&key) {
-            return Ok(session.view());
+            return Ok(view_of(session, None));
         }
         let info = projects::open(path).map_err(ApiError::failed)?;
         self.adopt(info)
@@ -697,7 +729,7 @@ impl Api {
         // Recents are a convenience for the launch screen; a machine whose
         // config folder cannot be written still edits.
         let _ = projects::remember(&self.dirs.config, &info);
-        let view = session.view();
+        let view = view_of(&session, None);
         self.sessions.insert(key_of(&info.path), session);
         Ok(view)
     }
@@ -736,13 +768,39 @@ impl Api {
 
     /// [`Request::EditApply`].
     pub fn apply(&mut self, path: &str, command: Command) -> Result<EditorView, ApiError> {
-        self.session_mut(path)?.apply(command).map_err(refused)
+        // A cover of a picture is a still of the bin: added first, when it
+        // is not there, then named.
+        if let Command::SetCover {
+            cover: Some(wire::Cover::Picture { path: file }),
+        } = &command
+        {
+            let held = self
+                .session(path)?
+                .document()
+                .media
+                .iter()
+                .any(|(_, media)| media.path == *file);
+            if !held {
+                let media = media::probe(file).map_err(ApiError::failed)?.to_new_media();
+                self.apply_doc(path, DocCommand::AddMedia { media })?;
+            }
+        }
+        let document = self.session(path)?.document();
+        let command = wire::to_doc(&document, &command).map_err(ApiError::invalid)?;
+        self.apply_doc(path, command)
     }
 
-    /// [`Request::MediaImport`]: the probe and the add, as one.
+    /// Applies one of the document's own commands.
+    pub fn apply_doc(&mut self, path: &str, command: DocCommand) -> Result<EditorView, ApiError> {
+        let session = self.session_mut(path)?;
+        let change = session.apply(&command).map_err(refused)?;
+        Ok(view_of(session, change.applied.created))
+    }
+
+    /// Probes `file` and adds it to the bin of the project at `path`.
     pub fn import(&mut self, path: &str, file: &str) -> Result<EditorView, ApiError> {
-        let item = media::probe(file).map_err(ApiError::failed)?.to_new_media();
-        self.apply(path, Command::AddMedia { item })
+        let media = media::probe(file).map_err(ApiError::failed)?.to_new_media();
+        self.apply_doc(path, DocCommand::AddMedia { media })
     }
 
     /// [`Request::TemplateInstantiate`].
@@ -760,7 +818,9 @@ impl Api {
             .into_iter()
             .map(|fill| {
                 Ok(SlotFill {
-                    media_id: fill.media_id,
+                    media_id: fill.media_id.parse().map_err(|error| {
+                        ApiError::invalid(format!("{:?} is no file's id: {error}", fill.media_id))
+                    })?,
                     item: media::probe(&fill.file)
                         .map_err(ApiError::failed)?
                         .to_new_media(),
@@ -782,7 +842,7 @@ impl Api {
         templates::save(
             &self.dirs.config,
             &session.document(),
-            &session.settings(),
+            &session.frame(),
             session.path(),
             name,
         )
@@ -797,26 +857,27 @@ impl Api {
     pub fn export(&mut self, path: &str, spec: &ExportSpec) -> Result<Started, ApiError> {
         self.writable(&spec.output)?;
         let session = self.session(path)?;
-        if session.project().active().clips.is_empty() {
+        let document = session.document();
+        if document.showing_end().display_seconds() <= 0.0 {
             return Err(ApiError::new(
                 ErrorCode::Refused,
                 "There is nothing on the timeline to export",
             ));
         }
-        let settings = session.settings();
+        let frame = session.frame();
         let (width, height) = checked_size(
-            spec.width.unwrap_or(settings.width),
-            spec.height.unwrap_or(settings.height),
+            spec.width.unwrap_or(frame.width.get()),
+            spec.height.unwrap_or(frame.height.get()),
         )?;
         if let Some(crf) = spec.crf
             && crf > MAX_CRF
         {
             return Err(ApiError::invalid(format!("crf {crf} is over {MAX_CRF}")));
         }
-        let rate_num = spec.rate_num.unwrap_or(settings.rate_num);
-        let rate_den = spec.rate_den.unwrap_or(settings.rate_den);
+        let rate_num = spec.rate_num.unwrap_or(i64::from(frame.rate.num()));
+        let rate_den = spec.rate_den.unwrap_or(i64::from(frame.rate.den()));
         checked_rate(rate_num, rate_den)?;
-        let hdr = session.video().color_space.is_hdr() && spec.hdr.unwrap_or(true);
+        let hdr = frame.color != dm::ColorSpace::Sdr && spec.hdr.unwrap_or(true);
         let codec = match spec.codec.as_deref() {
             None if hdr => export::VideoCodec::Hevc,
             None => export::VideoCodec::H264,
@@ -854,22 +915,38 @@ impl Api {
 
         let project_path = session.path().to_owned();
         let project_dir = PathBuf::from(&project_path);
-        let masks: Vec<(String, AnalyseRequest)> =
-            Cutouts::requests(session.project(), &project_dir)
-                .into_iter()
-                .filter(|(_, request)| Cutouts::outstanding(request) != 0)
-                .collect();
+        let masks: Vec<(String, AnalyseRequest)> = Cutouts::requests(&document, &project_dir)
+            .into_iter()
+            .filter(|(_, request)| Cutouts::outstanding(request) != 0)
+            .collect();
         let steadies: Vec<(String, StabilizeRequest)> =
-            Stabilizers::requests(session.project(), &project_dir)
+            Stabilizers::requests(&document, &project_dir)
                 .into_iter()
                 .filter(|(_, request)| !Stabilizers::outstanding(request).is_empty())
                 .collect();
-        let titles = self.title_clips(session, width, height);
-        let mut request = export::request(session, &host_spec, titles);
-        request.width = width;
-        request.height = height;
-        request.rate_num = rate_num;
-        request.rate_den = rate_den;
+        // In a worker where this program serves them, as the window's own
+        // exports are: a crash there is an `export.failed` for the caller,
+        // not this process gone (#762). The worker paints the titles.
+        let render = match concat_host::export_apart::program() {
+            Some(_) => Render::Apart(Box::new(concat_host::export_apart::Order::new(
+                &document,
+                project_dir.clone(),
+                &host_spec,
+                width,
+                height,
+                rate_num,
+                rate_den,
+            ))),
+            None => {
+                let titles = self.title_clips(session, width, height);
+                let mut request = export::request(session, &host_spec, titles);
+                request.width = width;
+                request.height = height;
+                request.rate_num = rate_num;
+                request.rate_den = rate_den;
+                Render::Here(Box::new(request))
+            }
+        };
 
         let slot = self
             .exporter
@@ -887,7 +964,9 @@ impl Api {
         let job = ExportJob {
             name: started.job.clone(),
             path: started.path.clone(),
-            request,
+            render,
+            width,
+            height,
             masks,
             cutouts: Arc::clone(&self.cutouts),
             steadies,
@@ -936,15 +1015,15 @@ impl Api {
     /// painter left it at the timeline's own size, in fractions of it.
     fn bounds(&self, path: &str) -> Result<Vec<ClipBounds>, ApiError> {
         let session = self.session(path)?;
-        let settings = session.settings();
-        let (width, height) = checked_size(settings.width, settings.height)?;
+        let frame = session.frame();
+        let (width, height) = checked_size(frame.width.get(), frame.height.get())?;
         let (w, h) = (f64::from(width), f64::from(height));
         Ok(self
             .titles
-            .clips_live(session.project(), width, height)
+            .clips_live(&session.document(), width, height)
             .into_iter()
             .map(|title| ClipBounds {
-                clip_id: title.clip_id,
+                clip_id: title.clip_id.to_string(),
                 width: f64::from(title.block.0) / w,
                 height: f64::from(title.block.1) / h,
                 offset_x: f64::from(title.offset.0) / w,
@@ -957,7 +1036,7 @@ impl Api {
     /// the stills that stand in for them.
     fn title_clips(&self, session: &Session, width: u32, height: u32) -> Vec<ExportClip> {
         self.titles
-            .clips(session.project(), width, height)
+            .clips(&session.document(), width, height)
             .into_iter()
             .map(|title| title.clip)
             .collect()
@@ -991,18 +1070,29 @@ impl Api {
     ) -> Result<Written, ApiError> {
         self.writable(output)?;
         let session = self.session(path)?;
-        let settings = session.settings();
-        let (width, height) = size.unwrap_or((settings.width, settings.height));
+        let frame = session.frame();
+        let (width, height) = size.unwrap_or((frame.width.get(), frame.height.get()));
         let (width, height) = checked_size(width, height)?;
-        let cover = session.project().cover.clone();
-        let length = session.project().active().duration();
-        let pixels = match cover {
-            Some(Cover::Picture { path: file }) => picture_cover(&file, width, height)?,
-            Some(Cover::Frame { time }) => {
-                self.pixels(path, time.min(length), Some((width, height)))?
-                    .2
+        let document = session.document();
+        let length = document.showing_end().display_seconds();
+        let pixels = match document.cover.clone() {
+            Some(dm::Cover::Picture { media }) => {
+                let file = document
+                    .media
+                    .get(media)
+                    .map(|media| media.path.clone())
+                    .ok_or_else(|| ApiError::failed("the cover's picture is not in the bin"))?;
+                picture_cover(&file, width, height)?
             }
-            None => {
+            Some(dm::Cover::Frame { into }) => {
+                self.pixels(
+                    path,
+                    into.display_seconds().min(length),
+                    Some((width, height)),
+                )?
+                .2
+            }
+            _ => {
                 self.pixels(path, early_frame(length), Some((width, height)))?
                     .2
             }
@@ -1041,8 +1131,8 @@ impl Api {
         size: Option<(u32, u32)>,
     ) -> Result<(u32, u32, Vec<u8>), ApiError> {
         let session = self.session(path)?;
-        let settings = session.settings();
-        let (width, height) = size.unwrap_or((settings.width, settings.height));
+        let settings = session.frame();
+        let (width, height) = size.unwrap_or((settings.width.get(), settings.height.get()));
         let (width, height) = checked_size(width, height)?;
         let mut clips = session.flattened_clips();
         // Painted at the timeline's size in memory, whatever size this
@@ -1059,8 +1149,13 @@ impl Api {
                     height,
                     moving: false,
                     proxy: false,
-                    color_space: session.video().color_space,
-                    canvas: session.video().canvas,
+                    color_space: concat_export::ColorSpace::of(&settings.color),
+                    canvas: [
+                        settings.canvas.r,
+                        settings.canvas.g,
+                        settings.canvas.b,
+                        settings.canvas.a,
+                    ],
                     nearest: false,
                 },
             )
@@ -1085,17 +1180,14 @@ impl Api {
     ) -> Result<Started, ApiError> {
         let (request, project_path) = {
             let session = self.session(path)?;
-            let project = session.project();
-            let clip = project
-                .active()
-                .clip(clip_id)
-                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
-            let media = project
-                .media_by_id(&clip.media_id)
+            let clip = facts(&session.document(), clip_id)?;
+            let media = clip
+                .media
+                .as_ref()
                 .ok_or_else(|| ApiError::invalid(format!("clip {clip_id} has no file to hear")))?;
             let request = concat_speech::transcribe::TranscribeRequest {
                 path: media.path.clone(),
-                audio_stream: clip.audio_stream,
+                audio_stream: clip.stream,
                 source_start: clip.source_start,
                 window: clip.duration * clip.speed,
                 language: (!concat_speech::transcribe::english_only(&model))
@@ -1190,10 +1282,7 @@ impl Api {
         };
         let (start, speed) = {
             let session = self.session(path)?;
-            let clip =
-                session.project().active().clip(clip_id).ok_or_else(|| {
-                    ApiError::invalid(format!("no clip {clip_id} on the timeline"))
-                })?;
+            let clip = facts(&session.document(), clip_id)?;
             (clip.start, clip.speed)
         };
         let heard: Vec<Heard> = segments
@@ -1209,10 +1298,9 @@ impl Api {
         else {
             return Err(ApiError::invalid("there are no words to place"));
         };
-        self.apply(path, command)
+        self.apply_doc(path, command)
     }
 
-    /// [`Request::ModelsList`].
     fn models(&self) -> Result<ModelsInfo, ApiError> {
         let heard = concat_speech::Transcriber::status(&self.dirs).map_err(ApiError::failed)?;
         let read = concat_speech::Speech::status(&self.dirs).map_err(ApiError::failed)?;
@@ -1437,23 +1525,18 @@ impl Api {
         time: f64,
         duration: Option<f64>,
     ) -> Result<EditorView, ApiError> {
-        use concat_project::model::ClipKind;
-        let still = {
+        let (item, still) = {
             let session = self.session(path)?;
-            let project = session.project();
-            let clip = project
-                .active()
-                .clip(clip_id)
-                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
-            match clip.kind {
-                ClipKind::Image => None,
-                ClipKind::Video => {
+            let clip = facts(&session.document(), clip_id)?;
+            let still = match clip.kind {
+                Some(ClipKind::Image) => None,
+                Some(ClipKind::Video) => {
                     if time <= clip.start || time >= clip.start + clip.duration {
                         return Err(ApiError::invalid(format!(
                             "{time} s is not inside clip {clip_id}"
                         )));
                     }
-                    let media = project.media_by_id(&clip.media_id).ok_or_else(|| {
+                    let media = clip.media.as_ref().ok_or_else(|| {
                         ApiError::invalid(format!("clip {clip_id} has no file to hold"))
                     })?;
                     let seconds = clip.source_start + (time - clip.start) * clip.speed;
@@ -1467,14 +1550,19 @@ impl Api {
                         "clip {clip_id} is not a picture: only a video or an image holds"
                     )));
                 }
-            }
+            };
+            (clip.id, still)
         };
-        self.apply(
+        let at = concat_doc::Tick::from_display_seconds(time)
+            .ok_or_else(|| ApiError::invalid("the time is out of range"))?;
+        let len = concat_doc::Tick::from_display_seconds(duration.unwrap_or(1.0).max(0.0))
+            .and_then(|end| concat_doc::TickLen::try_from(end.get()).ok());
+        self.apply_doc(
             path,
-            Command::FreezeFrame {
-                clip_id: clip_id.to_owned(),
-                time,
-                duration: Some(duration.unwrap_or(1.0)),
+            DocCommand::FreezeFrame {
+                item,
+                at,
+                len,
                 still,
             },
         )
@@ -1482,14 +1570,9 @@ impl Api {
 
     /// [`Request::ClipsReplace`].
     fn replace(&mut self, path: &str, clip_id: &str, file: &str) -> Result<EditorView, ApiError> {
-        let (start, covered) = {
-            let clip = self
-                .session(path)?
-                .project()
-                .active()
-                .clip(clip_id)
-                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
-            (clip.source_start, clip.duration * clip.speed)
+        let (item, start, covered) = {
+            let clip = facts(&self.session(path)?.document(), clip_id)?;
+            (clip.id, clip.source_start, clip.duration * clip.speed)
         };
         let summary = media::probe(file).map_err(ApiError::failed)?;
         // A still has no in-point; a file too short to show the clip's
@@ -1498,14 +1581,14 @@ impl Api {
             Some(length) if start + covered > length => 0.0,
             _ => start,
         };
-        self.apply(
+        self.apply_doc(
             path,
-            Command::ReplaceClipMedia {
-                clip_id: clip_id.to_owned(),
-                item: summary.to_new_media(),
-                source_start: Some(from),
+            DocCommand::ReplaceClipMedia {
+                item,
+                file: summary.to_new_media(),
                 enhanced: false,
-                offset: 0.0,
+                copy_start: concat_doc::TickDur::ZERO,
+                source_start: concat_doc::Tick::from_display_seconds(from.max(0.0)),
             },
         )
     }
@@ -1514,27 +1597,22 @@ impl Api {
     /// its in-point, and its length at its rate - written backwards on the
     /// scheduler's background lane, as the window's Reverse does.
     fn reverse(&mut self, path: &str, clip_id: &str) -> Result<Started, ApiError> {
-        use concat_project::model::ClipKind;
         if self.reversers.is_busy() {
             return Err(ApiError::failed("a reverse is already running"));
         }
         let (request, project_path) = {
             let session = self.session(path)?;
-            let project = session.project();
-            let clip = project
-                .active()
-                .clip(clip_id)
-                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            let clip = facts(&session.document(), clip_id)?;
             let audio_only = match clip.kind {
-                ClipKind::Video => false,
-                ClipKind::Audio => true,
+                Some(ClipKind::Video) => false,
+                Some(ClipKind::Audio) => true,
                 _ => {
                     return Err(ApiError::invalid(format!(
                         "clip {clip_id} is neither video nor sound: nothing to reverse"
                     )));
                 }
             };
-            let media = project.media_by_id(&clip.media_id).ok_or_else(|| {
+            let media = clip.media.as_ref().ok_or_else(|| {
                 ApiError::invalid(format!("clip {clip_id} has no file to reverse"))
             })?;
             let start = clip.source_start;
@@ -1606,13 +1684,9 @@ impl Api {
         source_start: f64,
         covered: f64,
     ) -> Result<EditorView, ApiError> {
-        let mut item = {
+        let (clip_item, mut item) = {
             let session = self.session(path)?;
-            let project = session.project();
-            let clip = project
-                .active()
-                .clip(clip_id)
-                .ok_or_else(|| ApiError::invalid(format!("no clip {clip_id} on the timeline")))?;
+            let clip = facts(&session.document(), clip_id)?;
             if (clip.source_start - source_start).abs() > 1e-6
                 || (clip.duration * clip.speed - covered).abs() > 1e-6
             {
@@ -1621,20 +1695,20 @@ impl Api {
                 )));
             }
             let mut item = media::probe(file).map_err(ApiError::failed)?.to_new_media();
-            if let Some(original) = project.media_by_id(&clip.media_id) {
+            if let Some(original) = &clip.media {
                 item.name = format!("{} (reversed)", original.name);
             }
-            item
+            (clip.id, item)
         };
-        item.origin = Some(concat_project::model::MediaOrigin::Processed);
-        self.apply(
+        item.origin = Some(dm::MediaOrigin::Processed);
+        self.apply_doc(
             path,
-            Command::ReplaceClipMedia {
-                clip_id: clip_id.to_owned(),
-                item,
-                source_start: Some(0.0),
+            DocCommand::ReplaceClipMedia {
+                item: clip_item,
+                file: item,
                 enhanced: false,
-                offset: 0.0,
+                copy_start: concat_doc::TickDur::ZERO,
+                source_start: Some(concat_doc::Tick::ZERO),
             },
         )
     }
@@ -1683,11 +1757,11 @@ impl Api {
     /// leaves them out.
     pub fn title_pictures(&self, path: &str) -> Result<Vec<ExportClip>, ApiError> {
         let session = self.session(path)?;
-        let settings = session.settings();
-        let (width, height) = checked_size(settings.width, settings.height)?;
+        let frame = session.frame();
+        let (width, height) = checked_size(frame.width.get(), frame.height.get())?;
         Ok(self
             .titles
-            .clips_live(session.project(), width, height)
+            .clips_live(&session.document(), width, height)
             .into_iter()
             .map(|title| {
                 if let Some(held) = title.held {
@@ -1817,11 +1891,22 @@ impl Jobs {
     }
 }
 
+/// Where an export is drawn.
+enum Render {
+    /// In this process, from the request made here.
+    Here(Box<ExportRequest>),
+    /// In a worker of [`concat_host::export_apart::program`], from the
+    /// order it makes its request from; in this process if none starts.
+    Apart(Box<concat_host::export_apart::Order>),
+}
+
 /// An export in flight: everything its thread needs, owned.
 struct ExportJob {
     name: String,
     path: String,
-    request: ExportRequest,
+    render: Render,
+    width: u32,
+    height: u32,
     masks: Vec<(String, AnalyseRequest)>,
     cutouts: Arc<Cutouts>,
     steadies: Vec<(String, StabilizeRequest)>,
@@ -1836,18 +1921,14 @@ impl ExportJob {
         let outcome = self
             .masks(&slot)
             .and_then(|()| self.steadies(&slot))
-            .and_then(|()| {
-                export::run(&self.request, slot.cancel_flag(), |progress| {
-                    (self.events)(Event::progress(&self.name, &self.path, progress));
-                })
-            });
+            .and_then(|()| self.draw(&slot));
         let event = match outcome {
             Ok(output) => Event::ExportDone {
                 job: self.name.clone(),
                 path: self.path.clone(),
                 output,
-                width: self.request.width,
-                height: self.request.height,
+                width: self.width,
+                height: self.height,
             },
             // Which of the two it was is the job's own answer: the flag
             // may be raised a moment after a failure, and a failure's words
@@ -1864,6 +1945,32 @@ impl ExportJob {
             },
         };
         (self.events)(event);
+    }
+
+    /// The render itself, where [`Render`] says.
+    fn draw(&self, slot: &concat_host::jobs::Job) -> Result<String, Halt> {
+        let mut progress = |progress: export::Progress| {
+            (self.events)(Event::progress(&self.name, &self.path, progress));
+        };
+        let order = match &self.render {
+            Render::Here(request) => {
+                return export::run(request, slot.cancel_flag(), progress);
+            }
+            Render::Apart(order) => order,
+        };
+        // The idle preview decoders let go first, as the window's export
+        // does: the chip has few decoder sessions, and the worker's own
+        // decoders need them.
+        concat_host::scheduler()
+            .pool()
+            .close_idle(std::time::Duration::ZERO);
+        if let Some(program) = concat_host::export_apart::program()
+            && let Some(result) =
+                concat_host::export_apart::run(program, order, slot.cancel_flag(), &mut progress)
+        {
+            return result;
+        }
+        concat_host::export_apart::run_here(order, slot.cancel_flag(), &mut progress)
     }
 
     /// Runs every cutout analysis the timeline still needs, one after the
@@ -1950,16 +2057,103 @@ fn picture_cover(file: &str, width: u32, height: u32) -> Result<Vec<u8>, ApiErro
 
 /// [`Request::ShapesList`]: every Stickers card with the look it places.
 fn shape_cards() -> Vec<ShapeCard> {
-    use concat_project::model::ShapeStyle;
-    ShapeStyle::CARDS
+    wire::shape_cards()
         .into_iter()
-        .filter_map(|id| {
-            Some(ShapeCard {
-                id: id.to_owned(),
-                style: ShapeStyle::preset(id)?,
-            })
-        })
+        .map(|(id, style)| ShapeCard { id, style })
         .collect()
+}
+
+/// The view a reply carries: the document as its file writes it, the
+/// history's state, the settings, and the id an edit made.
+fn view_of(session: &Session, created: Option<AnyId>) -> EditorView {
+    let frame = session.frame();
+    EditorView {
+        project: document_json(&session.document()),
+        can_undo: session.can_undo(),
+        can_redo: session.can_redo(),
+        settings: SettingsView {
+            name: session.name().to_owned(),
+            width: frame.width.get(),
+            height: frame.height.get(),
+            rate_num: i64::from(frame.rate.num()),
+            rate_den: i64::from(frame.rate.den()),
+        },
+        created_id: created.map(|id| id.to_string()),
+    }
+}
+
+/// A document as the JSON its file is.
+fn document_json(document: &Document<Model>) -> serde_json::Value {
+    serde_json::from_str(&concat_doc::file::write(document)).unwrap_or_default()
+}
+
+/// What a clip is, as a file's clip: video, sound or still.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ClipKind {
+    Video,
+    Audio,
+    Image,
+}
+
+/// A clip, in the seconds the API speaks.
+struct Facts {
+    id: ItemId,
+    kind: Option<ClipKind>,
+    media: Option<dm::Media>,
+    stream: Option<u32>,
+    start: f64,
+    duration: f64,
+    source_start: f64,
+    speed: f64,
+}
+
+/// The clip `clip_id` names, in seconds.
+fn facts(document: &Model, clip_id: &str) -> Result<Facts, ApiError> {
+    let no_clip = || ApiError::invalid(format!("no clip {clip_id} on the timeline"));
+    let id: ItemId = clip_id.parse().map_err(|_| no_clip())?;
+    let item = document.items.get(id).ok_or_else(no_clip)?;
+    let start = item.start.display_seconds();
+    let duration = concat_doc::TickDur::from(item.len).display_seconds();
+    let (mut kind, mut media, mut stream, mut source_start, mut speed) =
+        (None, None, None, 0.0, 1.0);
+    if let dm::Content::Media(cut) = &item.content {
+        let file = document
+            .media
+            .get(cut.media)
+            .map(|file| file.as_ref().clone());
+        kind = file
+            .as_ref()
+            .and_then(|file| match (&file.kind, &cut.take) {
+                (dm::MediaKind::Audio, _) | (_, dm::Take::Sound) => Some(ClipKind::Audio),
+                (dm::MediaKind::Image, _) => Some(ClipKind::Image),
+                (dm::MediaKind::Video, _) => Some(ClipKind::Video),
+                _ => None,
+            });
+        media = file;
+        stream = cut.stream;
+        let from = cut
+            .time
+            .source_of(item.offset)
+            .map_or(0.0, |t| t.display_seconds());
+        let to = cut
+            .time
+            .source_of(item.offset + item.len)
+            .map_or(from, |t| t.display_seconds());
+        source_start = from.min(to);
+        if duration > 0.0 {
+            speed = ((to - from) / duration).abs();
+        }
+    }
+    Ok(Facts {
+        id,
+        kind,
+        media,
+        stream,
+        start,
+        duration,
+        source_start,
+        speed,
+    })
 }
 
 /// [`Request::CatalogueList`]: the built-in packages plus whatever
@@ -2133,10 +2327,34 @@ fn encode_png(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use concat_project::commands::NewMedia;
-    use concat_project::model::MediaKind;
+    use crate::wire::{MediaKind, NewMedia};
     use serde_json::json;
     use std::sync::Mutex;
+
+    /// The document of the open project at `path`.
+    fn doc(api: &Api, path: &str) -> Document<Model> {
+        api.open_session(path).expect("open").document()
+    }
+
+    /// The items of the timeline showing, in order of their starts.
+    fn clips(api: &Api, path: &str) -> Vec<(ItemId, dm::Item)> {
+        let document = doc(api, path);
+        let mut out: Vec<(ItemId, dm::Item)> = document
+            .items
+            .iter()
+            .map(|(id, item)| (id, item.as_ref().clone()))
+            .collect();
+        out.sort_by_key(|(_, item)| item.start);
+        out
+    }
+
+    fn secs(t: concat_doc::Tick) -> f64 {
+        t.display_seconds()
+    }
+
+    fn long(l: concat_doc::TickLen) -> f64 {
+        concat_doc::TickDur::from(l).display_seconds()
+    }
 
     /// An API whose config and data live in a scratch folder that goes
     /// away with the test, and whose events pile up where a test can read
@@ -2234,11 +2452,18 @@ mod tests {
 
         api.add_capability("json-rpc");
         api.add_capability("json-rpc");
-        api.add_capability("grpc");
+        api.add_capability("unix-socket");
         let served = serde_json::to_value(ok(api.dispatch(Request::Version))).expect("JSON");
         assert_eq!(
             served["capabilities"],
-            json!(["events", "captions", "models", "speech", "json-rpc", "grpc"]),
+            json!([
+                "events",
+                "captions",
+                "models",
+                "speech",
+                "json-rpc",
+                "unix-socket"
+            ]),
             "each name once, in the order added"
         );
     }
@@ -2291,7 +2516,7 @@ mod tests {
             location: location.clone(),
             name: "Round trip".to_owned(),
             video: Some(VideoSettings {
-                canvas: [0, 0, 0, 255],
+                canvas: None,
                 width: 1080,
                 height: 1920,
                 rate_num: 60,
@@ -2320,7 +2545,7 @@ mod tests {
             }),
         })));
         assert!(placed.can_undo);
-        assert_eq!(placed.project.active().clips.len(), 1);
+        assert_eq!(clips(&api, &path).len(), 1);
 
         ok(api.dispatch(Request::ProjectClose {
             path: path.clone(),
@@ -2332,8 +2557,9 @@ mod tests {
         );
 
         let reopened = view(ok(api.dispatch(Request::ProjectOpen { path: path.clone() })));
-        assert_eq!(reopened.project.active().clips.len(), 1);
-        assert_eq!(reopened.project.active().clips[0].start, 2.0);
+        let held = clips(&api, &path);
+        assert_eq!(held.len(), 1);
+        assert_eq!(secs(held[0].1.start), 2.0);
         assert!(!reopened.can_undo, "history does not survive a save");
 
         let recents = match ok(api.dispatch(Request::ProjectList)) {
@@ -2364,29 +2590,46 @@ mod tests {
                 start: 0.0,
             }),
         })));
-        let clip_id = placed.project.active().clips[0].id.clone();
-        for command in [
-            json!({ "op": "updateClip", "clipId": clip_id,
-                    "patch": { "masks": [{ "source": { "kind": "shape", "shape": "star" },
-                                           "feather": 0.3, "invert": true }] } }),
-            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
-                    "number": "width", "at": 0.0, "value": 0.2 }),
-            json!({ "op": "setMaskKey", "clipId": clip_id, "maskId": "mask-1",
-                    "number": "width", "at": 1.0, "value": 1.2 }),
-        ] {
+        let _ = placed;
+        let clip_id = clips(&api, &path)[0].0.to_string();
+        let command = json!({ "op": "updateClip", "clipId": clip_id,
+                "patch": { "masks": [{ "source": { "kind": "shape", "shape": "star" },
+                                       "feather": 0.3, "invert": true }] } });
+        let request: Request = serde_json::from_value(json!({
+            "method": "edit.apply", "path": path, "command": command
+        }))
+        .expect("parses");
+        ok(api.dispatch(request));
+        let mask_id = clips(&api, &path)[0]
+            .1
+            .masks
+            .iter()
+            .find_map(dm::Entry::known)
+            .expect("a mask")
+            .id
+            .to_string();
+        for (at, value) in [(0.0, 0.2), (1.0, 1.2)] {
             let request: Request = serde_json::from_value(json!({
-                "method": "edit.apply", "path": path, "command": command
+                "method": "edit.apply", "path": path, "command": {
+                    "op": "setMaskKey", "clipId": clip_id, "maskId": mask_id,
+                    "number": "width", "at": at, "value": value }
             }))
             .expect("parses");
             ok(api.dispatch(request));
         }
-        let got = view(ok(api.dispatch(Request::ProjectGet { path })));
-        let clip = &got.project.active().clips[0];
-        let mask = &clip.masks[0];
-        assert_eq!(mask.shape(), Some(concat_project::model::MaskShape::Star));
-        assert!(mask.invert && (mask.feather - 0.3).abs() < 1e-12);
-        let width = mask.value_at("width", 0.5);
-        assert!((width - 0.7).abs() < 1e-12, "the key rides: {width}");
+        let (_, clip) = clips(&api, &path).remove(0);
+        let mask = clip
+            .masks
+            .iter()
+            .find_map(dm::Entry::known)
+            .expect("a mask");
+        let dm::MaskSource::Shape { shape, width, .. } = &mask.source else {
+            panic!("a shape");
+        };
+        assert_eq!(*shape, dm::MaskShape::Star);
+        assert!(mask.invert && (mask.feather.value - 0.3).abs() < 1e-12);
+        let width = concat_export::flatten::value_at(&clip, width, 0.5);
+        assert!((width - 0.7).abs() < 1e-9, "the key rides: {width}");
     }
 
     /// Heard words go on the timeline as one title each, where they were
@@ -2409,7 +2652,8 @@ mod tests {
                 start: 2.0,
             }),
         })));
-        let clip_id = placed.project.active().clips[0].id.clone();
+        let _ = placed;
+        let clip_id = clips(&api, &path)[0].0.to_string();
         let request: Request = serde_json::from_value(json!({
             "method": "captions.place", "path": path, "clipId": clip_id,
             "segments": [
@@ -2420,34 +2664,29 @@ mod tests {
             "placement": "top"
         }))
         .expect("parses");
-        let captioned = view(ok(api.dispatch(request)));
-        let titles: Vec<_> = captioned
-            .project
-            .active()
-            .clips
-            .iter()
-            .filter(|clip| clip.kind == concat_project::model::ClipKind::Text)
+        ok(api.dispatch(request));
+        let titles: Vec<dm::Item> = clips(&api, &path)
+            .into_iter()
+            .map(|(_, item)| item)
+            .filter(|item| matches!(item.content, dm::Content::Title(_)))
             .collect();
         assert_eq!(titles.len(), 2, "the silent stretch is left out");
         let first = titles
             .iter()
-            .find(|clip| (clip.start - 2.0).abs() < 1e-9)
+            .find(|clip| (secs(clip.start) - 2.0).abs() < 1e-9)
             .expect("the first caption where it was said");
-        assert!((first.duration - 1.5).abs() < 1e-9);
+        assert!((long(first.len) - 1.5).abs() < 1e-9);
         assert!(
-            first.offset_y < 0.0,
+            first.picture.offset_y.value < 0.0,
             "top is above the middle (offsets run down): {}",
-            first.offset_y
+            first.picture.offset_y.value
         );
         // One undo takes every caption away.
-        let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
+        ok(api.dispatch(Request::EditUndo { path: path.clone() }));
         assert!(
-            undone
-                .project
-                .active()
-                .clips
+            clips(&api, &path)
                 .iter()
-                .all(|clip| clip.kind != concat_project::model::ClipKind::Text)
+                .all(|(_, clip)| !matches!(clip.content, dm::Content::Title(_)))
         );
         err(api.dispatch(Request::CaptionsPlace {
             path: path.clone(),
@@ -2488,31 +2727,35 @@ mod tests {
                 start: 0.0,
             }),
         })));
-        let clip = placed.project.active().clips[0].clone();
+        let _ = placed;
+        let (clip_id, item) = clips(&api, &path).remove(0);
+        let clip = facts(&doc(&api, &path), &clip_id.to_string()).expect("facts");
+        let half = long(item.len) / 2.0;
         let request: Request = serde_json::from_value(json!({
-            "method": "clips.freeze", "path": path, "clipId": clip.id,
-            "time": clip.duration / 2.0, "duration": 2.0
+            "method": "clips.freeze", "path": path, "clipId": clip_id.to_string(),
+            "time": half, "duration": 2.0
         }))
         .expect("parses");
-        let frozen = view(ok(api.dispatch(request)));
-        let clips = &frozen.project.active().clips;
-        assert_eq!(clips.len(), 3, "the clip, the hold, the rest of the clip");
-        let hold = clips
+        ok(api.dispatch(request));
+        let held = clips(&api, &path);
+        assert_eq!(held.len(), 3, "the clip, the hold, the rest of the clip");
+        let hold = held
             .iter()
-            .find(|held| (held.start - clip.duration / 2.0).abs() < 1e-9)
+            .find(|(_, held)| (secs(held.start) - half).abs() < 1e-9)
             .expect("a hold where the playhead was");
-        assert!((hold.duration - 2.0).abs() < 1e-9);
-        let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
-        assert_eq!(undone.project.active().clips.len(), 1, "one undo step");
+        assert!((long(hold.1.len) - 2.0).abs() < 1e-9);
+        ok(api.dispatch(Request::EditUndo { path: path.clone() }));
+        assert_eq!(clips(&api, &path).len(), 1, "one undo step");
+        let clip_id = clip_id.to_string();
 
         let refused = err(api.dispatch(Request::ClipsReverse {
             path: path.clone(),
-            clip_id: clip.id.clone(),
+            clip_id: clip_id.clone(),
         }));
         assert!(refused.message.contains("nothing to reverse"), "{refused}");
         let moved = err(api.dispatch(Request::ClipsUseReversed {
             path: path.clone(),
-            clip_id: clip.id.clone(),
+            clip_id: clip_id.clone(),
             file: "/nowhere/reversed.mp4".to_owned(),
             source_start: clip.source_start + 1.0,
             covered: clip.duration * clip.speed,
@@ -2520,7 +2763,7 @@ mod tests {
         assert!(moved.message.contains("changed"), "{moved}");
         err(api.dispatch(Request::ClipsReplace {
             path: path.clone(),
-            clip_id: clip.id.clone(),
+            clip_id: clip_id.clone(),
             file: "/nowhere/else.mp4".to_owned(),
         }));
         err(api.dispatch(Request::ClipsFreeze {
@@ -2535,8 +2778,16 @@ mod tests {
     fn a_refusal_is_the_command_layers_sentence_with_its_code() {
         let (mut api, scratch, _) = api();
         let path = project(&mut api, &scratch, "Refused");
-        let created = view(ok(api.dispatch(Request::ProjectGet { path: path.clone() })));
-        let track_id = created.project.active().tracks[0].id.clone();
+        let document = doc(&api, &path);
+        let showing = document.view.showing.expect("a timeline");
+        let track_id = document
+            .lanes
+            .index()
+            .of(showing)
+            .next()
+            .expect("a lane")
+            .0
+            .to_string();
         let refused = err(api.dispatch(Request::EditApply {
             path,
             command: Box::new(Command::AddClip {
@@ -2547,7 +2798,7 @@ mod tests {
             }),
         }));
         assert_eq!(refused.code, ErrorCode::Refused);
-        assert_eq!(refused.message, "That media is no longer in the bin.");
+        assert!(refused.message.contains("m999"), "{}", refused.message);
     }
 
     #[test]
@@ -2606,10 +2857,10 @@ mod tests {
             }),
         }));
         let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));
-        assert!(undone.project.active().clips.is_empty());
+        assert!(clips(&api, &path).is_empty());
         assert!(undone.can_redo);
-        let redone = view(ok(api.dispatch(Request::EditRedo { path })));
-        assert_eq!(redone.project.active().clips.len(), 1);
+        ok(api.dispatch(Request::EditRedo { path: path.clone() }));
+        assert_eq!(clips(&api, &path).len(), 1);
     }
 
     #[test]
@@ -2624,10 +2875,10 @@ mod tests {
             path: path.clone(),
             name: None,
         }));
+        let saved = std::fs::read_to_string(concat_host::session::document_path(Path::new(&path)))
+            .expect("saved");
         assert_eq!(
-            projects::read_document(&path)
-                .expect("saved")
-                .expect("a document"),
+            serde_json::from_str::<serde_json::Value>(&saved).expect("JSON"),
             document
         );
     }

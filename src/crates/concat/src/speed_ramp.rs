@@ -13,11 +13,117 @@
 
 use std::fmt::Write as _;
 
-use concat_project::model::SpeedPoint;
-use concat_project::model::ranges::{MAX_SPEED, MIN_SPEED};
-use concat_project::speed::{self, SPEED_PRESETS};
+use concat_core::retime::SpeedCurve;
+use concat_doc::model::SpeedPoint;
 
 use crate::i18n::t;
+
+/// The slowest a curve's point may be: a sixteenth.
+pub const MIN_SPEED: f64 = SpeedCurve::MIN_SPEED;
+
+/// The fastest: sixteen times.
+pub const MAX_SPEED: f64 = SpeedCurve::MAX_SPEED;
+
+/// Whether a curve bends through its points: every point has a slope.
+/// None does not, nor does a curve of no points.
+pub fn is_eased(points: &[SpeedPoint]) -> bool {
+    !points.is_empty() && points.iter().all(|point| point.slope.is_some())
+}
+
+/// The curve as it plays: tidied, held to the range, reaching both ends,
+/// smooth when every point has a slope. None for a curve with no point
+/// that is a pair of numbers.
+pub fn engine_curve(points: &[SpeedPoint]) -> Option<SpeedCurve> {
+    let pairs: Vec<(f64, f64)> = points.iter().map(|point| (point.at, point.speed)).collect();
+    let slopes: Option<Vec<f64>> = points.iter().map(|point| point.slope).collect();
+    let slopes = slopes.filter(|_| is_eased(points));
+    SpeedCurve::with_tangents(&pairs, slopes.as_deref())
+}
+
+/// One of the Speed tab's ready-made curves.
+#[derive(Clone, Copy, Debug)]
+pub struct SpeedPreset {
+    /// What it is known by, for ever.
+    pub id: &'static str,
+    /// Its places across the clip and the speed at each, in order.
+    pub points: &'static [(f64, f64)],
+}
+
+/// The ready-made curves, in the order the tab lists them.
+pub const SPEED_PRESETS: [SpeedPreset; 6] = [
+    SpeedPreset {
+        id: "montage",
+        points: &[(0.0, 1.0), (0.25, 3.0), (0.5, 0.5), (0.75, 3.0), (1.0, 1.0)],
+    },
+    SpeedPreset {
+        id: "hero",
+        points: &[(0.0, 2.5), (0.35, 1.0), (0.5, 0.5), (0.65, 1.0), (1.0, 2.5)],
+    },
+    SpeedPreset {
+        id: "bullet",
+        points: &[(0.0, 4.0), (0.4, 0.3), (0.6, 0.3), (1.0, 4.0)],
+    },
+    SpeedPreset {
+        id: "jump-cut",
+        points: &[(0.0, 1.0), (0.45, 1.0), (0.5, 8.0), (0.55, 1.0), (1.0, 1.0)],
+    },
+    SpeedPreset {
+        id: "flash-in",
+        points: &[(0.0, 8.0), (0.25, 4.0), (0.5, 1.0), (1.0, 1.0)],
+    },
+    SpeedPreset {
+        id: "flash-out",
+        points: &[(0.0, 1.0), (0.5, 1.0), (0.75, 4.0), (1.0, 8.0)],
+    },
+];
+
+/// A preset's name in the interface's language.
+fn preset_label(id: &str) -> String {
+    match id {
+        "montage" => t("speedRamp.montage"),
+        "hero" => t("speedRamp.hero"),
+        "bullet" => t("speedRamp.bullet"),
+        "jump-cut" => t("speedRamp.jumpCut"),
+        "flash-in" => t("speedRamp.flashIn"),
+        "flash-out" => t("speedRamp.flashOut"),
+        other => other.to_owned(),
+    }
+}
+
+/// A preset's points, eased: each bends through with a flat slope.
+pub fn preset_points(id: &str) -> Option<Vec<SpeedPoint>> {
+    let preset = SPEED_PRESETS.iter().find(|preset| preset.id == id)?;
+    Some(
+        preset
+            .points
+            .iter()
+            .map(|&(at, speed)| SpeedPoint {
+                at,
+                speed,
+                slope: Some(0.0),
+            })
+            .collect(),
+    )
+}
+
+/// The preset these points still are, smooth or straight: the same places
+/// and speeds, to a hair.
+pub fn preset_matching(points: &[SpeedPoint]) -> Option<&'static str> {
+    const HAIR: f64 = 1e-6;
+    SPEED_PRESETS
+        .iter()
+        .find(|preset| {
+            preset.points.len() == points.len()
+                && preset
+                    .points
+                    .iter()
+                    .zip(points)
+                    .all(|(&(at, speed), point)| {
+                        (point.at - at).abs() < HAIR && (point.speed - speed).abs() < HAIR
+                    })
+        })
+        .map(|preset| preset.id)
+}
 
 /// The least room a point keeps from its neighbours across the clip, so
 /// two points never land on one place by a drag and the order they are in
@@ -98,7 +204,7 @@ pub fn place_point(
         } else {
             across.clamp(GAP, 1.0 - GAP)
         };
-        let slope = (points.is_empty() || speed::is_eased(points)).then_some(0.0);
+        let slope = (points.is_empty() || is_eased(points)).then_some(0.0);
         let place = points.partition_point(|other| other.at <= at);
         points.insert(place, SpeedPoint { at, speed, slope });
         return Some(place);
@@ -247,7 +353,7 @@ pub fn apply_easing(points: &mut [SpeedPoint], eased_flag: bool) {
 /// stop short of - and, where it bends, in steps along each stretch. Empty
 /// for no curve.
 pub fn curve_path(points: &[SpeedPoint]) -> String {
-    let Some(curve) = speed::engine_curve(points) else {
+    let Some(curve) = engine_curve(points) else {
         return String::new();
     };
     let vertices = curve.points();
@@ -276,20 +382,23 @@ pub fn curve_path(points: &[SpeedPoint]) -> String {
 
 /// The presets' names in the interface's language, in their order.
 pub fn preset_labels() -> Vec<String> {
-    SPEED_PRESETS.iter().map(|preset| t(preset.label)).collect()
+    SPEED_PRESETS
+        .iter()
+        .map(|preset| preset_label(preset.id))
+        .collect()
 }
 
 /// The points of the preset at `slot` in that order, eased; None past
 /// either end.
 pub fn preset_by_index(slot: i32) -> Option<Vec<SpeedPoint>> {
     let preset = SPEED_PRESETS.get(usize::try_from(slot).ok()?)?;
-    speed::preset_points(preset.id)
+    preset_points(preset.id)
 }
 
 /// Where in that order the preset these points still are stands, or -1
 /// for a curve shaped by hand.
 pub fn preset_index(points: &[SpeedPoint]) -> i32 {
-    speed::preset_matching(points)
+    preset_matching(points)
         .and_then(|id| SPEED_PRESETS.iter().position(|preset| preset.id == id))
         .map_or(-1, |slot| slot as i32)
 }

@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## אודות
 
-Concat הוא עורך וידאו חינמי בקוד פתוח עבור macOS, Windows, Linux, Android ו-iOS. יש בו את מה שרוב העריכות צריכות: כתוביות אוטומטיות, בידוד קול, טקסט לדיבור, הסרת רקע, אנימציות ופריימי מפתח, אפקטים וכותרות, עריכה מרובת רצועות, ייצוא ב-4K. ובלי שום מלכודות: בלי סימן מים, בלי חשבון, בלי מנוי, בלי העלאה.
+Concat הוא עורך וידאו חינמי בקוד פתוח עבור macOS, Windows, Linux ו-Android. יש בו את מה שרוב העריכות צריכות: כתוביות אוטומטיות, בידוד קול, טקסט לדיבור, הסרת רקע, אנימציות ופריימי מפתח, אפקטים וכותרות, עריכה מרובת רצועות, ייצוא ב-4K. ובלי שום מלכודות: בלי סימן מים, בלי חשבון, בלי מנוי, בלי העלאה.
 
 הכול רץ מקומית על מנוע Rust נייטיב עם קומפוזיטור GPU. מתקינים, גוררים חומר, חותכים. מודלי ה-AI לכתוביות, לקולות ולחיתוך רקע יורדים פעם אחת מההגדרות ואחר כך עובדים במצב לא מקוון. החומר שלכם לעולם לא עוזב את הדיסק.
 
@@ -72,8 +72,8 @@ Concat הוא עורך וידאו חינמי בקוד פתוח עבור macOS, W
 - 📤 **ייצוא.** H.264, HEVC, AV1, על המקודד של המחשב שלכם. עד 4K 60, צבע 10 ביט.
 - ⚡ **מהיר.** פרוקסי מובנה, כך ש-4K גולל בחלקות. כותרות מצוירות על כל הליבות, וכל אפקט מוכן ברגע שהחלון נפתח.
 - 🛟 **ממשיך לעבוד על כל מחשב.** כשהשבב הגרפי מוותר, התצוגה המקדימה ממשיכה לצייר.
-- 🤖 **ניתן לתסריט.** API של JSON-RPC שאיתו סקריפטים וסוכני AI יכולים לערוך וידאו. בנייה מקוד המקור מוסיפה gRPC וכלי שורת פקודה.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 שפות. אותה אפליקציה, אותם קובצי פרויקט.
+- 🤖 **ניתן לתסריט.** API של JSON-RPC שאיתו סקריפטים וסוכני AI יכולים לערוך וידאו. בנייה מקוד המקור מוסיפה כלי שורת פקודה.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 שפות. אותה אפליקציה, אותם קובצי פרויקט.
 
 ## הורדה
 
@@ -90,7 +90,6 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 - ✅ **macOS** · Intel ו-Apple Silicon. אם macOS מסרב לפתוח גרסה לא חתומה: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 ו-ARM. ‏`.deb`, ‏`.rpm`, ‏`.AppImage` וחבילת Arch. וגם Flatpak ב-**[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, מאגר Flatpak קהילתי שעוטף את ה-`.deb` ל-x86_64 של כל גרסה ומתעדכן איתה
 - ✅ **Android** · טלפונים וטאבלטים
-- ✅ **iOS / iPadOS** · iPhone ו-iPad, בהתקנה צדדית
 
 ✅ נתמך · 🚧 בעבודה · 🧪 טרם נבדק
 
@@ -103,7 +102,7 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 > [!IMPORTANT]
 > הדרך הטובה ביותר לתרום היא לקחת גרסה מעמוד ה-[Releases](https://github.com/jub0t/Concat/releases) ולהשתמש בה: למצוא איפה היא נשברת, ולומר איפה היא יכולה להיות טובה יותר.
 >
-> מוכנים לכתוב קוד? [CONTRIBUTING.md](../CONTRIBUTING.md) מכסה את ההתקנה, מבנה העץ, הבדיקות שצריך להריץ ואת רישוי התרומות. מפעילים את Concat מסקריפט, משירות או מסוכן? [תיעוד המפתחים](https://concat.standalones.org/docs) מכסה את ה-API של Concat ואת ערוצי התעבורה שלו: JSON-RPC ו-gRPC. [בדיון הזה](https://github.com/jub0t/Concat/discussions/3) הוכרז הפרויקט.
+> מוכנים לכתוב קוד? [CONTRIBUTING.md](../CONTRIBUTING.md) מכסה את ההתקנה, מבנה העץ, הבדיקות שצריך להריץ ואת רישוי התרומות. מפעילים את Concat מסקריפט, משירות או מסוכן? [תיעוד המפתחים](https://concat.standalones.org/docs) מכסה את ה-API של Concat ואת ערוץ התעבורה שלו: JSON-RPC. [בדיון הזה](https://github.com/jub0t/Concat/discussions/3) הוכרז הפרויקט.
 > 
 > תורמים יכולים לקבל תפקיד `@Contributor` בשרת ה-Discord: רק צריך לבקש.
 

@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.12-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.12" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.13-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.13" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
@@ -44,7 +44,7 @@
 
 ## 概要
 
-Concat は macOS・Windows・Linux・Android・iOS 向けの、無料でオープンソースの動画エディタです。たいていの編集に必要なものをカバーします。自動字幕、声の分離、テキスト読み上げ、背景除去、アニメーションとキーフレーム、エフェクトとタイトル、マルチトラック編集、4K 書き出し。しかも落とし穴なし。透かしなし、アカウント不要、サブスクリプション不要、アップロードなし。
+Concat は macOS・Windows・Linux・Android 向けの、無料でオープンソースの動画エディタです。たいていの編集に必要なものをカバーします。自動字幕、声の分離、テキスト読み上げ、背景除去、アニメーションとキーフレーム、エフェクトとタイトル、マルチトラック編集、4K 書き出し。しかも落とし穴なし。透かしなし、アカウント不要、サブスクリプション不要、アップロードなし。
 
 すべてが GPU コンポジターを備えたネイティブ Rust エンジン上でローカルに動きます。インストールして、素材を放り込んで、切る。字幕・音声・切り抜き用の AI モデルは設定から一度だけダウンロードし、以降はオフラインで動作します。あなたの素材がディスクの外へ出ることはありません。
 
@@ -72,8 +72,8 @@ Concat は macOS・Windows・Linux・Android・iOS 向けの、無料でオー�
 - 📤 **書き出し。** H.264、HEVC、AV1。お使いのコンピューター自身のエンコーダーで。最大 4K 60、10 ビットカラー。
 - ⚡ **高速。** プロキシ内蔵で、4K もなめらかにスクラブできます。タイトルは全コアで描画され、ウィンドウが開いた瞬間にすべてのエフェクトが使えます。
 - 🛟 **どんなマシンでも動き続ける。** グラフィックチップが力尽きても、プレビューは描画を続けます。
-- 🤖 **スクリプト対応。** スクリプトや AI エージェントが動画を編集できる JSON-RPC の API。ソースからビルドすると gRPC とコマンドラインツールも使えます。
-- 🖥️ **macOS、Windows、Linux、Android、iOS。** 27 言語。同じアプリ、同じプロジェクトファイル。
+- 🤖 **スクリプト対応。** スクリプトや AI エージェントが動画を編集できる JSON-RPC の API。ソースからビルドするとコマンドラインツールも使えます。
+- 🖥️ **macOS、Windows、Linux、Android。** 27 言語。同じアプリ、同じプロジェクトファイル。
 
 ## ダウンロード
 
@@ -90,7 +90,6 @@ Concat は **ベータ版** です。動きますが、まだ粗い部分があ�
 - ✅ **macOS** · Intel と Apple シリコン。macOS が未署名ビルドを開かないときは: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 と ARM。`.deb`、`.rpm`、`.AppImage`、Arch パッケージ。さらに **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** 上の Flatpak も。各リリースの x86_64 `.deb` を包み、リリースに合わせて更新されるコミュニティ運営の Flatpak リモートです
 - ✅ **Android** · スマートフォンとタブレット
-- ✅ **iOS / iPadOS** · iPhone と iPad、サイドロード
 
 ✅ 対応 · 🚧 作業中 · 🧪 検証待ち
 
@@ -103,7 +102,7 @@ Concat は **ベータ版** です。動きますが、まだ粗い部分があ�
 > [!IMPORTANT]
 > いちばんの貢献は、[Releases](https://github.com/jub0t/Concat/releases) ページからビルドを取って使うことです。どこで壊れるかを見つけ、どこがもっと良くなるかを伝えてください。
 >
-> コードを書く準備ができたら、[CONTRIBUTING.md](../CONTRIBUTING.md) にセットアップ、ツリーの構成、実行すべきチェック、貢献のライセンスがまとまっています。スクリプトやサービス、エージェントから Concat を動かすなら、[開発者向けドキュメント](https://concat.standalones.org/docs) に Concat API とそのトランスポート (JSON-RPC、gRPC) があります。プロジェクトは [この Discussion](https://github.com/jub0t/Concat/discussions/3) で発表されました。
+> コードを書く準備ができたら、[CONTRIBUTING.md](../CONTRIBUTING.md) にセットアップ、ツリーの構成、実行すべきチェック、貢献のライセンスがまとまっています。スクリプトやサービス、エージェントから Concat を動かすなら、[開発者向けドキュメント](https://concat.standalones.org/docs) に Concat API とそのトランスポート (JSON-RPC) があります。プロジェクトは [この Discussion](https://github.com/jub0t/Concat/discussions/3) で発表されました。
 > 
 > 貢献者は Discord サーバーで `@Contributor` ロールを受け取れます。声をかけてください。
 

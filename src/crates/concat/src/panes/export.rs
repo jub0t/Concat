@@ -14,8 +14,22 @@
 //! fields.
 
 use concat_core::Halt;
+use concat_doc::model::{ColorSpace, Frame};
 use concat_host::export::{self, ExportSpec};
 use concat_media::ColorRange;
+
+use crate::doc_view;
+
+/// The frame of the sequence showing, as an export of it is made; HD when
+/// nothing is showing.
+fn showing_frame(studio: &Studio) -> Frame {
+    doc_view::sequence(studio.doc()).map_or_else(Frame::hd, |sequence| sequence.frame.clone())
+}
+
+/// Whether a picture in this colour is HDR.
+fn is_hdr(color: &ColorSpace) -> bool {
+    matches!(color, ColorSpace::Hlg | ColorSpace::Pq)
+}
 
 use crate::format::{bytes, eta};
 use crate::host::{on_ui, spawn_export};
@@ -62,9 +76,6 @@ pub enum ExportMsg {
     },
     /// The render's worker is done: the file written, or why not.
     Finished(Result<String, Halt>),
-    /// The phone has moved the file to where it shows it - the path under
-    /// the phone's storage - or could not, and the file is where it was.
-    Published(Result<String, String>),
 }
 
 /// The export sheet's state.
@@ -99,14 +110,7 @@ impl Default for ExportPane {
         Self {
             open: false,
             name: "Untitled".into(),
-            // An iPhone's sandbox has no Movies the app may make, as it has
-            // no Desktop (#299); Documents is the folder Files shows, and a
-            // finished export goes on to Photos from there.
-            folder: home_folder(if cfg!(target_os = "ios") {
-                "Documents/Exports"
-            } else {
-                "Movies"
-            }),
+            folder: home_folder("Movies"),
             resolution: 2,
             rate: 0,
             custom: false,
@@ -224,25 +228,8 @@ impl ExportPane {
             ExportMsg::Finished(Ok(written)) => {
                 self.phase = ExportPhase::Done;
                 self.progress = 1.0;
-                self.written = written.clone();
-                // A phone moves the file to where its gallery shows it, and
-                // the sheet says "finished" once it is there.
-                let handed = platform::publish_export(written.into(), |result| {
-                    on_ui(move |studio, _, _| {
-                        studio.handle(Msg::Export(ExportMsg::Published(result)));
-                    });
-                });
-                if !handed {
-                    studio.notify(&t("export.exportFinished"), false);
-                }
-            }
-            ExportMsg::Published(Ok(path)) => {
-                self.written = path;
+                self.written = written;
                 studio.notify(&t("export.exportFinished"), false);
-            }
-            ExportMsg::Published(Err(error)) => {
-                let folder = platform::published_folder().unwrap_or_default();
-                studio.notify(&tf("export.couldNotPublish", &[&folder, &error]), true);
             }
             // Cancelled: nothing to say. Asked for through the sheet, it
             // already went back to idle; stopped any other way, it does
@@ -281,8 +268,8 @@ impl ExportPane {
     /// rate a project can be made at. A 25 fps cut used to export at 30
     /// unless someone noticed (audit 2026-10-04, #8).
     fn rates(studio: &Studio) -> Vec<(i64, i64)> {
-        let video = studio.project().active().video;
-        Self::rates_around((video.rate_num, video.rate_den.max(1)))
+        let rate = showing_frame(studio).rate;
+        Self::rates_around((i64::from(rate.num()), i64::from(rate.den()).max(1)))
     }
 
     /// [`ExportPane::rates`] for a timeline at `own`.
@@ -398,7 +385,7 @@ impl ExportPane {
     fn follow_canvas(&mut self, studio: &Studio) {
         use concat_media::VideoCodec;
         let chosen = VideoCodec::ALL[self.codec.min(VideoCodec::ALL.len() - 1)];
-        let see_through = studio.timeline().video.canvas[3] < 255;
+        let see_through = showing_frame(studio).canvas.a < 255;
         let wanted = if see_through && !chosen.keeps_alpha() {
             [VideoCodec::ProRes4444, VideoCodec::Vp9Alpha]
                 .into_iter()
@@ -441,7 +428,7 @@ impl ExportPane {
         // An overlay that keeps its alpha is written SDR: the export
         // tone-maps an HDR timeline for it.
         !chosen.keeps_alpha()
-            && studio.timeline().video.color_space.is_hdr()
+            && is_hdr(&showing_frame(studio).color)
             && !self.sdr
             && deep.ten_bit_available()
             && writable(deep)
@@ -465,7 +452,7 @@ impl ExportPane {
         if studio.session.is_none() {
             return;
         }
-        if studio.timeline().clips.is_empty() {
+        if doc_view::items(studio.committed()).is_empty() {
             self.phase = ExportPhase::Failed;
             self.message = t("export.nothingTimelineExport");
             return;
@@ -525,7 +512,7 @@ impl ExportPane {
         // chosen - and the window goes on answering: hundreds of captions
         // are seconds of painting on a phone, and Android closes an app
         // whose window does not answer a touch for five.
-        let project = session.project().clone();
+        let project = session.document();
         let project_dir = std::path::PathBuf::from(session.path());
         let (width, height) = self.size(studio);
         let (num, den) = self.rate(studio);
@@ -564,18 +551,17 @@ impl ExportPane {
                 };
                 // In a process of its own, on a device of its own, where
                 // the machine can start one: a driver, decoder or encoder
-                // that crashes there costs the export one try, drawn again
-                // on the CPU, and never the editor (#868, #824). The
+                // that crashes there costs the export, and never the
+                // editor (#868, #824); a crash in the driver costs one
+                // try, drawn again on the CPU (#762). The
                 // titles are painted there too. Where no helper starts - a
-                // phone, a sandbox that forbids it - or when
-                // CONCAT_EXPORT_IN_PROCESS is set, the export runs here, as
-                // it always did.
-                #[cfg(not(target_os = "ios"))]
+                // sandbox that forbids it - or when CONCAT_EXPORT_IN_PROCESS
+                // is set, the export runs here.
                 if std::env::var_os("CONCAT_EXPORT_IN_PROCESS").is_none()
                     && let Ok(program) = std::env::current_exe()
                 {
                     let apart = concat_host::export_apart::Order::new(
-                        project.clone(),
+                        &project,
                         project_dir.clone(),
                         &spec,
                         width,
@@ -642,28 +628,23 @@ impl ExportPane {
         let (width, height) = self.size(studio);
         let (num, den) = self.rate(studio);
         let rate = num as f32 / den as f32;
-        let clips = studio.timeline().clips.len();
-        let titles = studio
-            .timeline()
-            .clips
+        let placed = doc_view::items(studio.doc());
+        let clips = placed.len();
+        let titles = placed
             .iter()
-            .filter(|clip| clip.kind == concat_project::model::ClipKind::Text)
+            .filter(|(_, item)| doc_view::title(item).is_some())
             .count();
+        let frame = showing_frame(studio);
         let container = self.codec(studio).container();
         ExportData {
             open: self.open,
             name: self.name.as_str().into(),
-            // Where the file ends up: on a phone, the folder its gallery
-            // shows, not the app's own that the export writes into.
             // The name as it will be written: trimmed, as `begin` trims it.
-            path: match platform::published_folder() {
-                Some(folder) => format!("{folder}/{}.{container}", self.name.trim()),
-                None => format!(
-                    "{}/{}.{container}",
-                    self.folder.trim_end_matches('/'),
-                    self.name.trim()
-                ),
-            }
+            path: format!(
+                "{}/{}.{container}",
+                self.folder.trim_end_matches('/'),
+                self.name.trim()
+            )
             .into(),
             format: format!("{width} × {height} · {rate:.2} fps").into(),
             duration: {
@@ -710,17 +691,17 @@ impl ExportPane {
             av1_encodable: writable(concat_media::VideoCodec::Av1),
             prores_encodable: writable(concat_media::VideoCodec::ProRes4444),
             vp9_alpha_encodable: writable(concat_media::VideoCodec::Vp9Alpha),
-            see_through: studio.timeline().video.canvas[3] < 255,
+            see_through: frame.canvas.a < 255,
             keeps_alpha: self.codec(studio).keeps_alpha(),
             rate_controlled: self.codec(studio).rate_controlled(),
             ten_bit: self.ten_bit,
-            hdr_timeline: studio.timeline().video.color_space.is_hdr(),
+            hdr_timeline: is_hdr(&frame.color),
             hdr: self.hdr(studio),
             deep_available: concat_media::VideoCodec::ALL
                 .iter()
                 .any(|codec| codec.ten_bit_available()),
-            hdr_label: match studio.timeline().video.color_space {
-                concat_project::model::ColorSpace::Pq => "HDR (PQ)",
+            hdr_label: match frame.color {
+                ColorSpace::Pq => "HDR (PQ)",
                 _ => "HDR (HLG)",
             }
             .into(),
@@ -736,8 +717,8 @@ impl ExportPane {
                 }
                 if self.hdr(studio) {
                     words.push(
-                        match studio.timeline().video.color_space {
-                            concat_project::model::ColorSpace::Pq => "PQ",
+                        match frame.color {
+                            ColorSpace::Pq => "PQ",
                             _ => "HLG",
                         }
                         .to_owned(),
