@@ -31,6 +31,9 @@
 #[cfg(feature = "schema")]
 mod contract;
 mod job;
+mod live;
+#[cfg(test)]
+mod live_tests;
 pub mod message;
 #[cfg(test)]
 mod project_close_tests;
@@ -56,6 +59,7 @@ use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::stabilize::{StabilizeRequest, Stabilizers};
 use concat_host::templates::{self, SlotFill};
 use concat_host::{ProjectInfo, Session, Titles, lock, media, projects};
+pub use live::{LiveLink, Loan, Returned};
 pub use wire::{Command, VideoSettings};
 
 pub use message::{
@@ -262,6 +266,9 @@ pub struct Api {
     speech: Arc<concat_speech::Speech>,
     /// The one-at-a-time slot reversed copies are written through.
     reversers: Arc<concat_host::Reversers>,
+    /// The window this API is embedded in, for a call on the project it
+    /// has open (live mode); `None` where there is no window to ask.
+    live: Option<Arc<dyn LiveLink>>,
 }
 
 /// A way to stop the jobs of one [`Api`] from any thread, without waiting
@@ -330,6 +337,7 @@ impl Api {
             transcriber: Arc::new(concat_speech::Transcriber::new()),
             speech: Arc::new(concat_speech::Speech::new()),
             reversers: Arc::new(concat_host::Reversers::new()),
+            live: None,
         }
     }
 
@@ -383,6 +391,17 @@ impl Api {
     /// round.
     pub fn share_open_projects(&mut self, open: OpenProjects) {
         self.open = open;
+    }
+
+    /// Lets a call on the project the window has open edit it there
+    /// (live mode): from here on such a call borrows the window's session
+    /// through `link` rather than being refused. Whether the window lends
+    /// is up to it - its own setting - and a refusal is the call's answer.
+    /// Takes the shared register ([`Api::share_open_projects`]) to know
+    /// which project is the window's.
+    pub fn share_live(&mut self, link: Arc<dyn LiveLink>) {
+        self.live = Some(link);
+        self.add_capability("live");
     }
 
     /// Confines every write to `roots`: from here on a created project, an
@@ -454,7 +473,69 @@ impl Api {
     /// it begins reports through the sink from then on.
     pub fn dispatch(&mut self, request: Request) -> Response {
         self.jobs.reap(&self.book);
-        self.run(request).into()
+        match self.live_project(&request) {
+            Some(path) => self.run_live(&path, request).into(),
+            None => self.run(request).into(),
+        }
+    }
+
+    /// The project a request is about, when it is the one the window has
+    /// open and there is a window to ask for it: a call for live mode.
+    fn live_project(&self, request: &Request) -> Option<String> {
+        self.live.as_ref()?;
+        let path = request.project()?;
+        (self.open.holder(path) == Some(Holder::Window)).then(|| path.to_owned())
+    }
+
+    /// One call on the window's own project: its session borrowed for the
+    /// call, the call made on it as on any session of this API's, and the
+    /// session sent home - by [`OnLoan`]'s drop, so it goes home on an
+    /// error and while a panic unwinds too. Opening is a view of what the
+    /// window has open, and closing leaves it open there: the project is
+    /// the window's, and so is when it closes.
+    fn run_live(&mut self, path: &str, request: Request) -> Result<Reply, ApiError> {
+        let Some(link) = self.live.clone() else {
+            return self.run(request);
+        };
+        let mut loan = link.lend(path)?;
+        let Some(session) = loan.take() else {
+            return Err(ApiError::failed("the window lent no project"));
+        };
+        let key = key_of(path);
+        if key_of(session.path()) != key {
+            let open = session.path().to_owned();
+            loan.give_back(session, Returned::default());
+            return Err(ApiError::new(
+                ErrorCode::Refused,
+                format!("{path} is not the project open in the window ({open} is)"),
+            ));
+        }
+        self.sessions.insert(key.clone(), session);
+        let mut lent = OnLoan {
+            api: self,
+            key,
+            loan: Some(loan),
+            returned: Returned::default(),
+        };
+        match request {
+            Request::ProjectOpen { path } => Ok(Reply::View(Box::new(view_of(
+                lent.api.session(&path)?,
+                None,
+            )))),
+            Request::ProjectClose { path, save } => {
+                if save {
+                    lent.api.save(&path, None)?;
+                    lent.returned.saved = true;
+                }
+                Ok(Reply::Done(Done {}))
+            }
+            request @ Request::ProjectSave { .. } => {
+                let reply = lent.api.run(request)?;
+                lent.returned.saved = true;
+                Ok(reply)
+            }
+            request => lent.api.run(request),
+        }
     }
 
     fn run(&mut self, request: Request) -> Result<Reply, ApiError> {
@@ -709,7 +790,7 @@ impl Api {
             // go through that window instead of around it.
             let how = match &refusal {
                 Refusal::Elsewhere(owner) if owner.role == "window" => {
-                    ". To work on it from an agent, turn on Settings > Automation in that window and run the agent with `concat --mcp window`; the project on screen stays the window's until live mode lands"
+                    ". To work on it from an agent, turn on Settings > Automation > Scripts and apps and Let agents edit the open project in that window, and run the agent with `concat --mcp window`"
                 }
                 Refusal::Elsewhere(_) => ". Close it there first",
                 Refusal::Here(_) => "",
@@ -2270,6 +2351,29 @@ fn resolved(path: &Path) -> PathBuf {
                 existing = parent;
             }
             _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// The window's session, lent to this API for one call and sent home when
+/// this is dropped: taken out of the API's sessions again and handed back
+/// through the loan, with how the call left it.
+struct OnLoan<'a> {
+    api: &'a mut Api,
+    key: String,
+    loan: Option<Loan>,
+    returned: Returned,
+}
+
+impl Drop for OnLoan<'_> {
+    fn drop(&mut self) {
+        let Some(loan) = self.loan.take() else {
+            return;
+        };
+        match self.api.sessions.remove(&self.key) {
+            Some(session) => loan.give_back(session, self.returned),
+            // Nothing to send: the loan's own drop lets the window know.
+            None => drop(loan),
         }
     }
 }

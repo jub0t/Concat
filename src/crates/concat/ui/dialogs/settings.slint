@@ -97,6 +97,8 @@ export struct SettingsData {
     download-base: string,
     /// the Concat API served on a socket while the window is open
     server-enabled: bool,
+    /// callers may edit the project on screen (live mode)
+    server-live: bool,
     /// the two halves of "127.0.0.1:7420", as typed: what is applied
     /// until a field is edited, and the edit after
     server-host: string,
@@ -697,6 +699,7 @@ export component SettingsDialog inherits Sheet {
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
+    callback server-live-changed(on: bool);
     callback server-host-edited(text: string);
     callback server-port-edited(port: int);
     callback server-token-edited(text: string);
@@ -1419,6 +1422,19 @@ export component SettingsDialog inherits Sheet {
                         font-size: Theme.fs-prose;
                         wrap: word-wrap;
                     }
+                }
+
+                // Live mode: a connected agent edits the project on
+                // screen while the person watches, each of its edits a
+                // step of the undo history. Off unless turned on here,
+                // and only there to turn on while something can connect.
+                if root.data.server-enabled: DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.liveEdit");
+                    hint: I18n.t("settings.liveEditHint");
+                    switchable: true;
+                    on: root.data.server-live;
+                    switched(on) => { root.server-live-changed(on); }
                 }
 
                 DialogSection {

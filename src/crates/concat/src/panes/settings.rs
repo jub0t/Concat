@@ -76,6 +76,9 @@ pub enum SettingsMsg {
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
     ServerEnabledChanged(bool),
+    /// Let agents edit the project on screen (live mode). Takes effect at
+    /// once: the window reads it each time it is asked to lend.
+    ServerLiveChanged(bool),
     /// The address half of where the server listens; the port is its own
     /// field, so a person types "127.0.0.1" and "7420" and never a colon.
     /// These four change the page's draft and nothing else.
@@ -494,6 +497,11 @@ impl SettingsPane {
                 studio.prefs.server.enabled = on;
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
+            }
+            SettingsMsg::ServerLiveChanged(on) => {
+                log::info!("settings: Let agents edit the open project {}", on_off(on));
+                studio.prefs.server.live = on;
+                studio.prefs.save(&studio.host.dirs);
             }
             // A keystroke at a time, and only the draft: nothing is saved
             // and the server runs on until Apply.
@@ -1001,6 +1009,9 @@ impl SettingsPane {
                     let mut api = concat_api::Api::new(events)?;
                     api.share_exporter(exporter);
                     api.share_open_projects(open_projects);
+                    // The project on screen, when the person lets callers
+                    // edit it: the window decides, each time it is asked.
+                    api.share_live(std::sync::Arc::new(crate::live::WindowLink));
                     Ok(api)
                 })
             });
@@ -1221,6 +1232,7 @@ impl SettingsPane {
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,
+            server_live: studio.prefs.server.live,
             server_host: server_host.as_str().into(),
             server_port: self.server_draft.port(applied),
             server_token: self.server_draft.token(applied).into(),
