@@ -72,7 +72,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - 📤 **Izvoz.** H.264, HEVC, AV1, na kodeku samog računala. Do 4K 60, 10-bitna boja.
 - ⚡ **Brzo.** Proxyji su ugrađeni da se 4K glatko pomiče. Naslovi se crtaju na svim jezgrama, a svaki je efekt spreman čim se prozor otvori.
 - 🛟 **Nastavlja raditi na svakom računalu.** Kad grafički čip odustane, pregled i dalje crta.
-- 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje gRPC i alat za naredbeni redak.
+- 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje alat za naredbeni redak.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 jezika. Ista aplikacija, iste datoteke projekata.
 
 ## Preuzimanje
@@ -103,7 +103,7 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 > [!IMPORTANT]
 > Najbolji način doprinosa jest uzeti inačicu sa stranice [Releases](https://github.com/jub0t/Concat/releases) i koristiti je: pronaći gdje puca i reći gdje bi mogla biti bolja.
 >
-> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concat.standalones.org/docs) pokriva Concat API i njegove prijenose: JSON-RPC i gRPC. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
+> Spremni pisati kod? [CONTRIBUTING.md](../CONTRIBUTING.md) pokriva postavljanje, raspored stabla, provjere koje treba pokrenuti i kako se doprinosi licenciraju. Upravljate Concatom iz skripte, servisa ili agenta? [Dokumentacija za razvojne programere](https://concat.standalones.org/docs) pokriva Concat API i njegov prijenos: JSON-RPC. [U ovoj raspravi](https://github.com/jub0t/Concat/discussions/3) projekt je najavljen.
 > 
 > Suradnici mogu zatražiti ulogu `@Contributor` na Discord poslužitelju: samo pitajte.
 

@@ -72,7 +72,7 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - 📤 **Ekspor.** H.264, HEVC, AV1, dengan encoder bawaan komputer Anda. Hingga 4K 60, warna 10-bit.
 - ⚡ **Cepat.** Proksi bawaan, jadi 4K digeser dengan mulus. Judul digambar di setiap inti, dan setiap efek siap begitu jendela terbuka.
 - 🛟 **Tetap jalan di mesin apa pun.** Saat chip grafis menyerah, pratinjau tetap menggambar.
-- 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan gRPC dan alat baris perintah.
+- 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan alat baris perintah.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 bahasa. Aplikasi yang sama, file proyek yang sama.
 
 ## Unduh
@@ -103,7 +103,7 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 > [!IMPORTANT]
 > Cara terbaik berkontribusi adalah mengambil build dari halaman [Releases](https://github.com/jub0t/Concat/releases) dan memakainya: temukan di mana ia rusak, dan katakan di mana ia bisa lebih baik.
 >
-> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concat.standalones.org/docs) membahas API Concat dan transportnya: JSON-RPC dan gRPC. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
+> Siap menulis kode? [CONTRIBUTING.md](../CONTRIBUTING.md) membahas penyiapan, tata letak pohon, pemeriksaan yang dijalankan, dan bagaimana kontribusi dilisensikan. Mengendalikan Concat dari skrip, layanan, atau agen? [Dokumentasi pengembang](https://concat.standalones.org/docs) membahas API Concat dan transportnya: JSON-RPC. [Diskusi ini](https://github.com/jub0t/Concat/discussions/3) adalah tempat proyek diumumkan.
 > 
 > Kontributor bisa mendapatkan peran `@Contributor` di server Discord: cukup minta saja.
 

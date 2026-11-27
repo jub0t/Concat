@@ -72,7 +72,7 @@ Tudo roda localmente em um motor nativo em Rust com um compositor na GPU. Instal
 - 📤 **Exportação.** H.264, HEVC, AV1, com o codificador do próprio computador. Até 4K 60, cor de 10 bits.
 - ⚡ **Rápido.** Proxies embutidos, para o 4K rolar com fluidez. Os títulos são desenhados em todos os núcleos, e cada efeito fica pronto assim que a janela abre.
 - 🛟 **Continua em qualquer máquina.** Quando o chip gráfico desiste, a prévia continua desenhando.
-- 🤖 **Automatizável.** Uma API JSON-RPC com a qual scripts e agentes de IA podem cortar vídeo. Compilando a partir do código-fonte, você ganha também gRPC e uma ferramenta de linha de comando.
+- 🤖 **Automatizável.** Uma API JSON-RPC com a qual scripts e agentes de IA podem cortar vídeo. Compilando a partir do código-fonte, você ganha também uma ferramenta de linha de comando.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 idiomas. O mesmo app, os mesmos arquivos de projeto.
 
 ## Download
@@ -103,7 +103,7 @@ Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site
 > [!IMPORTANT]
 > A melhor forma de contribuir é pegar uma build na página de [Releases](https://github.com/jub0t/Concat/releases) e usá-la: descubra onde ela quebra e diga onde poderia ser melhor.
 >
-> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concat.standalones.org/docs) cobre a API do Concat e seus transportes: JSON-RPC e gRPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
+> Pronto para escrever código? O [CONTRIBUTING.md](../CONTRIBUTING.md) cobre a configuração, a organização da árvore, as verificações a rodar e como as contribuições são licenciadas. Controla o Concat a partir de um script, um serviço ou um agente? [A documentação para desenvolvedores](https://concat.standalones.org/docs) cobre a API do Concat e seu transporte: JSON-RPC. [Esta Discussion](https://github.com/jub0t/Concat/discussions/3) é onde o projeto foi anunciado.
 > 
 > Contribuidores podem ganhar o cargo `@Contributor` no servidor do Discord: basta pedir.
 

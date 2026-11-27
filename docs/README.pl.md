@@ -72,7 +72,7 @@ Wszystko działa lokalnie, na natywnym silniku napisanym w Rust, z kompozytorem 
 - 📤 **Eksport.** H.264, HEVC, AV1, na własnym koderze twojego komputera. Do 4K 60, kolor 10-bitowy.
 - ⚡ **Szybko.** Proxy wbudowane, żeby 4K przewijało się płynnie. Napisy tytułowe rysują się na wszystkich rdzeniach, a każdy efekt jest gotowy w chwili otwarcia okna.
 - 🛟 **Działa dalej na każdym komputerze.** Gdy układ graficzny się poddaje, podgląd nadal się rysuje.
-- 🤖 **Skryptowalny.** API w JSON-RPC, przez które skrypty i agenci AI mogą montować wideo. Wersja zbudowana ze źródeł dodaje gRPC i narzędzie wiersza poleceń.
+- 🤖 **Skryptowalny.** API w JSON-RPC, przez które skrypty i agenci AI mogą montować wideo. Wersja zbudowana ze źródeł dodaje narzędzie wiersza poleceń.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 języków. Ta sama aplikacja, te same pliki projektu.
 
 ## Pobieranie
@@ -103,7 +103,7 @@ Concat jest w fazie **beta**: działa, ale wciąż ma swoje niedoróbki. [Daj zn
 > [!IMPORTANT]
 > Najlepiej pomożesz, jeśli pobierzesz wersję ze strony [Releases](https://github.com/jub0t/Concat/releases) i zaczniesz z niej korzystać: znajdź miejsca, w których się psuje, i powiedz, co mogłoby działać lepiej.
 >
-> Chcesz pisać kod? [CONTRIBUTING.md](../CONTRIBUTING.md) opisuje przygotowanie środowiska, strukturę repozytorium, testy do uruchomienia i licencjonowanie wkładu. Sterujesz Concat ze skryptu, usługi albo agenta? [Dokumentacja dla deweloperów](https://concat.standalones.org/docs) opisuje API Concat i jego transporty: JSON-RPC i gRPC. W [tej dyskusji](https://github.com/jub0t/Concat/discussions/3) projekt został ogłoszony.
+> Chcesz pisać kod? [CONTRIBUTING.md](../CONTRIBUTING.md) opisuje przygotowanie środowiska, strukturę repozytorium, testy do uruchomienia i licencjonowanie wkładu. Sterujesz Concat ze skryptu, usługi albo agenta? [Dokumentacja dla deweloperów](https://concat.standalones.org/docs) opisuje API Concat i jego transport: JSON-RPC. W [tej dyskusji](https://github.com/jub0t/Concat/discussions/3) projekt został ogłoszony.
 > 
 > Współtwórcy mogą dostać rolę `@Contributor` na serwerze Discord: wystarczy poprosić.
 

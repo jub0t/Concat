@@ -140,7 +140,7 @@ concat-host = { workspace = true, features = ["gpu"] }
 concat-worker.workspace = true
 concat-speech = { workspace = true, features = ["beats", "chatterbox", "isolate"] }
 # The Settings sheet's Automation page: the Concat API on a socket while the
-# window is open. JSON-RPC only; the gRPC feature stays with concat-cli.
+# window is open, as JSON-RPC lines.
 concat-server.workspace = true
 concat-api.workspace = true
 # `concat --mcp`: the same API to an AI agent, as an MCP server on standard

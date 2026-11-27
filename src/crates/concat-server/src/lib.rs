@@ -7,14 +7,10 @@
 //! One [`Hub`] owns the one [`Api`] on a thread of its own and serialises
 //! every caller through it, the way the window's event loop does; the
 //! transports are threads that read a call, hand it to the hub, and write
-//! the response back. Two transports speak the same API:
-//!
-//! - **JSON-RPC lines** over TCP or a Unix socket: the stdin transport's
-//!   protocol, one JSON object a line, so what works in a pipe works on a
-//!   socket unchanged. [`json`] is the whole of it.
-//! - **gRPC** over HTTP/2, behind the `grpc` feature: the same methods and
-//!   the same JSON payloads inside a thin protobuf envelope, for a caller
-//!   that wants generated clients and a streamed reply. [`grpc`] says how.
+//! the response back. The transport is **JSON-RPC lines** over TCP or a
+//! Unix socket: the stdin transport's protocol, one JSON object a line, so
+//! what works in a pipe works on a socket unchanged. [`json`] is the whole
+//! of it.
 //!
 //! Events - an export's progress, how it ended - go to every connected
 //! caller; each names its job and its project, so a caller keeps the ones
@@ -31,7 +27,7 @@
 //! pattern. It can be changed while the server runs ([`Server::set_token`]):
 //! the next caller presents the new one, and a caller already in, with a
 //! job of its own running, stays in. It is compared in constant time,
-//! whichever transport carries it, and an address that keeps presenting wrong ones waits longer each
+//! and an address that keeps presenting wrong ones waits longer each
 //! time ([`throttle`]). The API writes only under the roots the server is
 //! given - the user's home unless told otherwise ([`Config::roots`]) - and
 //! a frame or an export is bounded in size. The JSON transport reads a
@@ -48,9 +44,6 @@ mod hub;
 pub mod json;
 pub mod throttle;
 mod token;
-
-#[cfg(feature = "grpc")]
-pub mod grpc;
 
 use std::collections::BTreeMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -109,8 +102,6 @@ pub struct Config {
     /// A Unix socket path for JSON-RPC lines. Unix only; a file already
     /// there is replaced.
     pub socket: Option<PathBuf>,
-    /// A TCP address for gRPC. Needs the `grpc` feature.
-    pub grpc: Option<SocketAddr>,
     /// What every connection presents before its first call. `None` or
     /// empty means the server mints one at start, which only the process
     /// that started it can learn, through [`Server::token`]; that is the
@@ -146,12 +137,6 @@ impl Config {
         if self.socket.is_some() {
             return Err("a Unix socket needs a Unix".to_owned());
         }
-        #[cfg(not(feature = "grpc"))]
-        if self.grpc.is_some() {
-            return Err(
-                "this build has no gRPC: build concat-server with --features grpc".to_owned(),
-            );
-        }
         if let Some(token) = self.token.as_deref().filter(|token| !token.is_empty()) {
             check_token(token)?;
         }
@@ -176,7 +161,6 @@ pub struct Server {
     stopper: Stopper,
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
-    grpc: Option<SocketAddr>,
     token: Key,
     roots: Vec<PathBuf>,
     stop: Arc<AtomicBool>,
@@ -212,7 +196,6 @@ impl Server {
         let transports: Vec<&str> = [
             config.json.map(|_| "json-rpc"),
             config.socket.as_ref().map(|_| "unix-socket"),
-            config.grpc.map(|_| "grpc"),
         ]
         .into_iter()
         .flatten()
@@ -233,7 +216,6 @@ impl Server {
         })?;
         let stop = Arc::new(AtomicBool::new(false));
         let connections: Connections = Arc::new(Mutex::new(BTreeMap::new()));
-        let throttle = Arc::new(throttle::Throttle::default());
         let token: Key = Arc::new(RwLock::new(token));
         let door = json::Door {
             hub: hub.clone(),
@@ -242,7 +224,7 @@ impl Server {
             connections: Arc::clone(&connections),
             seats: Arc::new(AtomicUsize::new(0)),
             pending: Arc::new(AtomicUsize::new(0)),
-            throttle: Arc::clone(&throttle),
+            throttle: Arc::new(throttle::Throttle::default()),
             next_id: Arc::new(AtomicU64::new(1)),
         };
         // Built before the first bind, so a bind that fails drops a server
@@ -253,7 +235,6 @@ impl Server {
             stopper,
             json: None,
             socket: None,
-            grpc: None,
             token,
             roots,
             stop: Arc::clone(&stop),
@@ -294,20 +275,6 @@ impl Server {
             );
         }
 
-        #[cfg(feature = "grpc")]
-        if let Some(address) = config.grpc {
-            let (bound, thread) = grpc::serve(
-                address,
-                server.hub.clone(),
-                Arc::clone(&server.token),
-                Arc::clone(&stop),
-                Arc::clone(&throttle),
-            )?;
-            server.grpc = Some(bound);
-            server.listeners.push(thread);
-        }
-        let _ = throttle;
-
         // Last, so nothing is listed that is not yet listening. A listing
         // that cannot be written costs the agent a way in, not the server.
         if let (Some(path), Some(address)) = (config.discovery, server.json)
@@ -332,11 +299,6 @@ impl Server {
     /// The Unix socket path listened on.
     pub fn socket_path(&self) -> Option<&PathBuf> {
         self.socket.as_ref()
-    }
-
-    /// The gRPC address bound, port resolved.
-    pub fn grpc_addr(&self) -> Option<SocketAddr> {
-        self.grpc
     }
 
     /// The token every connection presents: the one configured, or the
@@ -461,10 +423,6 @@ impl Server {
         #[cfg(unix)]
         if let Some(path) = &self.socket {
             let _ = std::os::unix::net::UnixStream::connect(path);
-        }
-        #[cfg(feature = "grpc")]
-        if let Some(address) = self.grpc {
-            let _ = TcpStream::connect_timeout(&loopback(address), WAKE_PATIENCE);
         }
         for thread in self.listeners.drain(..) {
             let _ = thread.join();

@@ -72,7 +72,7 @@ Concat은 macOS, Windows, Linux, Android, iOS용 무료 오픈 소스 비디오 
 - 📤 **내보내기.** H.264, HEVC, AV1, 컴퓨터 자체 인코더로. 최대 4K 60, 10비트 색상.
 - ⚡ **빠름.** 프록시가 내장되어 4K도 부드럽게 스크럽됩니다. 타이틀은 모든 코어에서 그려지고, 창이 열리는 순간 모든 효과가 준비되어 있습니다.
 - 🛟 **어떤 컴퓨터에서도 계속 작동.** 그래픽 칩이 포기해도 미리보기는 계속 그려집니다.
-- 🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 gRPC와 명령줄 도구가 추가됩니다.
+- 🤖 **스크립트 가능.** 스크립트와 AI 에이전트가 영상을 편집할 수 있는 JSON-RPC API. 소스에서 빌드하면 명령줄 도구가 추가됩니다.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27개 언어. 같은 앱, 같은 프로젝트 파일.
 
 ## 다운로드
@@ -103,7 +103,7 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 > [!IMPORTANT]
 > 가장 좋은 기여는 [Releases](https://github.com/jub0t/Concat/releases) 페이지에서 빌드를 받아 써 보는 것입니다: 어디서 깨지는지 찾고, 어디가 더 나아질 수 있는지 말해 주세요.
 >
-> 코드를 쓸 준비가 되셨나요? [CONTRIBUTING.md](../CONTRIBUTING.md)에 설정, 트리 구조, 실행할 검사, 기여의 라이선스가 적혀 있습니다. 스크립트, 서비스, 에이전트에서 Concat을 다루시나요? [개발자 문서](https://concat.standalones.org/docs)에 Concat API와 전송 방식(JSON-RPC, gRPC)이 있습니다. 프로젝트는 [이 Discussion](https://github.com/jub0t/Concat/discussions/3)에서 공개되었습니다.
+> 코드를 쓸 준비가 되셨나요? [CONTRIBUTING.md](../CONTRIBUTING.md)에 설정, 트리 구조, 실행할 검사, 기여의 라이선스가 적혀 있습니다. 스크립트, 서비스, 에이전트에서 Concat을 다루시나요? [개발자 문서](https://concat.standalones.org/docs)에 Concat API와 전송 방식(JSON-RPC)이 있습니다. 프로젝트는 [이 Discussion](https://github.com/jub0t/Concat/discussions/3)에서 공개되었습니다.
 > 
 > 기여자는 Discord 서버에서 `@Contributor` 역할을 받을 수 있습니다. 요청만 하세요.
 

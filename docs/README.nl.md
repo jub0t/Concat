@@ -72,7 +72,7 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 - 📤 **Exporteren.** H.264, HEVC, AV1, met de eigen encoder van je computer. Tot 4K 60, 10-bits kleur.
 - ⚡ **Snel.** Proxy’s ingebouwd, zodat 4K soepel scrubt. Titels worden getekend op elke kern, en elk effect is klaar zodra het venster opent.
 - 🛟 **Blijft werken op elke machine.** Als de grafische chip het opgeeft, blijft de preview tekenen.
-- 🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt gRPC en een opdrachtregeltool toe.
+- 🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt een opdrachtregeltool toe.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 talen. Dezelfde app, dezelfde projectbestanden.
 
 ## Downloaden
@@ -103,7 +103,7 @@ Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat he
 > [!IMPORTANT]
 > De beste manier om bij te dragen is een build van de [Releases](https://github.com/jub0t/Concat/releases)-pagina te halen en die te gebruiken: zoek uit waar hij stukgaat, en zeg wat er beter kan.
 >
-> Klaar om code te schrijven? [CONTRIBUTING.md](../CONTRIBUTING.md) beschrijft de installatie, de indeling van de broncode, de controles die je moet draaien en onder welke licentie bijdragen vallen. Stuur je Concat aan vanuit een script, een service of een agent? [De ontwikkelaarsdocumentatie](https://concat.standalones.org/docs) beschrijft de Concat-API en de transports ervan: JSON-RPC en gRPC. In [deze Discussion](https://github.com/jub0t/Concat/discussions/3) werd het project aangekondigd.
+> Klaar om code te schrijven? [CONTRIBUTING.md](../CONTRIBUTING.md) beschrijft de installatie, de indeling van de broncode, de controles die je moet draaien en onder welke licentie bijdragen vallen. Stuur je Concat aan vanuit een script, een service of een agent? [De ontwikkelaarsdocumentatie](https://concat.standalones.org/docs) beschrijft de Concat-API en het transport ervan: JSON-RPC. In [deze Discussion](https://github.com/jub0t/Concat/discussions/3) werd het project aangekondigd.
 > 
 > Bijdragers kunnen een `@Contributor`-rol krijgen op de Discord-server: vraag er gewoon om.
 

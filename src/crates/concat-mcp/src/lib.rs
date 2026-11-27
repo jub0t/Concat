@@ -8,7 +8,7 @@
 //! [`concat_api::Request`] - a method of the API, or one of its edit
 //! commands - and its argument schema is cut out of the schema `schemars`
 //! generates from those types ([`schema`]), so an edit means here exactly
-//! what it means in the window, over JSON-RPC and over gRPC, and a field
+//! what it means in the window and over JSON-RPC, and a field
 //! added to a command reaches agents on the next build with nothing
 //! written for it here. What this crate owns is the protocol
 //! ([`protocol`]), the choice of tools and what an agent is told about

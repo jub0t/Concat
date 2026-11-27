@@ -65,8 +65,8 @@ enum Command {
     },
 
     /// Serve the Concat API on a socket until the process is stopped:
-    /// JSON-RPC lines over TCP or a Unix socket, and gRPC in a build that
-    /// has it. With no address given, JSON-RPC on 127.0.0.1:7420. Every
+    /// JSON-RPC lines over TCP or a Unix socket. With no address given,
+    /// JSON-RPC on 127.0.0.1:7420. Every
     /// connection presents a token first; with none given, one is minted
     /// and printed with the addresses.
     Serve {
@@ -76,9 +76,6 @@ enum Command {
         /// A Unix socket path for JSON-RPC lines.
         #[arg(long)]
         socket: Option<PathBuf>,
-        /// The TCP address for gRPC. Needs a build with the `grpc` feature.
-        #[arg(long)]
-        grpc: Option<SocketAddr>,
         /// The token every connection presents first. Minted when not
         /// given, and printed either way.
         #[arg(long, env = "CONCAT_API_TOKEN")]
@@ -183,10 +180,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Serve {
             json,
             socket,
-            grpc,
             token,
             roots,
-        } => serve(json, socket, grpc, token, roots),
+        } => serve(json, socket, token, roots),
         Command::Preview {
             input,
             output,
@@ -255,15 +251,13 @@ fn emit(message: &Message) {
 fn serve(
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
-    grpc: Option<SocketAddr>,
     token: Option<String>,
     roots: Vec<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
-    let nothing_asked = json.is_none() && socket.is_none() && grpc.is_none();
+    let nothing_asked = json.is_none() && socket.is_none();
     let config = concat_server::Config {
         json: json.or_else(|| nothing_asked.then(|| DEFAULT_JSON.parse().expect("an address"))),
         socket,
-        grpc,
         token,
         roots,
         // The listing is the window's: a server in a terminal prints its
@@ -283,9 +277,6 @@ fn serve(
             concat_api::API_VERSION,
             path.display()
         );
-    }
-    if let Some(address) = server.grpc_addr() {
-        println!("Concat API {}: gRPC on {address}", concat_api::API_VERSION);
     }
     println!(
         "Concat API {}: token {}",

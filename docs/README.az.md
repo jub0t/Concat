@@ -72,7 +72,7 @@ Hər şey Rust ilə yazılmış öz mühərriki üzərində, birbaşa kompüteri
 - 📤 **İxrac.** H.264, HEVC, AV1, kompüterinizin öz kodlayıcısı ilə. 4K 60-a qədər, 10 bit rəng.
 - ⚡ **Sürətli.** Proksilər daxilidir, 4K rahat sürüşsün deyə. Yazılar bütün nüvələrdə çəkilir və hər effekt pəncərə açılan kimi hazırdır.
 - 🛟 **İstənilən kompüterdə işləməyə davam edir.** Qrafik çip imtina edəndə önbaxış çəkməyə davam edir.
-- 🤖 **Skriptlərlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri Concat ilə montaj edə bilər ([bir sətirlə quraşdırılır](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbə kodundan yığılan versiyaya əlavə olaraq gRPC və komanda sətri aləti daxildir.
+- 🤖 **Skriptlərlə idarə oluna bilər.** Daxili MCP serveri sayəsində Claude və digər süni intellekt agentləri Concat ilə montaj edə bilər ([bir sətirlə quraşdırılır](MCP.md)), skriptlər üçün isə JSON-RPC API var. Mənbə kodundan yığılan versiyaya əlavə olaraq komanda sətri aləti daxildir.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 dil. Eyni tətbiq, eyni layihə faylları.
 
 ## Yükləmə
@@ -103,7 +103,7 @@ Concat hələ **beta** mərhələsindədir: işləyir, amma hələ də bəzi ça
 > [!IMPORTANT]
 > Ən faydalı töhfə [Releases](https://github.com/jub0t/Concat/releases) səhifəsindən son versiyanı yükləyib istifadə etməkdir: rastlaşdığınız xətaları bildirin və nəyin daha yaxşı ola biləcəyini təklif edin.
 >
-> Kod yazmağa hazırsınız? [CONTRIBUTING.md](../CONTRIBUTING.md) mühitin qurulmasını, layihənin fayl strukturunu, işə salınmalı olan yoxlamaları və töhfələrin hansı lisenziya ilə qəbul edildiyini izah edir. Concat-ı skriptdən, servisdən və ya agentdən idarə etmək istəyirsiniz? [Developer sənədləri](https://concat.standalones.org/docs) Concat API-ni və onun əlaqə protokollarını, yəni JSON-RPC və gRPC-ni izah edir; [docs/MCP.md](MCP.md) isə süni intellekt agentini MCP vasitəsilə necə qoşmağı göstərir. Layihə ilk dəfə [bu müzakirədə](https://github.com/jub0t/Concat/discussions/3) elan olunub.
+> Kod yazmağa hazırsınız? [CONTRIBUTING.md](../CONTRIBUTING.md) mühitin qurulmasını, layihənin fayl strukturunu, işə salınmalı olan yoxlamaları və töhfələrin hansı lisenziya ilə qəbul edildiyini izah edir. Concat-ı skriptdən, servisdən və ya agentdən idarə etmək istəyirsiniz? [Developer sənədləri](https://concat.standalones.org/docs) Concat API-ni və onun əlaqə protokolunu, yəni JSON-RPC-ni izah edir; [docs/MCP.md](MCP.md) isə süni intellekt agentini MCP vasitəsilə necə qoşmağı göstərir. Layihə ilk dəfə [bu müzakirədə](https://github.com/jub0t/Concat/discussions/3) elan olunub.
 > 
 > Töhfə verənlər Discord serverində `@Contributor` rolu ala bilər: sadəcə bunu istəyin.
 

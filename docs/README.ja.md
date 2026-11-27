@@ -72,7 +72,7 @@ Concat は macOS・Windows・Linux・Android・iOS 向けの、無料でオー�
 - 📤 **書き出し。** H.264、HEVC、AV1。お使いのコンピューター自身のエンコーダーで。最大 4K 60、10 ビットカラー。
 - ⚡ **高速。** プロキシ内蔵で、4K もなめらかにスクラブできます。タイトルは全コアで描画され、ウィンドウが開いた瞬間にすべてのエフェクトが使えます。
 - 🛟 **どんなマシンでも動き続ける。** グラフィックチップが力尽きても、プレビューは描画を続けます。
-- 🤖 **スクリプト対応。** スクリプトや AI エージェントが動画を編集できる JSON-RPC の API。ソースからビルドすると gRPC とコマンドラインツールも使えます。
+- 🤖 **スクリプト対応。** スクリプトや AI エージェントが動画を編集できる JSON-RPC の API。ソースからビルドするとコマンドラインツールも使えます。
 - 🖥️ **macOS、Windows、Linux、Android、iOS。** 27 言語。同じアプリ、同じプロジェクトファイル。
 
 ## ダウンロード
@@ -103,7 +103,7 @@ Concat は **ベータ版** です。動きますが、まだ粗い部分があ�
 > [!IMPORTANT]
 > いちばんの貢献は、[Releases](https://github.com/jub0t/Concat/releases) ページからビルドを取って使うことです。どこで壊れるかを見つけ、どこがもっと良くなるかを伝えてください。
 >
-> コードを書く準備ができたら、[CONTRIBUTING.md](../CONTRIBUTING.md) にセットアップ、ツリーの構成、実行すべきチェック、貢献のライセンスがまとまっています。スクリプトやサービス、エージェントから Concat を動かすなら、[開発者向けドキュメント](https://concat.standalones.org/docs) に Concat API とそのトランスポート (JSON-RPC、gRPC) があります。プロジェクトは [この Discussion](https://github.com/jub0t/Concat/discussions/3) で発表されました。
+> コードを書く準備ができたら、[CONTRIBUTING.md](../CONTRIBUTING.md) にセットアップ、ツリーの構成、実行すべきチェック、貢献のライセンスがまとまっています。スクリプトやサービス、エージェントから Concat を動かすなら、[開発者向けドキュメント](https://concat.standalones.org/docs) に Concat API とそのトランスポート (JSON-RPC) があります。プロジェクトは [この Discussion](https://github.com/jub0t/Concat/discussions/3) で発表されました。
 > 
 > 貢献者は Discord サーバーで `@Contributor` ロールを受け取れます。声をかけてください。
 

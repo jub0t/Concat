@@ -72,7 +72,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 - 📤 **Dışa aktarma.** H.264, HEVC, AV1, bilgisayarınızın kendi kodlayıcısıyla. 4K 60'a kadar, 10 bit renk.
 - ⚡ **Hızlı.** Proxy dosyaları dahil, böylece 4K akıcı kayar. Yazılar tüm çekirdeklerde çizilir ve her efekt pencere açıldığı anda hazırdır.
 - 🛟 **Her makinede çalışmaya devam eder.** Grafik çipi pes ettiğinde önizleme çizmeye devam eder.
-- 🤖 **Betiklenebilir.** Betiklerin ve yapay zekâ ajanlarının video kesebileceği bir JSON-RPC API’si. Kaynaktan derlenen sürüm buna gRPC ve bir komut satırı aracı ekler.
+- 🤖 **Betiklenebilir.** Betiklerin ve yapay zekâ ajanlarının video kesebileceği bir JSON-RPC API’si. Kaynaktan derlenen sürüm buna bir komut satırı aracı ekler.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir
@@ -103,7 +103,7 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 > [!IMPORTANT]
 > Katkıda bulunmanın en iyi yolu [Releases](https://github.com/jub0t/Concat/releases) sayfasından bir derleme alıp kullanmaktır: nerede bozulduğunu bulun ve nerede daha iyi olabileceğini söyleyin.
 >
-> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concat.standalones.org/docs) Concat API’sini ve taşıyıcılarını anlatır: JSON-RPC ve gRPC. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
+> Kod yazmaya hazır mısınız? [CONTRIBUTING.md](../CONTRIBUTING.md) kurulumu, ağacın düzenini, çalıştırılacak denetimleri ve katkıların nasıl lisanslandığını anlatır. Concat’i bir betikten, servisten ya da ajandan mı sürüyorsunuz? [Geliştirici belgeleri](https://concat.standalones.org/docs) Concat API’sini ve taşıyıcısını anlatır: JSON-RPC. Proje [bu tartışmada](https://github.com/jub0t/Concat/discussions/3) duyuruldu.
 > 
 > Katkıda bulunanlar Discord sunucusunda bir `@Contributor` rolü alabilir: istemeniz yeter.
 

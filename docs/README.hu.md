@@ -72,7 +72,7 @@ Minden helyben fut, egy natív Rust motoron, GPU-s kompozitorral. Telepítsd, h�
 - 📤 **Exportálás.** H.264, HEVC, AV1, a számítógéped saját kódolójával. Akár 4K 60, 10 bites szín.
 - ⚡ **Gyors.** Beépített proxyk, így a 4K is akadásmentesen görgethető. A címek minden processzormagon rajzolódnak, és minden effekt kész, amint megnyílik az ablak.
 - 🛟 **Bármilyen gépen tovább megy.** Ha a grafikus chip feladja, az előnézet akkor is rajzol tovább.
-- 🤖 **Szkriptelhető.** JSON-RPC API, amellyel szkriptek és MI-ügynökök vághatnak videót. A forrásból fordított változat gRPC-t és parancssori eszközt is ad.
+- 🤖 **Szkriptelhető.** JSON-RPC API, amellyel szkriptek és MI-ügynökök vághatnak videót. A forrásból fordított változat parancssori eszközt is ad.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 nyelv. Ugyanaz az alkalmazás, ugyanazok a projektfájlok.
 
 ## Letöltés
@@ -103,7 +103,7 @@ A **rendszerkövetelmények** és az opcionális modellek mérete a [weboldalon]
 > [!IMPORTANT]
 > A legjobb módja a közreműködésnek, ha letöltesz egy változatot a [Releases](https://github.com/jub0t/Concat/releases) oldalról, és használod: megtalálod, hol törik el, és elmondod, hol lehetne jobb.
 >
-> Készen állsz kódot írni? A [CONTRIBUTING.md](../CONTRIBUTING.md) leírja a beállítást, a forrásfa felépítését, a futtatandó ellenőrzéseket és a hozzájárulások licencelését. Szkriptből, szolgáltatásból vagy ügynökből vezérled a Concatot? A [fejlesztői dokumentáció](https://concat.standalones.org/docs) bemutatja a Concat API-t és átviteleit: JSON-RPC és gRPC. [Ebben a beszélgetésben](https://github.com/jub0t/Concat/discussions/3) jelentették be a projektet.
+> Készen állsz kódot írni? A [CONTRIBUTING.md](../CONTRIBUTING.md) leírja a beállítást, a forrásfa felépítését, a futtatandó ellenőrzéseket és a hozzájárulások licencelését. Szkriptből, szolgáltatásból vagy ügynökből vezérled a Concatot? A [fejlesztői dokumentáció](https://concat.standalones.org/docs) bemutatja a Concat API-t és átvitelét: JSON-RPC. [Ebben a beszélgetésben](https://github.com/jub0t/Concat/discussions/3) jelentették be a projektet.
 > 
 > A közreműködők kérhetik a `@Contributor` szerepet a Discord-szerveren: csak szólj.
 

@@ -72,7 +72,7 @@ Concat 是一款免费、开源的视频编辑器，支持 macOS、Windows、Lin
 - 📤 **导出。** H.264、HEVC、AV1，使用你电脑自带的编码器。最高 4K 60，10 位色彩。
 - ⚡ **快。** 内置代理，4K 拖动也顺滑。标题在每个核心上绘制，窗口一打开，所有特效就已就绪。
 - 🛟 **任何机器上都能继续运行。** 显卡芯片罢工时，预览依然会继续绘制。
-- 🤖 **可脚本化。** 提供 JSON-RPC API，脚本和 AI 代理可以用它剪视频。从源码构建还会加上 gRPC 和命令行工具。
+- 🤖 **可脚本化。** 提供 JSON-RPC API，脚本和 AI 代理可以用它剪视频。从源码构建还会加上命令行工具。
 - 🖥️ **macOS、Windows、Linux、Android、iOS。** 27 种语言。同一个应用，同样的项目文件。
 
 ## 下载
@@ -103,7 +103,7 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
 > [!IMPORTANT]
 > 最好的贡献方式是从 [Releases](https://github.com/jub0t/Concat/releases) 页面拿一个版本来用：找到它哪里会坏，说出它哪里可以更好。
 >
-> 准备写代码了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介绍了环境搭建、目录结构、要运行的检查以及贡献的许可方式。要从脚本、服务或代理驱动 Concat？[开发者文档](https://concat.standalones.org/docs) 介绍了 Concat API 及其传输方式：JSON-RPC 和 gRPC。项目在 [这个 Discussion](https://github.com/jub0t/Concat/discussions/3) 里发布。
+> 准备写代码了？[CONTRIBUTING.md](../CONTRIBUTING.md) 介绍了环境搭建、目录结构、要运行的检查以及贡献的许可方式。要从脚本、服务或代理驱动 Concat？[开发者文档](https://concat.standalones.org/docs) 介绍了 Concat API 及其传输方式：JSON-RPC。项目在 [这个 Discussion](https://github.com/jub0t/Concat/discussions/3) 里发布。
 > 
 > 贡献者可以在 Discord 服务器申请 `@Contributor` 身份组，开口要就行。
 

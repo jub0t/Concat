@@ -72,7 +72,7 @@ Tout tourne en local sur un moteur natif en Rust avec un compositeur GPU. Instal
 - 📤 **Export.** H.264, HEVC, AV1, avec l’encodeur propre à votre ordinateur. Jusqu’à la 4K 60, couleur 10 bits.
 - ⚡ **Rapide.** Proxys intégrés, pour que la 4K défile sans à-coups. Les titres se dessinent sur tous les cœurs, et chaque effet est prêt dès l’ouverture de la fenêtre.
 - 🛟 **Continue sur n’importe quelle machine.** Quand la puce graphique lâche, l’aperçu continue de s’afficher.
-- 🤖 **Scriptable.** Une API JSON-RPC avec laquelle les scripts et les agents IA peuvent monter de la vidéo. Une compilation depuis les sources ajoute gRPC et un outil en ligne de commande.
+- 🤖 **Scriptable.** Une API JSON-RPC avec laquelle les scripts et les agents IA peuvent monter de la vidéo. Une compilation depuis les sources ajoute un outil en ligne de commande.
 - 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 langues. Même app, mêmes fichiers de projet.
 
 ## Téléchargement
@@ -103,7 +103,7 @@ La **configuration requise** et la taille des modèles optionnels sont sur [le s
 > [!IMPORTANT]
 > La meilleure façon de contribuer est de prendre une version sur la page [Releases](https://github.com/jub0t/Concat/releases) et de s’en servir : trouvez où ça casse, et dites où ça pourrait être mieux.
 >
-> Prêt à écrire du code ? [CONTRIBUTING.md](../CONTRIBUTING.md) couvre l’installation, l’organisation de l’arborescence, les vérifications à lancer et la licence des contributions. Vous pilotez Concat depuis un script, un service ou un agent ? [La documentation développeur](https://concat.standalones.org/docs) couvre l’API Concat et ses transports : JSON-RPC et gRPC. [Cette Discussion](https://github.com/jub0t/Concat/discussions/3) est celle où le projet a été annoncé.
+> Prêt à écrire du code ? [CONTRIBUTING.md](../CONTRIBUTING.md) couvre l’installation, l’organisation de l’arborescence, les vérifications à lancer et la licence des contributions. Vous pilotez Concat depuis un script, un service ou un agent ? [La documentation développeur](https://concat.standalones.org/docs) couvre l’API Concat et son transport : JSON-RPC. [Cette Discussion](https://github.com/jub0t/Concat/discussions/3) est celle où le projet a été annoncé.
 > 
 > Les contributeurs peuvent obtenir un rôle `@Contributor` sur le serveur Discord : il suffit de le demander.
 
