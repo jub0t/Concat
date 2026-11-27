@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "正在检查…",
   "settings.chooseFile": "选择文件",
   "settings.chooseModelFile": "选择已下载的模型文件",
+  "settings.clickMovesPlayhead": "点击移动播放头",
+  "settings.clickMovesPlayheadHint": "开启时，点击时间线上的任意位置，无论是片段还是空轨道，播放头都会移到那里。关闭时，只有点击标尺才会移动播放头，点击片段只会选中它。",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat 镜像",
   "settings.copySystemInformation": "复制系统信息",

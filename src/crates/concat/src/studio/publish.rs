@@ -488,6 +488,7 @@ impl Studio {
         editor.set_linkage(doc_view::sequence(doc).is_some_and(|sequence| sequence.linkage));
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
+        editor.set_click_moves_playhead(self.prefs.click_moves_playhead());
         editor.set_preview_axis(self.prefs.preview_axis);
         editor.set_preview_axis_audio(self.prefs.preview_axis_audio);
         editor.set_pan_mode(self.lanes.pan_mode);

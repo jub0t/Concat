@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Provjera…",
   "settings.chooseFile": "Odaberi datoteku",
   "settings.chooseModelFile": "Odaberite preuzetu datoteku modela",
+  "settings.clickMovesPlayhead": "Klik pomiče playhead",
+  "settings.clickMovesPlayheadHint": "Uključeno: klik bilo gdje na vremenskoj liniji pomiče playhead tamo, na klipu ili na praznoj traci. Isključeno: pomiče ga samo klik na ravnalo, a klik na klip samo ga odabire.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concatov zrcalni poslužitelj",
   "settings.copySystemInformation": "Kopiraj podatke o sustavu",

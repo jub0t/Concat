@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "در حال بررسی…",
   "settings.chooseFile": "انتخاب فایل",
   "settings.chooseModelFile": "فایل مدل بارگیری‌شده را انتخاب کنید",
+  "settings.clickMovesPlayhead": "کلیک نشانگر پخش را جابه‌جا می‌کند",
+  "settings.clickMovesPlayheadHint": "در حالت روشن، کلیک در هر جای تایم‌لاین نشانگر پخش را به همان‌جا می‌برد، چه روی یک کلیپ و چه روی یک ترک خالی. در حالت خاموش، فقط کلیک روی خط‌کش آن را جابه‌جا می‌کند و کلیک روی کلیپ فقط آن را انتخاب می‌کند.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Mirror مربوط به Concat",
   "settings.copySystemInformation": "کپی اطلاعات سیستم",

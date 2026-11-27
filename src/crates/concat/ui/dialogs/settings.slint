@@ -75,6 +75,8 @@ export struct SettingsData {
     log-level: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// a click on a clip or an empty lane moves the playhead there
+    click-moves-playhead: bool,
     /// large files get a smaller copy for playback
     proxies: bool,
     /// a launch opens with the panels and the window where the last
@@ -687,6 +689,7 @@ export component SettingsDialog inherits Sheet {
     /// follows the display's own.
     callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
+    callback click-moves-playhead-changed(on: bool);
     callback proxies-changed(on: bool);
     callback remember-layout-changed(on: bool);
     callback gpu-changed(on: bool);
@@ -1017,6 +1020,21 @@ export component SettingsDialog inherits Sheet {
                     on: root.data.magnetic;
                     open: false;
                     switched(on) => { root.magnetic-changed(on); }
+                }
+
+                // On, a click anywhere in the timeline sends the playhead
+                // there: on a clip, on an empty lane. Off, the ruler alone
+                // moves it and a click in the lanes only selects. Not on a
+                // phone, where the lanes slide under the playhead and a tap
+                // never moved it.
+                if !root.phone: DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.clickMovesPlayhead");
+                    hint: I18n.t("settings.clickMovesPlayheadHint");
+                    switchable: true;
+                    on: root.data.click-moves-playhead;
+                    open: false;
+                    switched(on) => { root.click-moves-playhead-changed(on); }
                 }
 
                 // Off, the playhead goes wherever the ruler is clicked, past

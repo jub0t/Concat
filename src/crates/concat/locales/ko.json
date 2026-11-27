@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "확인 중…",
   "settings.chooseFile": "파일 선택",
   "settings.chooseModelFile": "다운로드한 모델 파일 선택",
+  "settings.clickMovesPlayhead": "클릭으로 재생 헤드 이동",
+  "settings.clickMovesPlayheadHint": "켜면 타임라인의 어디를 클릭하든, 클립 위든 빈 트랙이든, 재생 헤드가 그 위치로 이동합니다. 끄면 눈금자를 클릭할 때만 재생 헤드가 이동하고, 클립을 클릭하면 선택만 됩니다.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat 미러",
   "settings.copySystemInformation": "시스템 정보 복사",

@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "جارٍ التحقق…",
   "settings.chooseFile": "اختيار ملف",
   "settings.chooseModelFile": "اختر ملف النموذج الذي نزّلته",
+  "settings.clickMovesPlayhead": "النقر يحرّك مؤشر التشغيل",
+  "settings.clickMovesPlayheadHint": "عند التفعيل، تنقل النقرة في أي مكان على المخطط الزمني مؤشر التشغيل إليه، على مقطع أو على مسار فارغ. عند الإيقاف، لا يحرّكه إلا النقر على المسطرة، والنقر على مقطع يحدّده فقط.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "مرآة Concat",
   "settings.copySystemInformation": "نسخ معلومات النظام",

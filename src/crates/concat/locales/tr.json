@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Denetleniyor…",
   "settings.chooseFile": "Dosya seç",
   "settings.chooseModelFile": "İndirilen model dosyasını seçin",
+  "settings.clickMovesPlayhead": "Tıklama oynatma imlecini taşır",
+  "settings.clickMovesPlayheadHint": "Açıkken zaman çizelgesinde herhangi bir yere tıklamak oynatma imlecini oraya taşır: bir klibin üstüne ya da boş bir parçaya. Kapalıyken onu yalnızca cetvele tıklamak taşır ve bir klibe tıklamak onu yalnızca seçer.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat yansısı",
   "settings.copySystemInformation": "Sistem bilgilerini kopyala",

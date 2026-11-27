@@ -373,6 +373,10 @@ export global Editor {
     /// The VU meters at the timeline's right edge. A remembered
     /// preference, which Rust owns; the tray's meter button flips it.
     in-out property <bool> meters-shown: true;
+    /// A click on a clip or an empty lane sends the playhead there. Off,
+    /// the ruler alone moves it. A remembered preference, which Rust owns;
+    /// its switch is in Settings.
+    in-out property <bool> click-moves-playhead: true;
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying put. A remembered
     /// preference, which Rust owns; `preview-axis-audio` is whether the

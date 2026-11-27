@@ -312,6 +312,13 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
+    /// A click on a clip or on an empty lane sends the playhead there, as
+    /// a click on the ruler does. `None` is on, the way the timeline has
+    /// always answered a click. Off, the ruler alone moves the playhead and
+    /// a click in the lanes only selects: for whoever picks clips all over
+    /// the cut and wants the monitor left where it was. Read it through
+    /// [`Preferences::click_moves_playhead`].
+    pub click_moves_playhead: Option<bool>,
     /// Scrub copies: every video gets a small copy written in the
     /// background, every frame of it a keyframe, which a scrub reads so the
     /// picture keeps up with the hand, and playback at Half and Quarter
@@ -486,6 +493,12 @@ impl Preferences {
     /// Whether the timeline shows its VU meters; see `vu_meters`.
     pub fn meters_shown(&self) -> bool {
         self.vu_meters.unwrap_or(true)
+    }
+
+    /// Whether a click in the lanes moves the playhead; see the field of
+    /// the same name.
+    pub fn click_moves_playhead(&self) -> bool {
+        self.click_moves_playhead.unwrap_or(true)
     }
 
     /// Whether videos get scrub copies; see `scrub_copies`.
@@ -901,6 +914,24 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A settings file that says nothing about clicks in the lanes moves
+    /// the playhead with them, as the timeline always has; the switch's Off
+    /// is written as `clickMovesPlayhead` and read back.
+    #[test]
+    fn a_click_moves_the_playhead_until_it_is_switched_off() {
+        let untouched: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(untouched.click_moves_playhead());
+
+        let off = Preferences {
+            click_moves_playhead: Some(false),
+            ..Preferences::default()
+        };
+        let text = serde_json::to_string(&off).unwrap();
+        assert!(text.contains("\"clickMovesPlayhead\":false"), "{text}");
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert!(!back.click_moves_playhead());
+    }
 
     /// A kept look comes back as the title it was kept from, through the
     /// settings file's own text; a file without one is no look.

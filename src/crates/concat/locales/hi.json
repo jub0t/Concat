@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "जांच हो रही है…",
   "settings.chooseFile": "फ़ाइल चुनें",
   "settings.chooseModelFile": "डाउनलोड की गई मॉडल फ़ाइल चुनें",
+  "settings.clickMovesPlayhead": "क्लिक से प्लेहेड खिसकता है",
+  "settings.clickMovesPlayheadHint": "चालू होने पर, टाइमलाइन पर कहीं भी क्लिक करने से प्लेहेड वहीं पहुंच जाता है, चाहे क्लिप पर हो या खाली ट्रैक पर। बंद होने पर, केवल रूलर पर क्लिक करने से प्लेहेड खिसकता है, और क्लिप पर क्लिक करने से वह सिर्फ़ चुनी जाती है।",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat का मिरर",
   "settings.copySystemInformation": "सिस्टम जानकारी कॉपी करें",

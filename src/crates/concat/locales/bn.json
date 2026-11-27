@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "খোঁজা হচ্ছে…",
   "settings.chooseFile": "ফাইল বাছুন",
   "settings.chooseModelFile": "ডাউনলোড করা মডেল ফাইল বাছুন",
+  "settings.clickMovesPlayhead": "ক্লিক করলে প্লেহেড সরে",
+  "settings.clickMovesPlayheadHint": "চালু থাকলে, টাইমলাইনের যেকোনো জায়গায় ক্লিক করলে প্লেহেড সেখানে চলে যায়, ক্লিপের ওপর হোক বা ফাঁকা ট্র্যাকে। বন্ধ থাকলে, শুধু রুলারে ক্লিক করলে প্লেহেড সরে, আর ক্লিপে ক্লিক করলে সেটি কেবল নির্বাচিত হয়।",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat-এর মিরর",
   "settings.copySystemInformation": "সিস্টেম তথ্য কপি করুন",

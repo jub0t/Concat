@@ -42,6 +42,7 @@ export component TimelinePane inherits Rectangle {
     in property <bool> linkage: true;
     in property <bool> pan-mode: false;
     in property <bool> trim-follow: false;
+    in property <bool> click-moves-playhead: true;
     in property <bool> preview-axis: false;
     in property <bool> preview-axis-audio;
     in property <int> selected-count;
@@ -446,6 +447,7 @@ export component TimelinePane inherits Rectangle {
                 track-scroll: root.at;
                 ruler-height: root.ruler-height;
                 pan-mode: root.pan-mode;
+                click-moves-playhead: root.click-moves-playhead;
                 preview-axis: root.preview-axis;
 
                 scrubbed(seconds) => { root.scrubbed(seconds); }

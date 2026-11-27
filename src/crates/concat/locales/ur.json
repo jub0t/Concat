@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "چیک ہو رہا ہے…",
   "settings.chooseFile": "فائل منتخب کریں",
   "settings.chooseModelFile": "ڈاؤن لوڈ کی گئی ماڈل فائل منتخب کریں",
+  "settings.clickMovesPlayhead": "کلک پلے ہیڈ کو حرکت دیتا ہے",
+  "settings.clickMovesPlayheadHint": "آن ہونے پر، ٹائم لائن پر کہیں بھی کلک پلے ہیڈ کو وہیں لے جاتا ہے، چاہے کلپ پر ہو یا خالی ٹریک پر۔ آف ہونے پر، صرف رولر پر کلک اسے حرکت دیتا ہے، اور کلپ پر کلک اسے صرف منتخب کرتا ہے۔",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat کا مرر",
   "settings.copySystemInformation": "سسٹم کی معلومات کاپی کریں",

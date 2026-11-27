@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Sprawdzanie…",
   "settings.chooseFile": "Wybierz plik",
   "settings.chooseModelFile": "Wybierz pobrany plik modelu",
+  "settings.clickMovesPlayhead": "Kliknięcie przesuwa głowicę odtwarzania",
+  "settings.clickMovesPlayheadHint": "Włączone: kliknięcie w dowolnym miejscu osi czasu przenosi tam głowicę odtwarzania, na klipie lub na pustej ścieżce. Wyłączone: głowicę przesuwa tylko kliknięcie linijki, a kliknięcie klipu jedynie go zaznacza.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Serwer lustrzany Concat",
   "settings.copySystemInformation": "Kopiuj informacje o systemie",

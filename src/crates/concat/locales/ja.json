@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "確認中…",
   "settings.chooseFile": "ファイルを選択",
   "settings.chooseModelFile": "ダウンロードしたモデルファイルを選択",
+  "settings.clickMovesPlayhead": "クリックで再生ヘッドを移動",
+  "settings.clickMovesPlayheadHint": "オンの場合、タイムライン上のどこをクリックしても、クリップの上でも空のトラックでも、再生ヘッドがそこに移動します。オフの場合、再生ヘッドを動かすのはルーラーのクリックだけで、クリップをクリックしても選択されるだけです。",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat のミラー",
   "settings.copySystemInformation": "システム情報をコピー",

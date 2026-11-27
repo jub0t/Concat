@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Controleren…",
   "settings.chooseFile": "Bestand kiezen",
   "settings.chooseModelFile": "Kies het gedownloade modelbestand",
+  "settings.clickMovesPlayhead": "Klik verplaatst de afspeelkop",
+  "settings.clickMovesPlayheadHint": "Aan: een klik ergens op de tijdlijn zet de afspeelkop daar neer, op een clip of op een leeg spoor. Uit: alleen een klik op de liniaal verplaatst hem, en een klik op een clip selecteert die alleen.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Spiegelserver van Concat",
   "settings.copySystemInformation": "Systeeminformatie kopiëren",

@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "กำลังตรวจสอบ…",
   "settings.chooseFile": "เลือกไฟล์",
   "settings.chooseModelFile": "เลือกไฟล์โมเดลที่ดาวน์โหลดแล้ว",
+  "settings.clickMovesPlayhead": "คลิกเพื่อย้ายหัวเล่น",
+  "settings.clickMovesPlayheadHint": "เมื่อเปิด การคลิกที่ใดก็ได้บนไทม์ไลน์จะย้ายหัวเล่นไปตรงนั้น ไม่ว่าจะบนคลิปหรือบนแทร็กว่าง เมื่อปิด เฉพาะการคลิกบนไม้บรรทัดเท่านั้นที่ย้ายหัวเล่น และการคลิกที่คลิปจะเลือกคลิปนั้นเท่านั้น",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "มิเรอร์ของ Concat",
   "settings.copySystemInformation": "คัดลอกข้อมูลระบบ",

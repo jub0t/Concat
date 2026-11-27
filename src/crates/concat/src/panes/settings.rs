@@ -59,6 +59,9 @@ pub enum SettingsMsg {
     /// The log level's row: an index into [`LOG_LEVELS`].
     LogLevelChanged(i32),
     PlayheadStopsChanged(bool),
+    /// The switch over whether a click in the lanes moves the playhead; see
+    /// `Preferences::click_moves_playhead`.
+    ClickMovesPlayheadChanged(bool),
     /// The scrub copies switch: whether every video gets a small copy that
     /// a scrub reads; see `Preferences::scrub_copies`.
     ProxiesChanged(bool),
@@ -424,6 +427,11 @@ impl SettingsPane {
                 // the switch goes on; seek does the clamp.
                 let at = studio.playhead;
                 studio.seek(at);
+            }
+            SettingsMsg::ClickMovesPlayheadChanged(on) => {
+                log::info!("settings: Click moves the playhead {}", on_off(on));
+                studio.prefs.click_moves_playhead = Some(on);
+                studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::ProxiesChanged(on) => {
                 log::info!("settings: Scrub copies {}", on_off(on));
@@ -1203,6 +1211,7 @@ impl SettingsPane {
                 .position(|level| *level == log::max_level())
                 .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
+            click_moves_playhead: studio.prefs.click_moves_playhead(),
             proxies: studio.prefs.scrub_copies(),
             remember_layout: studio.prefs.remembers_layout(),
             layout_switchable: !crate::platform::phone(),

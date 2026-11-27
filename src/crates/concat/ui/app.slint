@@ -402,6 +402,7 @@ export component App inherits Window {
     callback settings-playhead-chosen(index: int);
     callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
+    callback settings-click-moves-playhead-changed(on: bool);
     callback settings-proxies-changed(on: bool);
     callback settings-remember-layout-changed(on: bool);
     callback settings-gpu-changed(on: bool);
@@ -1001,6 +1002,7 @@ export component App inherits Window {
         playhead-chosen(index) => { root.settings-playhead-chosen(index); }
         scale-changed(index) => { root.settings-scale-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
+        click-moves-playhead-changed(on) => { root.settings-click-moves-playhead-changed(on); }
         proxies-changed(on) => { root.settings-proxies-changed(on); }
         remember-layout-changed(on) => { root.settings-remember-layout-changed(on); }
         gpu-changed(on) => { root.settings-gpu-changed(on); }

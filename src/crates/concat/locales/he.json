@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "בודק…",
   "settings.chooseFile": "בחירת קובץ",
   "settings.chooseModelFile": "בחרו את קובץ המודל שהורד",
+  "settings.clickMovesPlayhead": "לחיצה מזיזה את סמן ההפעלה",
+  "settings.clickMovesPlayheadHint": "כשמופעל, לחיצה בכל מקום בציר הזמן מעבירה לשם את סמן ההפעלה, על קליפ או על ערוץ ריק. כשכבוי, רק לחיצה על הסרגל מזיזה אותו, ולחיצה על קליפ רק בוחרת אותו.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "המראה של Concat",
   "settings.copySystemInformation": "העתקת פרטי המערכת",

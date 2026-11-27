@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Checking…",
   "settings.chooseFile": "Choose file",
   "settings.chooseModelFile": "Choose the downloaded model file",
+  "settings.clickMovesPlayhead": "Click moves the playhead",
+  "settings.clickMovesPlayheadHint": "On, a click anywhere on the timeline moves the playhead there, on a clip or on an empty track. Off, only a click on the ruler moves it, and a click on a clip just selects it.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat's mirror",
   "settings.copySystemInformation": "Copy system information",

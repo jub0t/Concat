@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Verificando…",
   "settings.chooseFile": "Escolher arquivo",
   "settings.chooseModelFile": "Escolha o arquivo de modelo baixado",
+  "settings.clickMovesPlayhead": "O clique move o cabeçote",
+  "settings.clickMovesPlayheadHint": "Ativado, um clique em qualquer ponto da linha do tempo leva o cabeçote até lá, sobre um clipe ou em uma faixa vazia. Desativado, só um clique na régua o move, e um clique em um clipe apenas o seleciona.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Espelho do Concat",
   "settings.copySystemInformation": "Copiar informações do sistema",

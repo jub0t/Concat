@@ -2409,6 +2409,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::PlayheadStopsChanged(on)));
     }));
+    app.on_settings_click_moves_playhead_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::ClickMovesPlayheadChanged(on)));
+    }));
     app.on_settings_proxies_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ProxiesChanged(on)));
     }));

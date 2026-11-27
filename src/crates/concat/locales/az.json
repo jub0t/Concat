@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Yoxlanılır…",
   "settings.chooseFile": "Fayl seç",
   "settings.chooseModelFile": "Endirilmiş model faylını seçin",
+  "settings.clickMovesPlayhead": "Klik oxutma başlığını aparır",
+  "settings.clickMovesPlayheadHint": "Aktiv olduqda zaman xəttinin istənilən yerinə klik oxutma başlığını ora aparır: klipin üstünə və ya boş trekə. Deaktiv olduqda onu yalnız xətkeşə klik aparır, klipə klik isə onu sadəcə seçir.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Concat güzgüsü",
   "settings.copySystemInformation": "Sistem məlumatını kopyala",

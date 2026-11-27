@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Comprobando…",
   "settings.chooseFile": "Elegir archivo",
   "settings.chooseModelFile": "Elige el archivo de modelo descargado",
+  "settings.clickMovesPlayhead": "El clic mueve el cabezal",
+  "settings.clickMovesPlayheadHint": "Activado, un clic en cualquier punto de la línea de tiempo lleva el cabezal allí, sobre un clip o sobre una pista vacía. Desactivado, solo un clic en la regla lo mueve, y un clic en un clip solo lo selecciona.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Espejo de Concat",
   "settings.copySystemInformation": "Copiar información del sistema",

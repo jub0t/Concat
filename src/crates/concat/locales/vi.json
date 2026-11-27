@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Đang kiểm tra…",
   "settings.chooseFile": "Chọn tệp",
   "settings.chooseModelFile": "Chọn tệp mô hình đã tải",
+  "settings.clickMovesPlayhead": "Nhấp để di chuyển đầu phát",
+  "settings.clickMovesPlayheadHint": "Khi bật, nhấp vào bất kỳ đâu trên timeline sẽ đưa đầu phát đến đó, trên một clip hay trên một track trống. Khi tắt, chỉ nhấp vào thước mới di chuyển đầu phát, còn nhấp vào clip chỉ chọn clip đó.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "Bản sao của Concat",
   "settings.copySystemInformation": "Sao chép thông tin hệ thống",

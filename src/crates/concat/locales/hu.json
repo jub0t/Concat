@@ -512,6 +512,8 @@
   "settings.checkingForUpdates": "Keresés…",
   "settings.chooseFile": "Fájl kiválasztása",
   "settings.chooseModelFile": "Válaszd ki a letöltött modellfájlt",
+  "settings.clickMovesPlayhead": "A kattintás mozgatja a lejátszófejet",
+  "settings.clickMovesPlayheadHint": "Bekapcsolva az idővonalon bárhová kattintva a lejátszófej oda ugrik, akár klipre, akár üres sávra. Kikapcsolva csak a vonalzóra kattintás mozgatja, a klipre kattintás pedig csak kijelöli azt.",
   "settings.concat": "Concat {0}",
   "settings.concatsMirror": "A Concat tükre",
   "settings.copySystemInformation": "Rendszerinformációk másolása",
