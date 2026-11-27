@@ -4,6 +4,7 @@
 package app.concat.editor.ui.editor
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -55,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +91,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.concat.editor.api.Clip
 import app.concat.editor.api.ClipKind
+import app.concat.editor.api.Commands
 import app.concat.editor.api.ProjectView
 import app.concat.editor.concat
 import app.concat.editor.ui.components.AccentButton
@@ -104,25 +107,16 @@ import app.concat.editor.ui.theme.Motion
 import app.concat.editor.ui.theme.Radii
 import app.concat.editor.ui.theme.Spacing
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/** Which row of tools shows when nothing is selected. */
 private enum class Menu { Root, Audio, Text }
 
-/** A tool's options, open above the toolbar. */
 private enum class Panel { Speed, Volume, Opacity, Fade, Crop, Mask, Animation, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover, Stickers, Cover }
 
-/** The panels that belong to the selected clip, closed when it is let go. */
 private val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.Crop, Panel.Mask, Panel.Animation, Panel.TextEdit, Panel.Effects, Panel.Filters)
 
-/** One tool of the bottom toolbar. */
 private class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
 
-/**
- * The editor: a top bar, the preview (at most about 42% of
- * the height: the timeline is the product), the transport, the timeline,
- * and a scrollable toolbar whose tools open their options in a panel
- * above it. [startTool] opens a panel at once ("captions", "speech").
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: String? = null) {
@@ -131,7 +125,6 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
         key = "$path#$session",
         factory = viewModelFactory { initializer { EditorViewModel(application, path) } },
     )
-    // The panels' own models, one each per open project: their jobs outlive the panel.
     val captions: CaptionsViewModel = viewModel(
         key = "$path#$session#captions",
         factory = viewModelFactory { initializer { CaptionsViewModel(application, path) } },
@@ -150,6 +143,7 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     )
     val ui by model.ui.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(Menu.Root) }
     var panel by remember {
         mutableStateOf(
@@ -168,8 +162,9 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     var renaming by remember { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     var inlineEdit by remember { mutableStateOf<String?>(null) }
+    var eyedropperFrame by remember { mutableStateOf<Bitmap?>(null) }
+    var eyedropperHex by remember { mutableStateOf<String?>(null) }
 
-    // Pause when the app is covered; save when it is no longer seen.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -184,6 +179,10 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     }
     BackHandler {
         when {
+            eyedropperFrame != null -> {
+                eyedropperFrame = null
+                eyedropperHex = null
+            }
             inlineEdit != null -> inlineEdit = null
             fullscreen -> fullscreen = false
             panel != null -> panel = null
@@ -211,6 +210,16 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     val pickReplacementSound = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         model.replace(uri)
     }
+    val pickSubtitles = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        model.importSubtitles(uri)
+    }
+    val exportSrtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
+        model.exportSubtitles(uri, asAss = false)
+    }
+    val exportAssLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        model.exportSubtitles(uri, asAss = true)
+    }
+
     fun addMedia() = pickVisual.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
 
     val view = ui.view
@@ -218,10 +227,17 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     val selected = view?.clip(ui.selected)
     val mainTrackId = view?.let { v -> v.tracks.getOrNull(mainTrackIndex(v))?.id }
 
-    // A clip's panels go when the clip does.
     LaunchedEffect(selected?.id) {
-        if (selected == null && panel in CLIP_PANELS) panel = null
-        if (selected != null && panel == Panel.TextNew) panel = null
+        if (selected == null && panel in CLIP_PANELS) {
+            panel = null
+            eyedropperFrame = null
+            eyedropperHex = null
+        }
+        if (selected != null && panel == Panel.TextNew) {
+            panel = null
+            eyedropperFrame = null
+            eyedropperHex = null
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(ConcatColors.page).safeDrawingPadding()) {
@@ -238,7 +254,6 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                 onExport = { exporting = true },
             )
 
-            // The preview, letterboxed on the page.
             BoxWithConstraints(
                 Modifier.fillMaxWidth().height(previewHeight).padding(vertical = 6.dp),
                 contentAlignment = Alignment.Center,
@@ -257,6 +272,8 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                             selected = if (inlineEdit != null) null else ui.selected,
                             mainTrackId = mainTrackId,
                             bounds = ui.bounds,
+                            eyedropperFrame = eyedropperFrame,
+                            onPickColor = { hex -> eyedropperHex = hex },
                             onSelect = {
                                 model.select(it)
                                 if (it != null) menu = Menu.Root
@@ -269,15 +286,30 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                         )
                         inlineEdit?.let { id ->
                             view.clip(id)?.let { clip ->
-                                InlineTextEditor(clip, w, h, onDone = { content ->
-                                    val style = clip.text
-                                    model.saveText(
-                                        clip.id, content,
-                                        style?.optDouble("fontSize", 0.07) ?: 0.07,
-                                        style?.optString("color", "#ffffff") ?: "#ffffff",
-                                    )
-                                    inlineEdit = null
-                                })
+                                InlineTextEditor(
+                                    clip = clip,
+                                    frameWidth = w,
+                                    frameHeight = h,
+                                    onLiveChange = { content ->
+                                        val updated = Commands.textStyle(
+                                            content = content,
+                                            fontSize = clip.text?.optDouble("fontSize", 0.07) ?: 0.07,
+                                            color = clip.text?.optString("color", "#ffffff") ?: "#ffffff",
+                                            base = clip.text,
+                                        )
+                                        model.previewText(clip.id, updated)
+                                    },
+                                    onDone = { content ->
+                                        val updated = Commands.textStyle(
+                                            content = content,
+                                            fontSize = clip.text?.optDouble("fontSize", 0.07) ?: 0.07,
+                                            color = clip.text?.optString("color", "#ffffff") ?: "#ffffff",
+                                            base = clip.text,
+                                        )
+                                        model.saveText(clip.id, updated)
+                                        inlineEdit = null
+                                    },
+                                )
                             }
                         }
                     }
@@ -303,7 +335,6 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
             )
 
             if (!fullscreen) {
-                // Clipped, so a panel sliding up never draws over the toolbar.
                 BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
                     val room = maxHeight
                     if (view != null) {
@@ -335,7 +366,11 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                     }
                     PanelSlot(visible = panel != null, modifier = Modifier.align(Alignment.BottomCenter)) {
                         Box(Modifier.fillMaxWidth().heightIn(max = room)) {
-                            val close = { panel = null }
+                            val close = {
+                                eyedropperFrame = null
+                                eyedropperHex = null
+                                panel = null
+                            }
                             when (shownPanel) {
                                 Panel.Speed -> selected?.let { SpeedPanel(it, model::setSpeed, close) }
                                 Panel.Volume -> selected?.let { VolumePanel(it, model::setVolume, model::toggleMute, close) }
@@ -344,12 +379,40 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                                 Panel.Crop -> selected?.let { CropPanel(it, { patch -> model.setLook("Crop", patch) }, close) }
                                 Panel.Mask -> selected?.let { MaskPanel(it, { patch -> model.setLook("Mask", patch) }, close) }
                                 Panel.Animation -> selected?.let { AnimationPanel(it, { patch -> model.setLook("Animation", patch) }, close) }
-                                Panel.TextNew -> TextPanel(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close)
+                                Panel.TextNew -> TextPanel(
+                                    existing = null,
+                                    eyedropperActive = eyedropperFrame != null,
+                                    pickedHex = eyedropperHex,
+                                    onToggleEyedropper = { active ->
+                                        if (active) {
+                                            model.pause()
+                                            scope.launch { eyedropperFrame = model.grabEyedropperFrame() }
+                                        } else {
+                                            eyedropperFrame = null
+                                            eyedropperHex = null
+                                        }
+                                    },
+                                    onLiveChange = { _ -> },
+                                    onSave = { style -> model.saveText(null, style) },
+                                    onClose = close,
+                                )
                                 Panel.TextEdit -> selected?.let { clip ->
                                     TextPanel(
-                                        clip,
-                                        { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) },
-                                        close,
+                                        existing = clip,
+                                        eyedropperActive = eyedropperFrame != null,
+                                        pickedHex = eyedropperHex,
+                                        onToggleEyedropper = { active ->
+                                            if (active) {
+                                                model.pause()
+                                                scope.launch { eyedropperFrame = model.grabEyedropperFrame() }
+                                            } else {
+                                                eyedropperFrame = null
+                                                eyedropperHex = null
+                                            }
+                                        },
+                                        onLiveChange = { style -> model.previewText(clip.id, style) },
+                                        onSave = { style -> model.saveText(clip.id, style) },
+                                        onClose = close,
                                         caption = view?.tracks?.firstOrNull { it.id == clip.trackId }?.captions != null,
                                     )
                                 }
@@ -392,15 +455,24 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
                         mainTrackId = mainTrackId,
                         panel = panel,
                         actions = ToolActions(
-                            openPanel = { panel = if (panel == it) null else it },
+                            openPanel = {
+                                eyedropperFrame = null
+                                eyedropperHex = null
+                                panel = if (panel == it) null else it
+                            },
                             setMenu = { menu = it },
                             deselect = {
+                                eyedropperFrame = null
+                                eyedropperHex = null
                                 model.select(null)
                                 panel = null
                             },
                             addMedia = ::addMedia,
                             addOverlay = { pickOverlay.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
                             addAudio = { pickAudio.launch(arrayOf("audio/*")) },
+                            importSubs = { pickSubtitles.launch(arrayOf("*/*")) },
+                            exportAss = { exportAssLauncher.launch("${view?.name?.ifBlank { "subtitles" } ?: "subtitles"}.ass") },
+                            exportSrt = { exportSrtLauncher.launch("${view?.name?.ifBlank { "subtitles" } ?: "subtitles"}.srt") },
                             replace = { sound ->
                                 if (sound) pickReplacementSound.launch(arrayOf("audio/*"))
                                 else pickReplacement.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
@@ -423,7 +495,6 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
             }
         }
 
-        // What the editor has to say, for a moment, over the bottom of the preview.
         ui.message?.let { message ->
             LaunchedEffect(message) {
                 delay(3500)
@@ -449,7 +520,6 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     }
 }
 
-/** Where a tool's panel slides up from the toolbar, and back down. */
 @Composable
 private fun PanelSlot(visible: Boolean, modifier: Modifier, content: @Composable () -> Unit) {
     AnimatedVisibility(
@@ -553,8 +623,6 @@ private fun Transport(
 private fun Toolbar(tools: List<Tool>, key: String) {
     Box(Modifier.fillMaxWidth().height(Dimens.toolbar).background(ConcatColors.launchPanel)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(ConcatColors.line))
-        // Keyed by what is selected, not by the tools' states, so a tool
-        // lighting up does not swap the row (and lose its scroll).
         Crossfade(targetState = key, animationSpec = Motion.tweenShort(), label = "toolbar") { _ ->
             val shown = tools
             Row(
@@ -563,7 +631,6 @@ private fun Toolbar(tools: List<Tool>, key: String) {
             ) {
                 for ((i, tool) in shown.withIndex()) {
                     if (i == 0 && tool.label.isEmpty()) {
-                        // The way back: a narrow chevron and a rule after it.
                         Box(
                             Modifier.width(44.dp).fillMaxHeight().clip(RoundedCornerShape(Radii.md)).clickable(onClickLabel = "Back", onClick = tool.onClick),
                             contentAlignment = Alignment.Center,
@@ -586,9 +653,10 @@ private class ToolActions(
     val addMedia: () -> Unit,
     val addOverlay: () -> Unit,
     val addAudio: () -> Unit,
-    /** A file picked to stand in for the selected clip's: a sound file when true. */
+    val importSubs: () -> Unit,
+    val exportAss: () -> Unit,
+    val exportSrt: () -> Unit,
     val replace: (Boolean) -> Unit,
-    /** The clip a reverse is being written for, and how far it is. */
     val reversing: Pair<String, Float>?,
     val selectMain: () -> Unit,
     val split: () -> Unit,
@@ -596,7 +664,6 @@ private class ToolActions(
     val model: EditorViewModel,
 )
 
-/** The toolbar for what is selected (or the menu open when nothing is): only what the engine does. */
 private fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: Panel?, actions: ToolActions): List<Tool> {
     val a = actions
     val m = a.model
@@ -637,6 +704,9 @@ private fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: P
             Menu.Text -> listOf(
                 Tool(ConcatIcons.ChevronLeft, "") { a.setMenu(Menu.Root) },
                 Tool(ConcatIcons.Plus, "Add text", active = panel == Panel.TextNew, onClick = open(Panel.TextNew)),
+                Tool(ConcatIcons.Import, "Import SRT/ASS", onClick = a.importSubs),
+                Tool(ConcatIcons.Rows, "Export ASS", onClick = a.exportAss),
+                Tool(ConcatIcons.Rows, "Export SRT", onClick = a.exportSrt),
                 Tool(ConcatIcons.Rows, "Auto captions", active = panel == Panel.Captions, onClick = open(Panel.Captions)),
                 Tool(ConcatIcons.Waveform, "Text to speech", active = panel == Panel.Speech, onClick = open(Panel.Speech)),
             )
@@ -689,9 +759,14 @@ private fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: P
     }
 }
 
-/** A title's words edited where they sit: the keyboard up, the words over a dimmed frame. */
 @Composable
-private fun InlineTextEditor(clip: Clip, frameWidth: Dp, frameHeight: Dp, onDone: (String) -> Unit) {
+private fun InlineTextEditor(
+    clip: Clip,
+    frameWidth: Dp,
+    frameHeight: Dp,
+    onLiveChange: (String) -> Unit,
+    onDone: (String) -> Unit,
+) {
     var content by remember(clip.id) { mutableStateOf(clip.text?.optString("content") ?: clip.name) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(clip.id) { focus.requestFocus() }
@@ -703,11 +778,13 @@ private fun InlineTextEditor(clip: Clip, frameWidth: Dp, frameHeight: Dp, onDone
     ) {
         BasicTextField(
             value = content,
-            onValueChange = { content = it },
+            onValueChange = {
+                content = it
+                if (it.isNotBlank()) onLiveChange(it)
+            },
             textStyle = ConcatType.title.copy(color = colour, fontSize = size.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
             cursorBrush = SolidColor(ConcatColors.accent),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            // Where the title sits on the frame, upright, so the words are edited in place.
             modifier = Modifier.align(Alignment.Center)
                 .offset(x = frameWidth * clip.offsetX.toFloat(), y = frameHeight * clip.offsetY.toFloat())
                 .fillMaxWidth().padding(horizontal = Spacing.lg).focusRequester(focus),
@@ -733,10 +810,6 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onRename: (Stri
     )
 }
 
-/**
- * Said over the preview once it draws the slower way: this phone's graphics
- * failed under it, so playback may stutter. Exports are not affected.
- */
 @Composable
 private fun SlowerPreviewNote(modifier: Modifier) {
     Text(
@@ -750,7 +823,6 @@ private fun SlowerPreviewNote(modifier: Modifier) {
     )
 }
 
-/** The engine's picture: a SurfaceView it draws on, attached and detached with the surface's life. */
 @Composable
 private fun PreviewSurface(model: EditorViewModel, modifier: Modifier) {
     AndroidView(
