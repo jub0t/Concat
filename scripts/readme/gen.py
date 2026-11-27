@@ -109,7 +109,6 @@ HEAD = """<p align="center">
 - ✅ **macOS** · {mac}
 - ✅ **Linux** · {linux}
 - ✅ **Android** · {android}
-- ✅ **iOS / iPadOS** · {ios}
 
 {legend}
 

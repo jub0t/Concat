@@ -44,7 +44,7 @@ type='^[a-z0-9]+(\([^)]*\))?!?: '
 # scope where it has one and its type where it has not - a fix reads as a
 # fix at a glance, and the text rows stand apart from the timeline's. A
 # subject with neither carries no mark rather than a wrong one.
-marks='text=📝 speech=🗣️ enhance=🗣️ keyframes=🎞️ effects=✨ render=✨ colour=✨ color=✨ timeline=✂️ media=📁 export=📤 settings=⚙️ i18n=🌍 locales=🌍 api=🤖 server=🤖 android=📱 ios=📱 models=📦 inspector=🖥️ window=🖥️ workspace=🖥️ ui=🖥️ start=🖥️ feat=✨ fix=🐛 perf=⚡'
+marks='text=📝 speech=🗣️ enhance=🗣️ keyframes=🎞️ effects=✨ render=✨ colour=✨ color=✨ timeline=✂️ media=📁 export=📤 settings=⚙️ i18n=🌍 locales=🌍 api=🤖 server=🤖 android=📱 models=📦 inspector=🖥️ window=🖥️ workspace=🖥️ ui=🖥️ start=🖥️ feat=✨ fix=🐛 perf=⚡'
 changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
   | grep -Ev '^((Create|Update) [^ ]+\.[a-z]+|Version [0-9]|Lock the flake|Format the workspace|Changelog for|Merge )' \
   | grep -Ev 'in the (export|pool) tests$' \
@@ -105,7 +105,6 @@ A self-contained build for every platform Concat ships on.
 | Windows | | `windows-x86_64-setup.exe`, `.msi` | |
 | Linux | | `linux-x86_64.deb`, `.rpm`, `x86_64.AppImage` | `linux-aarch64.deb`, `.rpm`, `aarch64.AppImage` |
 | Android | | | `android-arm64.apk` |
-| iOS / iPadOS | | | `ios-arm64.ipa` |
 
 `SHA256SUMS` lists each file's checksum.
 MD

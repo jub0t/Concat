@@ -52,7 +52,7 @@ pollster = "0.4"
 
 # ONNX Runtime, for the cutout models. The binaries come prebuilt for every
 # target the app ships on, with the platform's own accelerator behind them:
-# CoreML on macOS and iOS, DirectML on Windows, NNAPI on Android.
+# CoreML on macOS, DirectML on Windows, NNAPI on Android.
 #
 # ort's default features less the API version, which is not one for every
 # target: the ONNX Runtime an Intel Mac gets is older than the others, and
@@ -74,8 +74,8 @@ codegen-units = 1
 
 # The window's crate, split for the compiler. Its Slint code expands to
 # about 970,000 lines of Rust (81,000 functions, 86 MB), and as one unit
-# that is compiled on one core: 74 of the 76 minutes of CI's iOS build,
-# and growing with every screen. In units it is compiled on every core,
+# that is compiled on one core: most of a release build's time, and
+# growing with every screen. In units it is compiled on every core,
 # and thin LTO still inlines across them. The engine crates, where the
 # frame time is spent, stay one unit each. The app profile's fat LTO
 # merges the units back into one module before optimising.

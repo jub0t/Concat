@@ -13,10 +13,10 @@ description = "The document's core: whole ticks for time, typed ids that are nev
 # way.
 serde = { version = "1", features = ["derive"] }
 
-# A save is flushed through the drive's own cache on Apple systems
-# (F_FULLFSYNC), which a plain fsync stops short of; rustix says it
-# without unsafe code here.
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+# A save is flushed through the drive's own cache on macOS (F_FULLFSYNC),
+# which a plain fsync stops short of; rustix says it without unsafe code
+# here.
+[target.'cfg(target_os = "macos")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }
 
 [dev-dependencies]

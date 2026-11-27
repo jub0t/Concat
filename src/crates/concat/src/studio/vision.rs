@@ -363,9 +363,6 @@ impl Studio {
         let ask_in = out_dir.clone();
         crate::host::after_dialog(
             move || {
-                if cfg!(target_os = "ios") {
-                    return Some(ask_in.join(&suggested));
-                }
                 let chosen = crate::platform::save_file(
                     &title,
                     &ask_in,

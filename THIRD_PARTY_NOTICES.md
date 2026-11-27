@@ -30,7 +30,7 @@ encoders, MediaCodec). Which build a binary carries:
   OpenH264 compiled from source, as BtbN's is, does not carry Cisco's
   patent licence, which covers Cisco's own binary only; neither carries
   any HEVC patent licence.
-- Android and iOS: an LGPL-2.1-or-later build compiled from FFmpeg's source
+- Android: an LGPL-2.1-or-later build compiled from FFmpeg's source
   by `src/scripts/ffmpeg-mobile.sh`, with the platform's codecs and nothing
   else, linked statically.
 
@@ -264,8 +264,8 @@ mirror of the sources named above, described below. They are all run by
 ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate
 (https://github.com/pykeio/ort, MIT OR Apache-2.0), with the platform's
-own accelerator behind it where the runtime has one: CoreML on macOS and
-iOS, NNAPI on Android. How each platform carries the runtime is under
+own accelerator behind it where the runtime has one: CoreML on macOS,
+NNAPI on Android. How each platform carries the runtime is under
 "ONNX Runtime" above.
 
 ## The model mirror

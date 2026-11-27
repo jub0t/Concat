@@ -1,19 +1,18 @@
 name: Build for phones
 
-# Builds Concat for Android and iOS and uploads one artifact per phone,
-# named like the desktop bundles from build-app.yml:
+# Builds Concat for Android and uploads the app, named like the desktop
+# bundles from build-app.yml:
 #
 #   Android  arm64  -> Concat-<version>-android-arm64.apk
-#   iOS      arm64  -> Concat-<version>-ios-arm64.ipa
 #
 # Reusable, the way build-app.yml is: release.yml calls it on every tag,
-# so a release carries the phones beside the desktops. Pull requests build
+# so a release carries the phone beside the desktops. Pull requests build
 # here directly.
 #
-# Phones are cross-compiled - the Android job runs on Linux with the NDK,
-# the iOS job on macOS with Xcode - and the two native libraries that
-# cannot be fetched prebuilt for a phone are built from source here and
-# cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
+# The phone is cross-compiled - the Android job runs on Linux with the
+# NDK - and the two native libraries that cannot be fetched prebuilt for a
+# phone are built from source here and cached: FFmpeg by
+# src/scripts/ffmpeg-mobile.sh, with the platform's
 # hardware codecs, and whisper.cpp by its crate. ONNX Runtime comes from
 # ort's own downloads, and on Android the C++ runtime it links (and the
 # emulator's ONNX Runtime) from src/scripts/android-libs.sh.
@@ -27,9 +26,7 @@ name: Build for phones
 # ANDROID_KEYSTORE_PASSWORD, and optionally ANDROID_KEY_ALIAS and
 # ANDROID_KEY_PASSWORD, in a step of its own after the build: the key
 # never sits in the environment of the build and the several hundred build
-# scripts it runs, and a pull request's run never sees it at all. The .ipa
-# is ad-hoc signed: a tester signs it with their own Apple ID on the way
-# onto a phone (AltStore, Sideloadly, Xcode's Devices window all do this).
+# scripts it runs, and a pull request's run never sees it at all.
 #
 # No phone build passes unless it starts on a phone. The Android app is
 # installed on an emulator of Android 11 (API 30, where #312's preview
@@ -41,14 +38,11 @@ name: Build for phones
 # carry, ONNX Runtime's CPU detection crashed as the library loaded,
 # before any of the app's code, so it was never tested at all. So the
 # Android job also builds the same source for x86_64, an APK that never
-# leaves the run, and that is the one the emulators start natively. The
-# iPhone is tested the same way through the
-# iOS Simulator, which needs a build of its own for aarch64-apple-ios-sim,
-# made beside the device build and never shipped
-# (scripts/ci/smoke-ios.sh). release.yml waits on every job here, so a
-# release with a phone that does not start is never published; what the
-# smokes leave behind (logs, screenshots) is uploaded under smoke-*, a
-# name the release does not pick up.
+# leaves the run, and that is the one the emulators start natively.
+# release.yml waits on every job here, so a release with a phone that
+# does not start is never published; what the smokes leave behind (logs,
+# screenshots) is uploaded under smoke-*, a name the release does not
+# pick up.
 on:
   workflow_call:
     inputs:
@@ -451,207 +445,4 @@ jobs:
         with:
           name: smoke-android-api${{ matrix.api }}
           path: smoke-android/
-          if-no-files-found: warn
-
-  ios:
-    name: iOS arm64
-    runs-on: macos-15
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-      - name: Read the version
-        id: version
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Concat $version for aarch64-apple-ios"
-      - name: The pinned toolchain
-        id: toolchain
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          targets: aarch64-apple-ios
-
-      - run: brew install cmake
-
-      # Restored and saved as two steps rather than one, so the FFmpeg
-      # build is kept the moment it finishes, whatever happens to the Rust
-      # build after it.
-      - name: FFmpeg for iOS (cached)
-        id: ffmpeg
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: src/vendor/ffmpeg/aarch64-apple-ios
-          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
-      - name: FFmpeg for iOS
-        if: steps.ffmpeg.outputs.cache-hit != 'true'
-        run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios
-      - name: FFmpeg for iOS (save)
-        if: steps.ffmpeg.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: src/vendor/ffmpeg/aarch64-apple-ios
-          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: src
-          key: aarch64-apple-ios
-
-      - name: Build
-        working-directory: src
-        run: |
-          set -o pipefail
-          eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
-          cargo build --release -p concat --target aarch64-apple-ios 2>&1 | tee build.log
-
-      - name: Build log to the summary (failure only)
-        if: failure()
-        run: |
-          python3 scripts/ci/annotate.py src/build.log || true
-          if [ -f src/build.log ]; then
-            {
-              echo "### Build failed: iOS arm64"
-              echo '```'
-              tail -n 150 src/build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      # The bundle: binary, Info.plist and icon, ad-hoc
-      # signed. A developer's identity and provisioning profile go on with
-      # codesign before it can be installed on a phone.
-      - name: Bundle
-        run: src/scripts/ios-app.sh aarch64-apple-ios release
-
-      # Every framework in the app against the iOS it declares (#294). A
-      # warning until a run has shown what is there.
-      - name: Minimum iOS of everything in the app
-        run: |
-          app=src/target/aarch64-apple-ios/release/Concat.app
-          scripts/ci/check-min-os.sh "$app" "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")"
-
-      # An .ipa is the bundle under Payload/ in a zip: the form every
-      # sideloading tool and Xcode's Devices window take, re-signing it
-      # with the tester's own identity on the way onto the phone. ditto
-      # keeps the bundle's signature and resource forks where zip would
-      # not.
-      - name: Stage
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          mkdir -p stage payload/Payload
-          cp -R src/target/aarch64-apple-ios/release/Concat.app payload/Payload/
-          (cd payload && ditto -c -k --keepParent Payload "../stage/Concat-$VERSION-ios-arm64.ipa")
-          ls -l stage
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: Concat-ios-arm64
-          path: stage/*
-          if-no-files-found: error
-
-  # The iPhone build again, for the iOS Simulator on this Mac, bundled the
-  # way the device build is and started there; it is never shipped. The
-  # same FFmpeg, for the simulator: ffmpeg-mobile.sh and ios-app.sh take
-  # aarch64-apple-ios-sim, and ort downloads the simulator's ONNX Runtime
-  # itself. mobile-env.sh does not know the simulator yet, so the
-  # build's environment is written out in the build step below.
-  ios-simulator:
-    name: iOS simulator smoke
-    runs-on: macos-15
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-      - name: The pinned toolchain
-        id: toolchain
-        timeout-minutes: 1
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
-        timeout-minutes: 10
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          targets: aarch64-apple-ios-sim
-
-      - run: brew install cmake
-        timeout-minutes: 10
-
-      - name: FFmpeg for the iOS Simulator (cached)
-        id: ffmpeg
-        timeout-minutes: 10
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: src/vendor/ffmpeg/aarch64-apple-ios-sim
-          key: ffmpeg-aarch64-apple-ios-sim-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
-      - name: FFmpeg for the iOS Simulator
-        if: steps.ffmpeg.outputs.cache-hit != 'true'
-        timeout-minutes: 45
-        run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios-sim
-      - name: FFmpeg for the iOS Simulator (save)
-        if: steps.ffmpeg.outputs.cache-hit != 'true'
-        timeout-minutes: 10
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: src/vendor/ffmpeg/aarch64-apple-ios-sim
-          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        timeout-minutes: 10
-        with:
-          workspaces: src
-          key: aarch64-apple-ios-sim
-
-      # What `scripts/mobile-env.sh aarch64-apple-ios` exports, for the
-      # simulator: its FFmpeg and the same
-      # oldest iOS. whisper.cpp's CMake build is told the simulator's SDK
-      # outright (whisper-rs-sys hands it every CMAKE_ variable): left to
-      # itself, CMake's iOS platform takes the device's.
-      - name: Build
-        working-directory: src
-        timeout-minutes: 75
-        run: |
-          set -o pipefail
-          export FFMPEG_DIR="$PWD/vendor/ffmpeg/aarch64-apple-ios-sim"
-          export IPHONEOS_DEPLOYMENT_TARGET=15.0
-          export CMAKE_OSX_SYSROOT=iphonesimulator
-          cargo build --release -p concat --target aarch64-apple-ios-sim 2>&1 | tee build.log
-
-      - name: Build log to the summary (failure only)
-        if: failure()
-        timeout-minutes: 1
-        run: |
-          python3 scripts/ci/annotate.py src/build.log || true
-          if [ -f src/build.log ]; then
-            {
-              echo "### Build failed: iOS Simulator"
-              echo '```'
-              tail -n 150 src/build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Bundle
-        timeout-minutes: 5
-        run: src/scripts/ios-app.sh aarch64-apple-ios-sim release
-
-      # A fresh iPhone simulator: `--smoke` through the first publish, then
-      # a launch as from the home screen, watched for a minute.
-      - name: Start the app on a simulator
-        timeout-minutes: 25
-        run: scripts/ci/smoke-ios.sh --out smoke-ios --wait 60 src/target/aarch64-apple-ios-sim/release/Concat.app
-
-      # The app's output, the system log, the screenshot and any crash
-      # report, pass or fail.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        timeout-minutes: 10
-        with:
-          name: smoke-ios-simulator
-          path: smoke-ios/
           if-no-files-found: warn

@@ -75,11 +75,7 @@ pub fn workers_for(memory: Option<u64>) -> usize {
         return asked.max(1);
     }
     let cores = std::thread::available_parallelism().map_or(2, |count| count.get());
-    let most = if cfg!(any(target_os = "android", target_os = "ios")) {
-        2
-    } else {
-        6
-    };
+    let most = if cfg!(target_os = "android") { 2 } else { 6 };
     let by_memory = memory.map_or(2, |bytes| (bytes / 8 / WORKER_BYTES) as usize);
     cores.saturating_sub(2).min(most).min(by_memory).max(1)
 }

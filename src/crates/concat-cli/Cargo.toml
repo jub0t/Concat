@@ -34,9 +34,5 @@ log = "0.4"
 # The still the worker tests put on the timeline.
 png = "0.17"
 
-[features]
-# `serve --grpc`. Off by default; see concat-server.
-grpc = ["concat-server/grpc"]
-
 [lints]
 workspace = true

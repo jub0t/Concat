@@ -44,7 +44,7 @@
 
 ## Informazioni
 
-Concat è un editor video gratuito e open source per macOS, Windows, Linux, Android e iOS. Copre ciò che serve alla maggior parte dei montaggi: sottotitoli automatici, isolamento della voce, sintesi vocale, rimozione dello sfondo, animazioni e fotogrammi chiave, effetti e titoli, montaggio multitraccia, esportazione 4K. Senza nessuna fregatura: niente filigrana, niente account, niente abbonamento, niente caricamenti.
+Concat è un editor video gratuito e open source per macOS, Windows, Linux e Android. Copre ciò che serve alla maggior parte dei montaggi: sottotitoli automatici, isolamento della voce, sintesi vocale, rimozione dello sfondo, animazioni e fotogrammi chiave, effetti e titoli, montaggio multitraccia, esportazione 4K. Senza nessuna fregatura: niente filigrana, niente account, niente abbonamento, niente caricamenti.
 
 Tutto gira in locale su un motore nativo in Rust con un compositore su GPU. Installalo, trascina il girato, taglia. I modelli di IA per sottotitoli, voci e scontorno si scaricano una volta dalle Impostazioni e poi funzionano offline. Il tuo girato non lascia mai il tuo disco.
 
@@ -72,8 +72,8 @@ Tutto gira in locale su un motore nativo in Rust con un compositore su GPU. Inst
 - 📤 **Esportazione.** H.264, HEVC, AV1, con l’encoder del tuo computer. Fino a 4K 60, colore a 10 bit.
 - ⚡ **Veloce.** Proxy integrati, così il 4K scorre fluido. I titoli si disegnano su tutti i core, e ogni effetto è pronto nel momento in cui si apre la finestra.
 - 🛟 **Va avanti su qualsiasi computer.** Quando la scheda grafica cede, l’anteprima continua a disegnare.
-- 🤖 **Scriptabile.** Un’API JSON-RPC con cui script e agenti IA possono montare video. Compilando dai sorgenti si aggiungono gRPC e uno strumento da riga di comando.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 lingue. Stessa app, stessi file di progetto.
+- 🤖 **Scriptabile.** Un’API JSON-RPC con cui script e agenti IA possono montare video. Compilando dai sorgenti si aggiunge uno strumento da riga di comando.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 lingue. Stessa app, stessi file di progetto.
 
 ## Download
 
@@ -90,7 +90,6 @@ Concat è in **beta**: funziona, e ha ancora qualche spigolo. [Segnalalo](https:
 - ✅ **macOS** · Intel e Apple Silicon. Se macOS si rifiuta di aprire una build non firmata: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 e ARM. `.deb`, `.rpm`, `.AppImage` e un pacchetto Arch. Anche un Flatpak su **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, un remote Flatpak della community che impacchetta il `.deb` x86_64 di ogni versione e si aggiorna con essa
 - ✅ **Android** · telefoni e tablet
-- ✅ **iOS / iPadOS** · iPhone e iPad, con sideload
 
 ✅ Supportato · 🚧 In lavorazione · 🧪 Da testare
 
@@ -103,7 +102,7 @@ I **requisiti di sistema** e le dimensioni dei modelli opzionali sono sul [sito 
 > [!IMPORTANT]
 > Il modo migliore per contribuire è prendere una build dalla pagina [Releases](https://github.com/jub0t/Concat/releases) e usarla: trova dove si rompe, e di’ dove potrebbe essere migliore.
 >
-> Pronto a scrivere codice? [CONTRIBUTING.md](../CONTRIBUTING.md) copre la configurazione, la struttura dell’albero, i controlli da eseguire e come vengono licenziati i contributi. Guidi Concat da uno script, un servizio o un agente? [La documentazione per sviluppatori](https://concat.standalones.org/docs) copre l’API di Concat e i suoi trasporti: JSON-RPC e gRPC. [Questa Discussion](https://github.com/jub0t/Concat/discussions/3) è dove il progetto è stato annunciato.
+> Pronto a scrivere codice? [CONTRIBUTING.md](../CONTRIBUTING.md) copre la configurazione, la struttura dell’albero, i controlli da eseguire e come vengono licenziati i contributi. Guidi Concat da uno script, un servizio o un agente? [La documentazione per sviluppatori](https://concat.standalones.org/docs) copre l’API di Concat e il suo trasporto: JSON-RPC. [Questa Discussion](https://github.com/jub0t/Concat/discussions/3) è dove il progetto è stato annunciato.
 > 
 > I contributori possono ottenere un ruolo `@Contributor` sul server Discord: basta chiederlo.
 

@@ -231,32 +231,13 @@ jobs:
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
         run: cargo test --workspace --doc -j 1
-      # The gRPC transport is a feature nothing else in the workspace turns
-      # on, so it is linted and tested here on its own. See concat-server.
-      - name: Clippy (gRPC)
-        if: ${{ !cancelled() }}
-        timeout-minutes: 10
-        working-directory: src
-        run: |
-          set -o pipefail
-          cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings 2>&1 | tee clippy-grpc.log
-      - name: Run the gRPC tests
-        if: ${{ !cancelled() }}
-        timeout-minutes: 10
-        working-directory: src
-        run: |
-          set -o pipefail
-          status=0
-          cargo nextest run -p concat-server --features grpc --profile ci 2>&1 | tee nextest-grpc.log || status=$?
-          mv target/nextest/ci/junit.xml target/nextest/ci/junit-grpc.xml 2>/dev/null || true
-          exit "$status"
 
       # A job's log needs a signed-in session to read; annotations do not.
       # The cargo steps above tee their output, and this turns the
       # failures in it into annotations on the run (scripts/ci/annotate.py).
       - name: Failures to annotations (failure only)
         if: failure()
-        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log src/clippy-grpc.log src/nextest-grpc.log
+        run: python3 scripts/ci/annotate.py src/clippy.log src/clippy-window.log src/build-tests.log src/nextest-workspace.log src/nextest-corpus.log
 
       - name: Keep the test report (failure only)
         if: failure()

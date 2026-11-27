@@ -2452,11 +2452,18 @@ mod tests {
 
         api.add_capability("json-rpc");
         api.add_capability("json-rpc");
-        api.add_capability("grpc");
+        api.add_capability("unix-socket");
         let served = serde_json::to_value(ok(api.dispatch(Request::Version))).expect("JSON");
         assert_eq!(
             served["capabilities"],
-            json!(["events", "captions", "models", "speech", "json-rpc", "grpc"]),
+            json!([
+                "events",
+                "captions",
+                "models",
+                "speech",
+                "json-rpc",
+                "unix-socket"
+            ]),
             "each name once, in the order added"
         );
     }

@@ -217,22 +217,12 @@ mod os {
 
 #[cfg(target_vendor = "apple")]
 mod os {
-    /// "macOS 15.6.1 · Mac15,6", or "iOS 26.0 · iPhone17,1".
+    /// "macOS 15.6.1 · Mac15,6".
     pub(super) fn describe() -> Option<String> {
         let version = sysctl("kern.osproductversion")?;
-        let name = if cfg!(target_os = "ios") {
-            "iOS"
-        } else {
-            "macOS"
-        };
-        let model = sysctl(if cfg!(target_os = "ios") {
-            "hw.machine"
-        } else {
-            "hw.model"
-        });
-        Some(match model {
-            Some(model) => format!("{name} {version} · {model}"),
-            None => format!("{name} {version}"),
+        Some(match sysctl("hw.model") {
+            Some(model) => format!("macOS {version} · {model}"),
+            None => format!("macOS {version}"),
         })
     }
 

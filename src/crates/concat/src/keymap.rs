@@ -338,7 +338,7 @@ pub fn reserved(chord: &str) -> bool {
     // Ctrl+O and Ctrl+W are the window's everywhere; the rest only hold
     // where their bindings are enabled — a Mac's menus and quit are the
     // system's own.
-    let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+    let apple = cfg!(target_os = "macos");
     matches!(chord, "ctrl+o" | "ctrl+w")
         || (!apple && matches!(chord, "ctrl+q" | "f10" | "alt+f" | "alt+e" | "alt+v"))
 }
@@ -747,7 +747,7 @@ mod tests {
         assert!(!reserved("w"));
         assert!(!reserved("ctrl+z"));
         assert!(!reserved("alt+m"));
-        if cfg!(not(any(target_os = "macos", target_os = "ios"))) {
+        if cfg!(not(target_os = "macos")) {
             assert!(reserved("f10"));
             assert!(reserved("alt+f"));
             assert!(reserved("ctrl+q"));

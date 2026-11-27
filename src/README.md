@@ -13,7 +13,7 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | `concat-effects` | Effect packages: manifests, WGSL shaders for pictures and FFmpeg chain templates for sound, the catalogue. Each built-in effect is a folder under `packages/`. | `concat-doc`, serde, toml |
 | `concat-export` | Timeline to file: flatten, the frame-by-frame render loop, the paused monitor's true frame. | `concat-core`, `concat-media`, `concat-render`, `concat-doc`, `concat-effects` |
 | `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports as jobs, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-doc` |
-| `concat-server` | The API on a socket: JSON-RPC lines over TCP or a Unix socket, and gRPC behind the `grpc` feature. One dispatcher, many callers. | `concat-api`; tonic and tokio with `grpc` |
+| `concat-server` | The API on a socket: JSON-RPC lines over TCP or a Unix socket. One dispatcher, many callers. | `concat-api` |
 | `concat-cli` | A binary to drive the above: `probe`, `render`, `api` (the API over stdin and stdout) and `serve` (the API on a socket). | `concat-server`, `concat-api`, the engine crates |
 | `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-doc`, `concat-export`, cpal |
 | `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
@@ -46,7 +46,6 @@ cargo run -p concat-cli -- render some-video.mp4 out.mp4 --frames 120
 cargo run -p concat-cli -- api '{"method":"catalogue.list","kind":"filter"}'
 cargo run -p concat-cli -- api < edits.jsonl   # one JSON-RPC call per line; see below
 cargo run -p concat-cli -- serve               # the same API on 127.0.0.1:7420
-cargo run -p concat-cli --features grpc -- serve --grpc 127.0.0.1:7421
 cargo run -p concat                    # the editor window, debug
 cargo run --profile quick -p concat    # optimised, rebuilds in seconds: for trying changes
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped
@@ -67,19 +66,18 @@ dependency pinned: `nix build` (then `./result/bin/concat`), `nix run`, or
 `nix develop` for a shell with the toolchain and libraries in it. Linux
 x86_64 and aarch64.
 
-### Phones
+### Android
 
-The engine builds for Android (arm64) and iOS (arm64). On Android the app
-is `android-native/`, Kotlin and Jetpack Compose over `concat-mobile`; on
-iOS the window itself runs. Two native libraries come from source for a phone, because no
-prebuilt covers them: FFmpeg, which `scripts/ffmpeg-mobile.sh` cross-builds
-as static archives with the platform's hardware codecs turned on -
-MediaCodec on Android, VideoToolbox on iOS - and whisper.cpp, which its
-crate builds with cmake for the target. sherpa-onnx ships as the shared
-library k2-fsa publishes, fetched by `scripts/sherpa-mobile.sh`; on Android
-the app carries it in `jniLibs`, on iOS as an embedded framework. Both
-scripts leave their output under `vendor/`, outside `target/`, and
-`scripts/mobile-env.sh` turns that into the build environment:
+The engine builds for Android (arm64). The app is `android-native/`,
+Kotlin and Jetpack Compose over `concat-mobile`. Two native libraries come
+from source for a phone, because no prebuilt covers them: FFmpeg, which
+`scripts/ffmpeg-mobile.sh` cross-builds as static archives with
+MediaCodec turned on, and whisper.cpp, which its crate builds with cmake
+for the target. sherpa-onnx ships as the shared library k2-fsa publishes,
+fetched by `scripts/sherpa-mobile.sh`, and the app carries it in
+`jniLibs`. Both scripts leave their output under `vendor/`, outside
+`target/`, and `scripts/mobile-env.sh` turns that into the build
+environment:
 
 ```sh
 # Android: the NDK under the SDK, JDK 17 and cargo-ndk.
@@ -88,20 +86,13 @@ scripts/sherpa-mobile.sh aarch64-linux-android
 scripts/android-libs.sh aarch64-linux-android
 ../android-native/build-rust.sh release                         # the engine and its bindings
 (cd ../android-native && ./gradlew assembleRelease)             # the APK
-
-# iOS: Xcode.
-scripts/ffmpeg-mobile.sh aarch64-apple-ios
-scripts/sherpa-mobile.sh aarch64-apple-ios
-eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
-cargo build --release -p concat --target aarch64-apple-ios
-scripts/ios-app.sh aarch64-apple-ios release                    # Concat.app
 ```
 
 `.github/workflows/mobile.yml` runs exactly this on every pull request
-and on a release tag, and keeps the FFmpeg builds cached. The window is one library: `concat` on the
-desktop and on iOS runs it from `main.rs`, and `crates/concat/src/platform.rs`
-is where the two differ - how the backend is chosen, how files are picked, and
-whether there is a title strip to drag.
+and on a release tag, and keeps the FFmpeg builds cached. The window is one
+library: `concat` runs it from `main.rs`, and `crates/concat/src/platform.rs`
+is where the desktops differ - how the backend is chosen, how files are
+picked, and whether there is a title strip to drag.
 
 ## Driving Concat without the window
 
@@ -140,12 +131,9 @@ as its first line, `{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":".
 the one given with `--token` (or `CONCAT_API_TOKEN`), or else one minted
 at start and printed under the addresses, so only whoever started the
 server can hand it out. There is no encryption; a bind off loopback belongs
-behind something that has it. With the `grpc` feature the same API is
-served over HTTP/2 from `crates/concat-server/proto/concat.proto`, a thin
-envelope carrying the same JSON, with the token as `authorization: Bearer
-...` metadata. `version` is the call to make first: its reply's
-`capabilities` names what the build serves (`events`, `json-rpc`,
-`unix-socket`, `grpc`, `gpu`) before anything is asked of it.
+behind something that has it. `version` is the call to make first: its
+reply's `capabilities` names what the build serves (`events`, `json-rpc`,
+`unix-socket`, `gpu`) before anything is asked of it.
 
 ## Reading this codebase cold
 

@@ -4,8 +4,6 @@
 #
 #   scripts/ffmpeg-mobile.sh aarch64-linux-android [out-dir]
 #   scripts/ffmpeg-mobile.sh x86_64-linux-android [out-dir]   (the emulator's, never shipped)
-#   scripts/ffmpeg-mobile.sh aarch64-apple-ios     [out-dir]
-#   scripts/ffmpeg-mobile.sh aarch64-apple-ios-sim [out-dir]
 #
 # The result is a prefix - include/ and lib/ - that concat-media's
 # bindings take through FFMPEG_DIR, exactly as they take a Homebrew or
@@ -13,22 +11,20 @@
 # engine by default, outside target/, so a `cargo clean` does not cost
 # another FFmpeg build and CI's cache can keep it.
 #
-# Android needs the NDK (ANDROID_NDK_HOME, or the newest one under the SDK
-# in ANDROID_HOME / ~/Library/Android/sdk); iOS needs Xcode. Both builds
-# are LGPL FFmpeg with the platform's hardware codecs turned on -
-# MediaCodec through the JNI on Android, VideoToolbox on iOS - and nothing
-# else linked in: a phone encodes with its silicon, and the GPL encoders
-# the desktop bundles have no place there.
+# It needs the NDK (ANDROID_NDK_HOME, or the newest one under the SDK in
+# ANDROID_HOME / ~/Library/Android/sdk). The build is LGPL FFmpeg with the
+# phone's hardware codecs turned on - MediaCodec, through the JNI - and
+# nothing else linked in: a phone encodes with its silicon, and the GPL
+# encoders the desktop bundles have no place there.
 set -euo pipefail
 
-target=${1:?target triple: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios or aarch64-apple-ios-sim}
+target=${1:?target triple: aarch64-linux-android or x86_64-linux-android}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 out=${2:-$workspace/vendor/ffmpeg/$target}
 version=${FFMPEG_VERSION:-8.1}
-# Oldest OS each build runs on. Android 8.0 is where AAudio, the audio
-# path the engine plays through, appears; iOS 15 is where Slint draws.
+# The oldest Android the build runs on: 8.0 is where AAudio, the audio
+# path the engine plays through, appears.
 android_api=${ANDROID_API:-26}
-ios_min=${IPHONEOS_DEPLOYMENT_TARGET:-15.0}
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 work=${FFMPEG_WORK_DIR:-$workspace/vendor/ffmpeg/src}
@@ -41,7 +37,7 @@ if [ ! -f "$src/configure" ]; then
   tar -xf "$work/ffmpeg-$version.tar.xz" -C "$work"
 fi
 
-# One build tree per target, so two phones can be built from one source.
+# One build tree per target, so two targets can be built from one source.
 build=$work/build-$target
 rm -rf "$build"
 mkdir -p "$build"
@@ -55,8 +51,8 @@ common=(
   --enable-static --disable-shared --enable-pic
   --disable-programs --disable-doc
   --disable-debug
-  # Nothing external. zlib is part of both platforms' SDKs; bzip2 and
-  # lzma are on one and not the other, so neither is taken.
+  # Nothing external. zlib is part of the NDK; bzip2 and lzma are not,
+  # so neither is taken.
   --enable-zlib --disable-bzlib --disable-lzma
   --disable-iconv --disable-sdl2 --disable-xlib --disable-libxcb
   --disable-vulkan --disable-opencl --disable-vaapi --disable-vdpau
@@ -90,26 +86,6 @@ case "$target" in
       --enable-jni --enable-mediacodec \
       --extra-cflags="-fno-omit-frame-pointer" \
       --extra-ldflags="-Wl,-z,max-page-size=16384")
-    ;;
-  aarch64-apple-ios|aarch64-apple-ios-sim)
-    if [ "$target" = aarch64-apple-ios ]; then
-      sdk=iphoneos; min_flag="-miphoneos-version-min=$ios_min"
-    else
-      sdk=iphonesimulator; min_flag="-mios-simulator-version-min=$ios_min"
-    fi
-    sysroot=$(xcrun --sdk $sdk --show-sdk-path)
-    echo "Building FFmpeg $version for $target against $sysroot"
-    (cd "$build" && "$src/configure" "${common[@]}" \
-      --target-os=darwin --arch=arm64 \
-      --sysroot="$sysroot" \
-      --cc="$(xcrun --sdk $sdk -f clang)" \
-      --cxx="$(xcrun --sdk $sdk -f clang++)" \
-      --ar="$(xcrun --sdk $sdk -f ar)" --nm="$(xcrun --sdk $sdk -f nm)" \
-      --ranlib="$(xcrun --sdk $sdk -f ranlib)" --strip="$(xcrun --sdk $sdk -f strip)" \
-      --enable-videotoolbox --enable-audiotoolbox \
-      --disable-avfoundation --disable-coreimage \
-      --extra-cflags="-arch arm64 $min_flag" \
-      --extra-ldflags="-arch arm64 $min_flag")
     ;;
   *)
     echo "unknown target $target" >&2; exit 1 ;;

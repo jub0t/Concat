@@ -720,7 +720,7 @@ fn opus_encoder() -> Result<(&'static str, Sample)> {
 /// MP4 and MOV export there then failed at the mix while FFmpeg's own
 /// encoder, linked beside it, was never asked (#876).
 fn aac_encoders() -> Result<Vec<(&'static str, Sample)>> {
-    let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
+    let platform = if cfg!(target_os = "macos") {
         Some("aac_at")
     } else if cfg!(target_os = "windows") {
         Some("aac_mf")

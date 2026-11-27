@@ -66,7 +66,6 @@ BUNDLES = [
     ("windows", "aarch64", "setup", "Concat-{v}-windows-aarch64-setup.exe"),
     ("windows", "aarch64", "msi", "Concat-{v}-windows-aarch64.msi"),
     ("android", "arm64", "apk", "Concat-{v}-android-arm64.apk"),
-    ("ios", "arm64", "ipa", "Concat-{v}-ios-arm64.ipa"),
 ]
 
 

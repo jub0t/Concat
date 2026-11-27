@@ -44,7 +44,7 @@
 
 ## A projektről
 
-A Concat ingyenes, nyílt forráskódú videovágó macOS-re, Windowsra, Linuxra, Androidra és iOS-re. Lefedi, amire a legtöbb vágáshoz szükség van: automatikus feliratok, hangleválasztás, szövegfelolvasás, háttér-eltávolítás, animációk és kulcskockák, effektek és címek, többsávos vágás, 4K-s exportálás. Nincs apró betű: nincs vízjel, nincs fiók, nincs előfizetés, nincs feltöltés.
+A Concat ingyenes, nyílt forráskódú videovágó macOS-re, Windowsra, Linuxra és Androidra. Lefedi, amire a legtöbb vágáshoz szükség van: automatikus feliratok, hangleválasztás, szövegfelolvasás, háttér-eltávolítás, animációk és kulcskockák, effektek és címek, többsávos vágás, 4K-s exportálás. Nincs apró betű: nincs vízjel, nincs fiók, nincs előfizetés, nincs feltöltés.
 
 Minden helyben fut, egy natív Rust motoron, GPU-s kompozitorral. Telepítsd, húzd be a felvételeket, vágj. A feliratokhoz, hangokhoz és kivágáshoz használt MI-modellek egyszer töltődnek le a Beállításokból, utána offline működnek. A felvételeid sosem hagyják el a lemezedet.
 
@@ -72,8 +72,8 @@ Minden helyben fut, egy natív Rust motoron, GPU-s kompozitorral. Telepítsd, h�
 - 📤 **Exportálás.** H.264, HEVC, AV1, a számítógéped saját kódolójával. Akár 4K 60, 10 bites szín.
 - ⚡ **Gyors.** Beépített proxyk, így a 4K is akadásmentesen görgethető. A címek minden processzormagon rajzolódnak, és minden effekt kész, amint megnyílik az ablak.
 - 🛟 **Bármilyen gépen tovább megy.** Ha a grafikus chip feladja, az előnézet akkor is rajzol tovább.
-- 🤖 **Szkriptelhető.** JSON-RPC API, amellyel szkriptek és MI-ügynökök vághatnak videót. A forrásból fordított változat gRPC-t és parancssori eszközt is ad.
-- 🖥️ **macOS, Windows, Linux, Android, iOS.** 27 nyelv. Ugyanaz az alkalmazás, ugyanazok a projektfájlok.
+- 🤖 **Szkriptelhető.** JSON-RPC API, amellyel szkriptek és MI-ügynökök vághatnak videót. A forrásból fordított változat parancssori eszközt is ad.
+- 🖥️ **macOS, Windows, Linux, Android.** 27 nyelv. Ugyanaz az alkalmazás, ugyanazok a projektfájlok.
 
 ## Letöltés
 
@@ -90,7 +90,6 @@ A Concat **béta**: működik, de még vannak durva szélei. [Szólj](https://gi
 - ✅ **macOS** · Intel és Apple Silicon. Ha a macOS nem hajlandó megnyitni egy aláíratlan változatot: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 és ARM. `.deb`, `.rpm`, `.AppImage` és Arch-csomag. Flatpakként is elérhető a **[Flatparkon](https://flatpark.org/apps/app.concat.editor/)**, egy közösségi Flatpak-tárolóban, amely minden kiadás x86_64-es `.deb` csomagját becsomagolja, és együtt frissül vele
 - ✅ **Android** · telefonok és táblagépek
-- ✅ **iOS / iPadOS** · iPhone és iPad, sideloaddal
 
 ✅ Támogatott · 🚧 Fejlesztés alatt · 🧪 Tesztelésre
 
@@ -103,7 +102,7 @@ A **rendszerkövetelmények** és az opcionális modellek mérete a [weboldalon]
 > [!IMPORTANT]
 > A legjobb módja a közreműködésnek, ha letöltesz egy változatot a [Releases](https://github.com/jub0t/Concat/releases) oldalról, és használod: megtalálod, hol törik el, és elmondod, hol lehetne jobb.
 >
-> Készen állsz kódot írni? A [CONTRIBUTING.md](../CONTRIBUTING.md) leírja a beállítást, a forrásfa felépítését, a futtatandó ellenőrzéseket és a hozzájárulások licencelését. Szkriptből, szolgáltatásból vagy ügynökből vezérled a Concatot? A [fejlesztői dokumentáció](https://concat.standalones.org/docs) bemutatja a Concat API-t és átviteleit: JSON-RPC és gRPC. [Ebben a beszélgetésben](https://github.com/jub0t/Concat/discussions/3) jelentették be a projektet.
+> Készen állsz kódot írni? A [CONTRIBUTING.md](../CONTRIBUTING.md) leírja a beállítást, a forrásfa felépítését, a futtatandó ellenőrzéseket és a hozzájárulások licencelését. Szkriptből, szolgáltatásból vagy ügynökből vezérled a Concatot? A [fejlesztői dokumentáció](https://concat.standalones.org/docs) bemutatja a Concat API-t és átvitelét: JSON-RPC. [Ebben a beszélgetésben](https://github.com/jub0t/Concat/discussions/3) jelentették be a projektet.
 > 
 > A közreműködők kérhetik a `@Contributor` szerepet a Discord-szerveren: csak szólj.
 

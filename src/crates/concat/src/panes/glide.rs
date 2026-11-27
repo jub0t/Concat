@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 /// How far back a release looks for the finger's speed. A tenth of a
-/// second is Android's and iOS's own window: long enough to smooth a
+/// second is Android's own window: long enough to smooth a
 /// jittery sample or two, short enough that a drag which slowed before
 /// letting go is not thrown at the speed it had earlier.
 const HORIZON: f64 = 0.1;

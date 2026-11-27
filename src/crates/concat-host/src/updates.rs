@@ -635,7 +635,7 @@ pub fn relaunch() -> Result<(), String> {
 /// its bundle, so the Dock shows the one Concat; a build from the tree,
 /// Linux and Windows start the executable itself. Nothing on a phone.
 pub fn restart(project: Option<&Path>) -> Result<(), String> {
-    if cfg!(any(target_os = "android", target_os = "ios")) {
+    if cfg!(target_os = "android") {
         return Err("a phone's app is started from its launcher".to_owned());
     }
     let mut args: Vec<std::ffi::OsString> = Vec::new();
