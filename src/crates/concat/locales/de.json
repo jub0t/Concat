@@ -666,6 +666,7 @@
   "shortcuts.hint": "Klicke auf eine Zeile und drücke dann die Tasten, auf die sie reagieren soll. Escape bricht ab, und ein Kürzel, das eine andere Aktion belegt, wandert herüber; jene Aktion bleibt ohne Taste, bis ihr eigenes Zurücksetzen wieder eine einsetzt. Einige Kürzel gehören dem Fenster und lassen sich nicht belegen.",
   "shortcuts.nextEdit": "Zum nächsten Schnitt",
   "shortcuts.pan": "Hand-Werkzeug",
+  "shortcuts.playRate": "Wiedergabegeschwindigkeit",
   "shortcuts.press": "Drücke eine Taste…",
   "shortcuts.prevEdit": "Zum vorherigen Schnitt",
   "shortcuts.previewAxis": "Vorschauachse",

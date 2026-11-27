@@ -567,6 +567,9 @@ impl VoiceoverPane {
         if !studio.playing && studio.playhead < studio.duration() {
             studio.play_toggle();
         }
+        // Whatever pace the timeline is watched at, a take is spoken to the
+        // picture at its own.
+        studio.host.playback.set_rate(1.0);
         self.take = Some(Running {
             path,
             start,
@@ -608,6 +611,7 @@ impl VoiceoverPane {
         if !studio.playing && studio.playhead < studio.duration() {
             studio.play_toggle();
         }
+        studio.host.playback.set_rate(1.0);
         self.phase = Phase::Recording;
     }
 

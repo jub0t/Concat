@@ -20,6 +20,9 @@ concat-worker.workspace = true
 # The run's log: the file, the console, and operations timed step by step.
 concat-log.workspace = true
 concat-media.workspace = true
+# Fast playback keeps its pitch through the same stretcher a clip's speed
+# does; see playback.rs.
+concat-stretch.workspace = true
 concat-doc.workspace = true
 # A project of an earlier Concat is made into a document as it opens; see
 # session.rs.

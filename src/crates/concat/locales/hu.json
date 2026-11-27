@@ -666,6 +666,7 @@
   "shortcuts.hint": "Kattints egy sorra, majd nyomd meg a billentyűket, amelyekre reagálnia kell. Az Escape megszakítja; egy másik művelethez tartozó kombináció átkerül ide, és az a művelet billentyű nélkül marad, amíg a saját Visszaállítása vissza nem ad neki egyet. Néhány kombináció az ablakhoz tartozik, és nem rendelhető hozzá.",
   "shortcuts.nextEdit": "Ugrás a következő vágásra",
   "shortcuts.pan": "Mozgató eszköz",
+  "shortcuts.playRate": "Lejátszási sebesség",
   "shortcuts.press": "Nyomj meg egy billentyűt…",
   "shortcuts.prevEdit": "Ugrás az előző vágásra",
   "shortcuts.previewAxis": "Előnézeti tengely",

@@ -4,6 +4,10 @@
 
 use super::*;
 
+/// The paces the timeline can be watched at, as the transport's picker
+/// lists them.
+pub const PLAY_RATES: [f64; 3] = [1.0, 2.0, 3.0];
+
 /// How many titles a change in flight paints on the window's thread: the
 /// one being changed, or the few a batch edit touches. More than that are
 /// a timeline not painted yet, and wait for the painter's thread.
@@ -206,7 +210,9 @@ impl Studio {
         self.end_hover();
         self.playing = true;
         log::debug!("playback: playing from {:.3}s", self.playhead);
-        self.host.playback.play(f64::from(self.playhead));
+        self.host
+            .playback
+            .play_at(f64::from(self.playhead), PLAY_RATES[self.play_rate]);
         self.wake_meters();
         // The clock is the audio device's. This looks at it far more often
         // than any timeline's frame rate and acts only when the frame under
@@ -259,6 +265,21 @@ impl Studio {
                 });
             },
         );
+    }
+
+    /// The timeline is watched at the pace at `index` of [`PLAY_RATES`]
+    /// from here on, playing or not. A voiceover take keeps its own pace:
+    /// the words are spoken to the picture as it will be seen.
+    pub fn set_play_rate(&mut self, index: usize) {
+        self.play_rate = index.min(PLAY_RATES.len() - 1);
+        if self.playing && !self.voiceover.recording() {
+            self.host.playback.set_rate(PLAY_RATES[self.play_rate]);
+        }
+    }
+
+    /// The next pace round, for the keyboard: 1x, 2x, 3x and 1x again.
+    pub fn cycle_play_rate(&mut self) {
+        self.set_play_rate((self.play_rate + 1) % PLAY_RATES.len());
     }
 
     pub fn pause(&mut self) {

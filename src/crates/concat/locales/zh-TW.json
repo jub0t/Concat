@@ -666,6 +666,7 @@
   "shortcuts.hint": "點選一列，然後按下它要回應的按鍵。Escape 取消；若某個組合鍵已被其他動作佔用，會轉移到這裡，那個動作將沒有按鍵，直到它自己的「重設」把按鍵放回去。少數組合鍵屬於視窗，無法綁定。",
   "shortcuts.nextEdit": "跳到下一個剪輯點",
   "shortcuts.pan": "平移工具",
+  "shortcuts.playRate": "播放速度",
   "shortcuts.press": "按下一個鍵…",
   "shortcuts.prevEdit": "跳到上一個剪輯點",
   "shortcuts.previewAxis": "預覽軸",

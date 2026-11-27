@@ -666,6 +666,7 @@
   "shortcuts.hint": "Clique em uma linha e pressione as teclas às quais ela deve responder. Escape cancela, e um atalho que outra ação usa passa para esta, deixando aquela ação sem tecla até o seu próprio Redefinir devolver uma. Alguns atalhos pertencem à janela e não podem ser atribuídos.",
   "shortcuts.nextEdit": "Ir para o próximo corte",
   "shortcuts.pan": "Ferramenta mão",
+  "shortcuts.playRate": "Velocidade de reprodução",
   "shortcuts.press": "Pressione uma tecla…",
   "shortcuts.prevEdit": "Ir para o corte anterior",
   "shortcuts.previewAxis": "Eixo de prévia",

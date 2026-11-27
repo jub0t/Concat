@@ -1096,6 +1096,9 @@ pub struct Studio {
     pub media_focused: bool,
     pub playhead: f32,
     pub playing: bool,
+    /// Which of [`monitor::PLAY_RATES`] the timeline is watched at. The window's own,
+    /// not the project's: an export is never affected.
+    pub play_rate: usize,
     transport: slint::Timer,
     /// The phone's lanes carrying on after a finger throws them, and the
     /// beat that moves them while they do; see `panes::glide`.
@@ -2973,6 +2976,7 @@ impl Studio {
             playhead: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,
+            play_rate: 0,
             transport: slint::Timer::default(),
             coast: crate::panes::glide::Coast::default(),
             glide_beat: slint::Timer::default(),

@@ -162,6 +162,10 @@ pub const ACTIONS: &[Action] = &[
         defaults: &["space"],
     },
     Action {
+        id: "play-rate",
+        defaults: &["l"],
+    },
+    Action {
         id: "start",
         defaults: &["home"],
     },
@@ -228,6 +232,7 @@ pub fn name(id: &str) -> String {
         "zoom-in" => i18n::t("common.zoomIn"),
         "zoom-out" => i18n::t("common.zoomOut"),
         "play" => i18n::t("previewPane.play"),
+        "play-rate" => i18n::t("shortcuts.playRate"),
         "start" => i18n::t("common.goToStart"),
         "end" => i18n::t("common.goToEnd"),
         "step-back" => i18n::t("shortcuts.stepBack"),

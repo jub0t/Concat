@@ -666,6 +666,7 @@
   "shortcuts.hint": "Kliknite redak, zatim pritisnite tipke na koje treba reagirati. Escape otkazuje, a prečac koji drži druga radnja prelazi ovamo, ostavljajući tu radnju bez tipke dok joj vlastiti gumb Vrati zadano ne vrati tipku. Neki prečaci pripadaju prozoru i ne mogu se dodijeliti.",
   "shortcuts.nextEdit": "Idi na sljedeći rez",
   "shortcuts.pan": "Alat ruka",
+  "shortcuts.playRate": "Brzina reprodukcije",
   "shortcuts.press": "Pritisnite tipku…",
   "shortcuts.prevEdit": "Idi na prethodni rez",
   "shortcuts.previewAxis": "Os pregleda",

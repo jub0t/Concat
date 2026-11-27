@@ -1719,6 +1719,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_quality_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Monitor(MonitorMsg::QualityChanged(index)));
     }));
+    editor.on_play_rate_picked(on_window!(|state, index: i32| {
+        state.set_play_rate(index.max(0) as usize);
+    }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));
@@ -2109,6 +2112,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             match action {
                 // The playhead, straight: these were never menu rows and
                 // their handlers are a seek apiece.
+                "play-rate" => {
+                    shell.studio.borrow_mut().cycle_play_rate();
+                    shell.studio.borrow().publish(&app, &shell.models);
+                }
                 "play" => {
                     shell.studio.borrow_mut().play_toggle();
                     shell.studio.borrow_mut().refresh_art();

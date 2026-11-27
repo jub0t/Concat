@@ -36,6 +36,10 @@
 //!   re-decode, and what a fade sounds like has exactly one definition: this
 //!   file's `gain_at`.
 //!
+//! - The timeline can be watched faster than it runs. The clock then moves
+//!   that many seconds a second, and the mix goes through the stretcher the
+//!   clips' speed uses, so voices keep their pitch - see [`Fast`].
+//!
 //! - The playback clock is the audio device's own sample counter. The window
 //!   reads [`Playback::position_now`], which carries it forward between the
 //!   device's buffers; there is no second clock to drift against.
@@ -64,10 +68,17 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
 use concat_core::animate::{Ease, Key, Track};
+use concat_stretch::{Constant, Source, Stretch};
 use serde::Deserialize;
 
 /// Every clip is decoded to this rate; the callback resamples to the device.
 const PCM_RATE: u32 = 48_000;
+
+/// The slowest and fastest the transport plays the timeline.
+const RATE_RANGE: (f64, f64) = (0.25, 4.0);
+
+/// Frames of the mix the stretcher is handed each time it asks for more.
+const MIX_BLOCK: usize = 512;
 
 /// Decoded spans kept mapped beyond the current clip set. Enough that
 /// undo/redo across a few edits never re-decodes; small enough that a long
@@ -513,6 +524,83 @@ fn gain_at(clip: &ActiveClip, local: f64) -> f32 {
     gain.max(0.0) as f32
 }
 
+/// What the timeline sounds like at instant `at`, before any limit.
+fn mix_at(clips: &[ActiveClip], at: f64) -> (f32, f32) {
+    let mut left = 0.0f32;
+    let mut right = 0.0f32;
+    for clip in clips {
+        let local = at - clip.start;
+        if local < 0.0 || local >= clip.duration {
+            continue;
+        }
+        let gain = gain_at(clip, local);
+        if gain <= 0.0 {
+            continue;
+        }
+
+        // Linear interpolation across the 48k source grid - exact when the
+        // device runs at 48k, inaudibly close when it does not.
+        let read = local * f64::from(PCM_RATE);
+        let index = read.floor() as i64 + clip.lead;
+        let fraction = (read - read.floor()) as f32;
+        let pcm = &clip.pcm;
+        left +=
+            gain * (pcm.sample(index, 0) * (1.0 - fraction) + pcm.sample(index + 1, 0) * fraction);
+        right +=
+            gain * (pcm.sample(index, 1) * (1.0 - fraction) + pcm.sample(index + 1, 1) * fraction);
+    }
+    (left, right)
+}
+
+/// The mix as the stretcher reads it: frame after frame from where fast
+/// playback began, on the device's own grid.
+struct MixSource {
+    clips: Vec<ActiveClip>,
+    /// Timeline seconds of the source's first frame.
+    from: f64,
+    /// Timeline seconds between frames.
+    step: f64,
+    /// Frames handed over so far.
+    read: u64,
+}
+
+impl Source for MixSource {
+    fn read(&mut self, into: &mut Vec<f32>) -> bool {
+        for _ in 0..MIX_BLOCK {
+            let at = self.from + self.read as f64 * self.step;
+            let (left, right) = mix_at(&self.clips, at);
+            into.push(left);
+            into.push(right);
+            self.read += 1;
+        }
+        // Past the last clip the mix is silence, not an end.
+        true
+    }
+}
+
+/// The mix heard at another rate than the timeline's, with the pitch kept:
+/// output frame `k` is the timeline `k * rate` frames on from where it
+/// began. A seek, a pause or a change of rate starts another.
+struct Fast {
+    rate: f64,
+    stretch: Stretch<MixSource, Constant>,
+}
+
+impl Fast {
+    fn new(device_rate: u32, rate: f64, from: f64, clips: Vec<ActiveClip>) -> Fast {
+        let source = MixSource {
+            clips,
+            from,
+            step: 1.0 / f64::from(device_rate),
+            read: 0,
+        };
+        Fast {
+            rate,
+            stretch: Stretch::new(device_rate, 2, Constant(rate), source, None),
+        }
+    }
+}
+
 enum Msg {
     SetClips(Vec<ActiveClip>),
     Play(f64),
@@ -524,13 +612,16 @@ struct Shared {
     /// Timeline position in microseconds, written by the mix callback.
     position_micros: AtomicU64,
     /// When the clock, run on from its last write, read zero: the time of
-    /// that write less the position written, in microseconds since
-    /// `epoch`. One word rather than the write's time beside the
+    /// that write less the time the position written takes to play at
+    /// `rate`, in microseconds since `epoch`. One word rather than the write's time beside the
     /// position, so a reader that catches the old one of these two with
     /// the new other still reads a clock that ran on smoothly.
     origin_micros: AtomicI64,
     epoch: std::time::Instant,
     playing: AtomicBool,
+    /// Timeline seconds a second of playing covers, as f64 bits: 1.0 is
+    /// the timeline's own pace.
+    rate: AtomicU64,
     /// Whether an output stream is up and its callback is what moves the
     /// clock. While there is none - a machine with no speakers, a remote
     /// desktop, headphones just unplugged, a stream that failed and is
@@ -560,6 +651,7 @@ impl Shared {
             origin_micros: AtomicI64::new(0),
             epoch: std::time::Instant::now(),
             playing: AtomicBool::new(false),
+            rate: AtomicU64::new(1.0f64.to_bits()),
             driven: AtomicBool::new(false),
             muted: AtomicBool::new(false),
             peak_left: AtomicU32::new(0),
@@ -567,12 +659,25 @@ impl Shared {
         }
     }
 
+    fn rate(&self) -> f64 {
+        f64::from_bits(self.rate.load(Ordering::Relaxed))
+    }
+
+    /// The clock runs at `rate` from where it is now.
+    fn set_rate(&self, rate: f64) {
+        let rate = rate.clamp(RATE_RANGE.0, RATE_RANGE.1);
+        let at = self.position_now();
+        self.rate.store(rate.to_bits(), Ordering::Relaxed);
+        self.stamp(at);
+    }
+
     /// Lands the clock at `seconds`, now.
     fn stamp(&self, seconds: f64) {
         let position = (seconds.max(0.0) * 1_000_000.0) as u64;
         self.position_micros.store(position, Ordering::Relaxed);
+        let run = (position as f64 / self.rate()) as i64;
         self.origin_micros
-            .store(self.now_micros() - position as i64, Ordering::Relaxed);
+            .store(self.now_micros() - run, Ordering::Relaxed);
     }
 
     fn now_micros(&self) -> i64 {
@@ -605,12 +710,14 @@ impl Shared {
         if !self.playing.load(Ordering::Relaxed) {
             return position;
         }
-        let run_on =
-            (self.now_micros() - self.origin_micros.load(Ordering::Relaxed)) as f64 / 1_000_000.0;
+        let rate = self.rate();
+        let run_on = (self.now_micros() - self.origin_micros.load(Ordering::Relaxed)) as f64
+            / 1_000_000.0
+            * rate;
         if !self.driven.load(Ordering::Relaxed) {
             return run_on.max(position);
         }
-        run_on.clamp(position, position + COAST.as_secs_f64())
+        run_on.clamp(position, position + COAST.as_secs_f64() * rate)
     }
 
     /// Lands the stored position where the clock is now: before a pause
@@ -889,14 +996,26 @@ impl Playback {
         Ok(playback)
     }
 
-    /// Starts playing from `position` seconds.
+    /// Starts playing from `position` seconds, at the timeline's own pace.
     pub fn play(&self, position: f64) {
+        self.play_at(position, 1.0);
+    }
+
+    /// Starts playing from `position` seconds, `rate` timeline seconds a
+    /// second.
+    pub fn play_at(&self, position: f64, rate: f64) {
+        self.shared.set_rate(rate);
         if !self.fine.swap(true, Ordering::Relaxed) {
             fine_timer(true);
         }
         self.shared.stamp(position);
         self.shared.playing.store(true, Ordering::Relaxed);
         let _ = self.tx.send(Msg::Play(position.max(0.0)));
+    }
+
+    /// Changes the pace, playing or paused, from where the clock is.
+    pub fn set_rate(&self, rate: f64) {
+        self.shared.set_rate(rate);
     }
 
     /// Stops playing; the position holds.
@@ -1671,13 +1790,18 @@ where
     use cpal::traits::{DeviceTrait, StreamTrait};
 
     let channels = config.channels as usize;
-    let step = 1.0 / f64::from(config.sample_rate.0);
+    let device_rate = config.sample_rate.0;
+    let step = 1.0 / f64::from(device_rate);
 
     // Seed from the world as it is, not from zero: a stream rebuilt mid-
     // playback resumes the same clips at the shared clock's position.
     let mut clips: Vec<ActiveClip> = locked(last_active).clone();
     let mut playing = shared.playing.load(Ordering::Relaxed);
     let mut position = shared.position();
+    // The stretcher, while playing at another pace than the timeline's, and
+    // the buffer it renders into.
+    let mut fast: Option<Fast> = None;
+    let mut stretched: Vec<f32> = Vec::new();
 
     let failed = Arc::new(AtomicBool::new(false));
     let rx = Arc::clone(rx);
@@ -1697,15 +1821,25 @@ where
                 if let Ok(receiver) = rx.try_lock() {
                     while let Ok(message) = receiver.try_recv() {
                         match message {
-                            Msg::SetClips(next) => clips = next,
+                            Msg::SetClips(next) => {
+                                clips = next;
+                                if let Some(fast) = &mut fast {
+                                    fast.stretch.source_mut().clips.clone_from(&clips);
+                                }
+                            }
                             Msg::Play(at) => {
                                 position = at;
                                 playing = true;
+                                fast = None;
                             }
-                            Msg::Pause => playing = false,
+                            Msg::Pause => {
+                                playing = false;
+                                fast = None;
+                            }
                             Msg::Seek(at) => {
                                 position = at;
                                 sought = true;
+                                fast = None;
                             }
                         }
                     }
@@ -1725,34 +1859,24 @@ where
 
                 let silent = shared.muted.load(Ordering::Relaxed);
                 let (mut loudest_left, mut loudest_right) = (0.0f32, 0.0f32);
-                for frame in data.chunks_mut(channels) {
-                    let mut left = 0.0f32;
-                    let mut right = 0.0f32;
-
-                    for clip in &clips {
-                        let local = position - clip.start;
-                        if local < 0.0 || local >= clip.duration {
-                            continue;
-                        }
-                        let gain = gain_at(clip, local);
-                        if gain <= 0.0 {
-                            continue;
-                        }
-
-                        // Linear interpolation across the 48k source grid -
-                        // exact when the device runs at 48k, inaudibly close
-                        // when it does not.
-                        let read = local * f64::from(PCM_RATE);
-                        let index = read.floor() as i64 + clip.lead;
-                        let fraction = (read - read.floor()) as f32;
-                        let pcm = &clip.pcm;
-                        left += gain
-                            * (pcm.sample(index, 0) * (1.0 - fraction)
-                                + pcm.sample(index + 1, 0) * fraction);
-                        right += gain
-                            * (pcm.sample(index, 1) * (1.0 - fraction)
-                                + pcm.sample(index + 1, 1) * fraction);
+                let rate = shared.rate();
+                if rate == 1.0 {
+                    fast = None;
+                } else {
+                    if fast.as_ref().is_none_or(|fast| fast.rate != rate) {
+                        fast = Some(Fast::new(device_rate, rate, position, clips.clone()));
                     }
+                    if let Some(fast) = &mut fast {
+                        stretched.resize(data.len() / channels * 2, 0.0);
+                        fast.stretch.render(&mut stretched);
+                    }
+                }
+                for (index, frame) in data.chunks_mut(channels).enumerate() {
+                    let (mut left, mut right) = if fast.is_some() {
+                        (stretched[index * 2], stretched[index * 2 + 1])
+                    } else {
+                        mix_at(&clips, position)
+                    };
 
                     if silent {
                         left = 0.0;
@@ -1770,7 +1894,7 @@ where
                         *extra = T::from_sample(0.0);
                     }
 
-                    position += step;
+                    position += step * rate;
                 }
 
                 // One writer, so a load and a store keep the larger without
@@ -1816,7 +1940,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{COAST, Shared, sweep_plan, wav_data_range};
+    use super::{
+        ActiveClip, COAST, Fast, PCM_RATE, Pcm, Shared, WavWriter, sweep_plan, wav_data_range,
+    };
     use std::sync::atomic::Ordering;
 
     /// A machine with no speakers, a remote desktop, headphones unplugged:
@@ -1891,6 +2017,81 @@ mod tests {
             (5.01..=5.01 + COAST.as_secs_f64()).contains(&between),
             "{between}"
         );
+    }
+
+    #[test]
+    fn at_another_pace_the_clock_covers_that_much_timeline() {
+        let shared = Shared::new();
+        shared.stamp(5.0);
+        shared.set_rate(3.0);
+        shared.playing.store(true, Ordering::Relaxed);
+        let started = std::time::Instant::now();
+        shared.stamp(5.0);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let now = shared.position_now();
+        let most = 5.0 + started.elapsed().as_secs_f64() * 3.0;
+        assert!((5.3..=most + 1e-3).contains(&now), "{now}, at most {most}");
+
+        // Back to its own pace from where it got to, with no jump.
+        shared.set_rate(1.0);
+        let after = shared.position_now();
+        assert!(
+            after >= now - 1e-5 && after < now + 0.2,
+            "{after} after {now}"
+        );
+    }
+
+    /// Fast playback keeps the pitch and puts each sound where the picture
+    /// is: a 440 Hz tone from the timeline's first second on is heard from
+    /// half way through it at 2x, a third at 3x, still at 440 Hz.
+    #[test]
+    fn fast_playback_keeps_the_pitch_and_the_time() {
+        let path = std::env::temp_dir().join(format!("concat-fast-{}.wav", std::process::id()));
+        {
+            let mut file = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+            let mut writer = WavWriter::start(&mut file).unwrap();
+            let mut bytes = Vec::new();
+            for frame in 0..PCM_RATE * 6 {
+                let at = f64::from(frame) / f64::from(PCM_RATE);
+                let value = ((at * 440.0 * std::f64::consts::TAU).sin() * 16_000.0) as i16;
+                bytes.extend_from_slice(&value.to_le_bytes());
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+            writer.write(&mut file, &bytes).unwrap();
+            writer.finish(&mut file).unwrap();
+        }
+        let clip = ActiveClip {
+            start: 1.0,
+            duration: 6.0,
+            volume: 1.0,
+            volume_curve: super::track_of(&[]),
+            fade_in: 0.0,
+            fade_out: 0.0,
+            pcm: std::sync::Arc::new(Pcm::open(&path).unwrap()),
+            lead: 0,
+            covered: std::sync::Arc::from(Vec::new()),
+        };
+
+        for rate in [2.0, 3.0] {
+            let mut fast = Fast::new(PCM_RATE, rate, 0.0, vec![clip.clone()]);
+            let mut out = vec![0.0f32; PCM_RATE as usize * 2];
+            fast.stretch.render(&mut out);
+            let left: Vec<f32> = out.iter().step_by(2).copied().collect();
+
+            let onset =
+                left.iter().position(|x| x.abs() > 0.1).unwrap() as f64 / f64::from(PCM_RATE);
+            assert!((onset - 1.0 / rate).abs() < 0.03, "{rate}x onset {onset}");
+
+            // Upward crossings over a stretch well inside the tone.
+            let tail = &left[left.len() * 6 / 10..];
+            let crossings = tail
+                .windows(2)
+                .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+                .count();
+            let hertz = crossings as f64 * f64::from(PCM_RATE) / tail.len() as f64;
+            assert!((hertz - 440.0).abs() < 8.0, "{rate}x heard {hertz} Hz");
+        }
+        let _ = std::fs::remove_file(path);
     }
 
     /// A minimal RIFF/WAVE: fmt chunk, then a data chunk with `samples`.

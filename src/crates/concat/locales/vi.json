@@ -666,6 +666,7 @@
   "shortcuts.hint": "Nhấp vào một hàng, rồi nhấn các phím mà hàng đó cần phản hồi. Escape để hủy; tổ hợp phím đang thuộc về thao tác khác sẽ chuyển sang đây, khiến thao tác đó không còn phím nào cho đến khi nút Đặt lại của chính nó trả lại một phím. Một số tổ hợp thuộc về cửa sổ và không thể gán.",
   "shortcuts.nextEdit": "Đến điểm cắt tiếp theo",
   "shortcuts.pan": "Công cụ di chuyển khung nhìn",
+  "shortcuts.playRate": "Tốc độ phát",
   "shortcuts.press": "Nhấn một phím…",
   "shortcuts.prevEdit": "Đến điểm cắt trước",
   "shortcuts.previewAxis": "Trục xem trước",

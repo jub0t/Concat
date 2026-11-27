@@ -227,6 +227,8 @@ export component Seat inherits Rectangle {
             picking: Editor.picking-colour && !SourcePreview.open;
 
             play-toggled => { Editor.play-toggled(); }
+            play-rate: Editor.play-rate;
+            play-rate-picked(index) => { Editor.play-rate-picked(index); }
             seek(seconds) => {
                 if (SourcePreview.open) {
                     SourcePreview.seek(seconds);
