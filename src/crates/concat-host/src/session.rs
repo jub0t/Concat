@@ -498,7 +498,7 @@ fn import_earlier(
     let root = Path::new(path);
     let refused = |why: &dyn std::fmt::Display| {
         format!(
-            "{path} was made with an earlier Concat and could not be opened: {why}. Its file was left as it was"
+            "{path} could not be opened as a project of an earlier Concat: {why}. Its file was left as it was"
         )
     };
     let text = std::str::from_utf8(bytes).map_err(|error| refused(&error))?;

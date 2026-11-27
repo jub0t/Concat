@@ -145,6 +145,43 @@ fn a_copy_already_kept_is_never_replaced() {
 }
 
 #[test]
+fn a_project_whose_manifest_is_wolfcut_json_opens_too() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let (name, bytes) = seeds().into_iter().next().expect("a seed");
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    let writer = value
+        .as_object_mut()
+        .and_then(|map| map.remove("concat"))
+        .expect("names its writer");
+    value["wolfcut"] = writer;
+    let manifest = serde_json::to_vec_pretty(&value).expect("encodes");
+    let root = scratch.path().join(&name);
+    std::fs::create_dir_all(&root).expect("folder");
+    std::fs::write(root.join("wolfcut.json"), &manifest).expect("writes");
+    let session = open(&root).expect("opens");
+    let notes = session.imported().expect("made by the import");
+    assert!(
+        notes
+            .iter()
+            .all(|note| !note.to_string().contains("wolfcut")),
+        "the writer's name is read, not kept: {notes:?}"
+    );
+    assert_eq!(
+        std::fs::read(root.join("wolfcut.earlier.json")).expect("the copy"),
+        manifest
+    );
+    let rewritten = projects::read_document(&text(&root))
+        .expect("reads")
+        .expect("a manifest");
+    assert!(projects::is_settings_only(&rewritten), "{rewritten}");
+    assert!(
+        !root.join("concat.json").exists(),
+        "the manifest keeps its name"
+    );
+    assert!(open(&root).expect("reopens").imported().is_none());
+}
+
+#[test]
 fn a_manifest_that_cannot_be_imported_fails_and_the_folder_is_untouched() {
     let scratch = tempfile::tempdir().expect("scratch");
     let manifest = br#"{"concat":"0.2.12","name":"Old","video":{"width":1920,"height":1080,"rateNum":30,"rateDen":1},"timelines":[]}"#;

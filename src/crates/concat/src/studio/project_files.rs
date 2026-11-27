@@ -221,10 +221,15 @@ impl Studio {
                 // Parts of the file this build cannot read - from a newer
                 // Concat, or damaged - are kept in it unchanged, and the
                 // person told once, after the other notices of this open.
-                let unread = self
-                    .session
-                    .as_ref()
-                    .and_then(|session| unread_notice(session.notes()));
+                // A project of an earlier Concat, just made into one of
+                // this one, is said instead: its document is new, so it
+                // has nothing unread.
+                let unread = self.session.as_ref().and_then(|session| {
+                    session
+                        .imported()
+                        .map(earlier_notice)
+                        .or_else(|| unread_notice(session.notes()))
+                });
 
                 // Log missing media to file for debugging
                 if self.session.is_some() {
@@ -582,6 +587,18 @@ pub(super) fn unread_notice(notes: &[concat_doc::file::Note]) -> Option<String> 
     (!said.is_empty()).then(|| tf("studio.unreadKept", &[&said.join("; ")]))
 }
 
+/// What the person is told when the project opened was made with an
+/// earlier Concat: that it is one of this Concat's now, that its original
+/// file is kept in the project folder, and how many parts came over only
+/// approximately. The log lists each of those.
+pub(super) fn earlier_notice(notes: &[concat_doc::file::Note]) -> String {
+    match notes.len() {
+        0 => t("studio.earlierProject"),
+        1 => t("studio.earlierProjectOne"),
+        n => tf("studio.earlierProjectMany", &[&n.to_string()]),
+    }
+}
+
 /// The Details panel's short count of what the project holds and cannot
 /// show, or empty when it shows everything.
 pub(super) fn unread_count(notes: &[concat_doc::file::Note]) -> String {
@@ -594,8 +611,22 @@ pub(super) fn unread_count(notes: &[concat_doc::file::Note]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{unread_count, unread_notice};
+    use super::{earlier_notice, unread_count, unread_notice};
     use concat_doc::file::Note;
+
+    #[test]
+    fn a_project_of_an_earlier_concat_says_how_many_parts_came_over_approximately() {
+        let note = Note {
+            place: "clip \"a.mov\"".to_owned(),
+            what: "its speed curve is approximated".to_owned(),
+        };
+        let none = earlier_notice(&[]);
+        let one = earlier_notice(std::slice::from_ref(&note));
+        let three = earlier_notice(&[note.clone(), note.clone(), note]);
+        assert!(!none.is_empty());
+        assert!(none != one && one != three);
+        assert!(three.contains('3'), "{three}");
+    }
 
     #[test]
     fn a_project_that_opened_whole_says_nothing() {

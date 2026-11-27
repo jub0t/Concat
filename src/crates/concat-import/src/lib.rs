@@ -100,11 +100,15 @@ pub struct Imported {
     pub sequences: BTreeMap<String, SequenceId>,
 }
 
+/// The keys an earlier Concat names the build that wrote a file under:
+/// `concat`, or `wolfcut` in a file whose manifest is `wolfcut.json`.
+const WRITERS: [&str; 2] = ["concat", "wolfcut"];
+
 /// Whether a project file's JSON is an edit saved by an earlier Concat:
 /// it says which Concat and which version wrote it, and holds timelines
 /// or tracks.
 pub fn is_earlier_edit(value: &Value) -> bool {
-    value.get("concat").is_some()
+    WRITERS.iter().any(|key| value.get(key).is_some())
         && value.get("version").is_some()
         && (value.get("timelines").is_some() || value.get("tracks").is_some())
 }
@@ -124,7 +128,8 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
     }
     let mut build = Build::new();
     let mut top = Fields::of(&value);
-    top.skip(&["concat", "version", "name"]);
+    top.skip(&WRITERS);
+    top.skip(&["version", "name"]);
     let top_video = top.object("video");
     let top_tracks = top.list("tracks");
     let top_clips = top.list("clips");
