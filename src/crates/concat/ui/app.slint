@@ -672,6 +672,12 @@ export component App inherits Window {
                     Editor.library-audition-filter(Editor.library-audition);
                     return accept;
                 }
+                // The full-screen preview, under everything that can be put
+                // up over it: Escape gives the window back to the panels.
+                if (event.text == Key.Escape && Editor.preview-full && !root.on-start) {
+                    root.app-menu-selected("preview-full");
+                    return accept;
+                }
             }
             // The phone editor's own sheet - Effects, Text, a clip's tools -
             // comes down before Back leaves the project.
@@ -713,7 +719,9 @@ export component App inherits Window {
             // No strip on a phone: its menus, its window buttons and its
             // drag region are all a desk's, and the phone shell's top bar
             // carries the two verbs that are not.
-            if !root.phone: TitleBar {
+            // Nor under the full-screen preview, which has the window to
+            // itself; Escape, its own button and its chord give it back.
+            if !root.phone && !(Editor.preview-full && !root.on-start): TitleBar {
                 macos: root.macos;
                 minimal: root.on-start;
                 deep: root.on-start;

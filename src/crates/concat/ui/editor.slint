@@ -377,6 +377,12 @@ export global Editor {
     /// the ruler alone moves it. A remembered preference, which Rust owns;
     /// its switch is in Settings.
     in-out property <bool> click-moves-playhead: true;
+    /// The full-screen preview: the monitor has the whole window and the
+    /// window the whole screen. The seats say the same thing - there is
+    /// one, the monitor's - and this is for what is not a seat: the title
+    /// strip goes, and the monitor draws without its header. Rust owns it;
+    /// `shortcut("preview-full")` flips it.
+    in-out property <bool> preview-full;
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying put. A remembered
     /// preference, which Rust owns; `preview-axis-audio` is whether the

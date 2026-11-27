@@ -142,6 +142,12 @@ pub const ACTIONS: &[Action] = &[
         id: "preview-axis",
         defaults: &["s"],
     },
+    // The full-screen preview, on the chord the phone-born editors use
+    // for it; plain F is Freeze here.
+    Action {
+        id: "preview-full",
+        defaults: &["ctrl+shift+f"],
+    },
     Action {
         id: "zoom-in",
         defaults: &["ctrl+=", "ctrl+plus"],
@@ -218,6 +224,7 @@ pub fn name(id: &str) -> String {
         "pan" => i18n::t("shortcuts.pan"),
         "snap" => i18n::t("common.snapToEdges"),
         "preview-axis" => i18n::t("shortcuts.previewAxis"),
+        "preview-full" => i18n::t("previewPane.fullScreen"),
         "zoom-in" => i18n::t("common.zoomIn"),
         "zoom-out" => i18n::t("common.zoomOut"),
         "play" => i18n::t("previewPane.play"),

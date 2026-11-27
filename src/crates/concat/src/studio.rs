@@ -1126,6 +1126,18 @@ pub struct Studio {
     /// into. Read through [`Studio::selected_transition`], which holds it
     /// to an empty clip selection and a clip that still has one.
     pub transition_selected: Option<String>,
+    /// The monitor has the whole window, and the window the whole screen:
+    /// the full-screen preview. A fact of the sitting, not a preference -
+    /// the next launch opens on the panels. Read it through
+    /// [`Studio::preview_full`], which knows there is no monitor on the
+    /// launch screen.
+    pub preview_full: bool,
+    /// What the window was last told about it, and whether it already
+    /// covered the screen before the preview asked: a window its person
+    /// made full-screen stays so when the preview gives the screen back.
+    /// See `sync_full_screen` in lib.rs.
+    pub full_screen_shown: bool,
+    pub window_was_full: bool,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -2974,6 +2986,9 @@ impl Studio {
             unread_pending: None,
             confirm: None,
             transition_selected: None,
+            preview_full: false,
+            full_screen_shown: false,
+            window_was_full: false,
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,

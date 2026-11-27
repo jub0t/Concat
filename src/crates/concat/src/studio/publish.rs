@@ -180,9 +180,22 @@ impl Studio {
         }
     }
 
+    /// Whether the monitor has the whole window: the full-screen preview,
+    /// which only an open project has.
+    pub fn preview_full(&self) -> bool {
+        self.preview_full && !self.on_start
+    }
+
     pub fn dock_layout(&self) -> DockLayout {
         let mut out = DockLayout::default();
         let (width, height) = self.workspace;
+        // The full-screen preview: one seat, the monitor's, edge to edge,
+        // whatever the arrangement is - which is left as it was, panes,
+        // ratios and all, for when the preview gives the window back. A
+        // monitor is seated even where the arrangement has none.
+        if self.preview_full() {
+            return crate::dock::alone(crate::ui::PaneKind::Preview, width, height);
+        }
         if width > SEAT_GAP * 2.0 && height > SEAT_GAP * 2.0 {
             lay_out(
                 &self.dock,
@@ -489,6 +502,7 @@ impl Studio {
         editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_meters_shown(self.prefs.meters_shown());
         editor.set_click_moves_playhead(self.prefs.click_moves_playhead());
+        editor.set_preview_full(self.preview_full());
         editor.set_preview_axis(self.prefs.preview_axis);
         editor.set_preview_axis_audio(self.prefs.preview_axis_audio);
         editor.set_pan_mode(self.lanes.pan_mode);

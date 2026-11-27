@@ -115,6 +115,10 @@ export enum Glyph {
     align-bottom,
     distribute,
     fit,
+    /// the preview over the whole screen: four arrows out to the corners;
+    /// `full-screen-exit` is the four coming back in
+    full-screen,
+    full-screen-exit,
     rows,
     film,
     music,
@@ -777,6 +781,22 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M8 3H5a2 2 0 0 0-2 2v3 M21 8V5a2 2 0 0 0-2-2h-3 M3 16v3a2 2 0 0 0"
             + " 2 2h3 M16 21h3a2 2 0 0 0 2-2v-3";
+    }
+
+    // Four arrows out to the corners — the picture takes the screen.
+    // lucide/expand
+    if root.glyph == Glyph.full-screen: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 15l6 6 M15 9l6-6 M21 16v5h-5 M21 8V3h-5 M3 16v5h5 M3 21l6-6"
+            + " M3 8V3h5 M9 9L3 3";
+    }
+
+    // The four coming back in — the picture gives the screen back.
+    // lucide/shrink
+    if root.glyph == Glyph.full-screen-exit: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 15l6 6 M15 15v4.8 M15 15h4.8 M9 19.8V15 M9 15H4.2 M9 15l-6 6"
+            + " M15 4.2V9 M15 9h4.8 M15 9l6-6 M9 4.2V9 M9 9H4.2 M9 9L3 3";
     }
 
     // lucide/hand

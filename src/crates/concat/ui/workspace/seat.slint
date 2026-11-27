@@ -197,6 +197,8 @@ export component Seat inherits Rectangle {
             pane-seat: root.index;
             pane-removable: Editor.seats.length > 1;
             pane-removed => { root.removed(); }
+            full: Editor.preview-full;
+            full-toggled => { Editor.shortcut("preview-full"); }
 
             previewing: Editor.library-audition != "";
             preview-ended => { Editor.library-audition-filter(Editor.library-audition); }

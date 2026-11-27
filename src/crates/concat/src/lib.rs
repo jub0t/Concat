@@ -1988,7 +1988,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         .on_release(|| Shell::with(|_, app| app.invoke_blur()));
     editor.on_shortcut(move |action: SharedString| match action.as_str() {
         "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end"
-        | "prev-edit" | "next-edit" | "snap" | "magnetic" | "linkage" | "pan" | "preview-axis" => {
+        | "prev-edit" | "next-edit" | "snap" | "magnetic" | "linkage" | "pan" | "preview-axis"
+        | "preview-full" => {
             Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));
         }
         _ => Shell::with(|shell, app| {
@@ -2132,7 +2133,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                 // apart — the same door on_shortcut keeps open.
                 "save" | "undo" | "redo" | "import" | "export" | "settings" | "zoom-in"
                 | "zoom-out" | "start" | "end" | "prev-edit" | "next-edit" | "snap" | "pan"
-                | "preview-axis" | "delete" => {
+                | "preview-axis" | "preview-full" | "delete" => {
                     let _asked = studio::Asked::by("shortcut");
                     app.invoke_app_menu_selected(SharedString::from(action));
                 }
@@ -2719,6 +2720,19 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                             let on = !state.prefs.preview_axis;
                             state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)))
                         }
+                        // The monitor takes the whole window, or gives it
+                        // back; the window follows below, once the studio
+                        // is let go. Nothing on the launch screen, which
+                        // has no monitor.
+                        "preview-full" => {
+                            if !state.on_start {
+                                state.preview_full = !state.preview_full;
+                                log::info!(
+                                    "preview: full screen {}",
+                                    if state.preview_full { "on" } else { "off" }
+                                );
+                            }
+                        }
                         "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
                         "linkage" => {
                             let on = !doc_view::sequence(state.doc())
@@ -2777,6 +2791,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                     log::debug!("close: quit_event_loop called (menu)");
                     return;
                 }
+                // After any row, not the preview's alone: closing the
+                // project from full screen gives the screen back too.
+                sync_full_screen(&app, &mut shell.studio.borrow_mut());
                 shell.studio.borrow_mut().refresh_art();
                 shell.studio.borrow().publish(&app, &shell.models);
             });
@@ -3151,6 +3168,38 @@ fn text_edit_shortcut(app: &App, action: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Brings the window into step with the full-screen preview: over the whole
+/// screen while the monitor has the whole window, and back when it gives the
+/// window up - unless the window already covered the screen before the
+/// preview asked, in which case it is left as its person had it.
+///
+/// The window is told on the next turn of the event loop. Going full-screen
+/// resizes it, a resize calls back into the studio, and this runs with the
+/// studio borrowed.
+fn sync_full_screen(app: &App, studio: &mut Studio) {
+    // A project closed from full screen: the next one opens on its panels.
+    if studio.on_start {
+        studio.preview_full = false;
+    }
+    let want = studio.preview_full();
+    if want == studio.full_screen_shown {
+        return;
+    }
+    studio.full_screen_shown = want;
+    if want {
+        studio.window_was_full = app.window().is_fullscreen();
+    }
+    if studio.window_was_full {
+        return;
+    }
+    let weak = app.as_weak();
+    slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+        if let Some(app) = weak.upgrade() {
+            app.window().set_fullscreen(want);
+        }
+    });
 }
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that

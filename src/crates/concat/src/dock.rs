@@ -211,6 +211,25 @@ pub struct DockLayout {
     pub extents: Vec<f32>,
 }
 
+/// One view with the whole box to itself, edge to edge: no gutters, since
+/// there is nothing to stand apart from. What the full-screen preview shows
+/// in place of the arrangement, which it leaves alone. Nothing for a box
+/// with no size yet.
+pub fn alone(kind: PaneKind, width: f32, height: f32) -> DockLayout {
+    let mut out = DockLayout::default();
+    if width > 0.0 && height > 0.0 {
+        out.seats.push(SeatBox {
+            index: 0,
+            kind,
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        });
+    }
+    out
+}
+
 pub fn lay_out(node: &Dock, (x, y, w, h): (f32, f32, f32, f32), out: &mut DockLayout) {
     match node {
         Dock::Leaf(kind) => out.seats.push(SeatBox {
@@ -464,6 +483,22 @@ mod saved_tests {
         assert!(!dock.contains(PaneKind::Speech));
         assert!(dock.path_of(PaneKind::Speech).is_none());
         assert_eq!(dock.to_saved(), default_dock().to_saved());
+    }
+
+    /// The full-screen preview's layout: its one view over the whole box,
+    /// no gutter to drag, and nothing at all before the box has a size.
+    #[test]
+    fn a_view_alone_has_the_whole_box() {
+        let layout = alone(PaneKind::Preview, 1920.0, 1080.0);
+        assert_eq!(layout.seats.len(), 1);
+        let seat = &layout.seats[0];
+        assert!(seat.kind == PaneKind::Preview);
+        assert_eq!(
+            (seat.index, seat.x, seat.y, seat.width, seat.height),
+            (0, 0.0, 0.0, 1920.0, 1080.0)
+        );
+        assert!(layout.dividers.is_empty() && layout.extents.is_empty());
+        assert!(alone(PaneKind::Preview, 0.0, 1080.0).seats.is_empty());
     }
 
     #[test]

@@ -813,6 +813,14 @@ export component PreviewPane inherits Rectangle {
     /// pans the view, a double tap fits it again.
     in property <bool> bare: false;
 
+    /// The full-screen preview: this pane is the whole window. Its header
+    /// goes - there is no arrangement to change from here - and its corners
+    /// square off against the screen's; the transport stays, with the way
+    /// back at its end.
+    in property <bool> full: false;
+    /// The transport's full-screen button, either way.
+    callback full-toggled();
+
     /// Fits the frame to the pane again, from outside: the phone's way to
     /// the button the transport carries.
     public function fit-view() { viewport.fit(); }
@@ -838,7 +846,9 @@ export component PreviewPane inherits Rectangle {
     changed frames => { root.seed(); }
 
     Pane {
-        if !root.bare: PaneHeader {
+        border-radius: root.full ? 0px : Theme.r-lg;
+
+        if !root.bare && !root.full: PaneHeader {
             title: I18n.t("common.preview");
 
             // The output, stated rather than implied. Tabular-ish and dim: it
@@ -1357,6 +1367,19 @@ export component PreviewPane inherits Rectangle {
                             label: I18n.t("previewPane.fitFramePane");
                             enabled: !viewport.fitted;
                             clicked => { viewport.fit(); }
+                        }
+                    }
+
+                    // The picture over the whole screen, and back: last in
+                    // the row, where every player keeps it.
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            glyph: root.full ? Glyph.full-screen-exit : Glyph.full-screen;
+                            label: root.full
+                                ? I18n.t("previewPane.exitFullScreen")
+                                : I18n.t("previewPane.fullScreen");
+                            clicked => { root.full-toggled(); }
                         }
                     }
                 }
