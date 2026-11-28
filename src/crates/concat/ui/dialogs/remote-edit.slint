@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, Modal } from "../primitives/modal.slint";
+
+/// The project on screen is lent to an agent: which one, in a sentence.
+export struct RemoteEditData {
+    open: bool,
+    message: string,
+}
+
+// The sheet over a window whose project an agent is editing. Nothing
+// dismisses it - no ×, no scrim click, no Escape - because the project is
+// not the window's to edit until the agent closes it. Take back is the one
+// way out, for an agent that never does.
+export component RemoteEditDialog inherits Modal {
+    in property <RemoteEditData> data;
+
+    callback take-back();
+
+    open: root.data.open;
+    title: I18n.t("studio.remoteEditTitle");
+    glyph: Glyph.lock;
+    dismissable: false;
+    surface-width: 400px;
+
+    // The keys go to the sheet the moment it shows, not to whatever had
+    // focus under it.
+    changed open => {
+        if (root.open) {
+            keys.focus();
+        }
+    }
+
+    keys := FocusScope {
+        // Every key ends here: none reaches the editor underneath.
+        key-pressed(event) => { accept }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+
+            Text {
+                text: root.data.message;
+                color: Theme.fg;
+                font-size: Theme.fs;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+
+                Button {
+                    label: I18n.t("studio.remoteEditTakeBack");
+                    clicked => { root.take-back(); }
+                }
+            }
+        }
+    }
+}

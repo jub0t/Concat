@@ -50,6 +50,7 @@ import {
     MissingMediaItem,
 } from "dialogs/relink.slint";
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
+import { RemoteEditData, RemoteEditDialog } from "dialogs/remote-edit.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { Speech, SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { NewVoiceData, NewVoiceDialog } from "dialogs/new-voice.slint";
@@ -325,7 +326,7 @@ export component App inherits Window {
     /// then, and nothing that acts on what the sheet covers.
     property <bool> sheet-up: root.start.composing || root.export.open || root.settings.open
         || root.project-sheet.open || root.new-voice.open || root.relink.open
-        || root.confirm.open;
+        || root.confirm.open || root.remote-edit.open;
     /// Which floating tool card is in front: "captions" or "speech". The
     /// one opened or grabbed last; Escape closes it first.
     property <string> front-tool: "captions";
@@ -639,6 +640,7 @@ export component App inherits Window {
             // finishes the activity, so Back with Export or a sheet open
             // quit the app, a running export with it.
             if (event.text == Key.Escape || event.text == Key.Back) {
+                if (root.remote-edit.open) { return accept; }
                 if (root.confirm.open) { root.confirm-dismissed(); return accept; }
                 if (root.relink.open) { root.relink-dismiss(); return accept; }
                 if (root.new-voice.open) {
@@ -1123,6 +1125,24 @@ export component App inherits Window {
         data: root.confirm;
         confirmed => { root.confirm-accepted(); }
         dismissed => { root.confirm-dismissed(); }
+    }
+
+    // The project is lent to an agent through the API server: over every
+    // other sheet, and nothing but Take back gets past it.
+    in property <RemoteEditData> remote-edit;
+    callback remote-edit-take-back();
+
+    RemoteEditDialog {
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: root.sheets-top;
+        width: root.width;
+        height: root.height - root.sheets-top;
+        data: root.remote-edit;
+        take-back => { root.remote-edit-take-back(); }
     }
 
     // Over everything but the tooltips and the menus, the sheets included:

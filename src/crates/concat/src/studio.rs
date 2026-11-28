@@ -78,6 +78,8 @@ mod gestures;
 mod inspector;
 mod keyboard;
 mod keyframes;
+mod lend;
+pub use lend::WindowLender;
 mod menus;
 #[cfg(test)]
 mod merge_words_tests;
@@ -1121,6 +1123,9 @@ pub struct Studio {
     pub unread_pending: Option<String>,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
+    /// The project lent to a caller of the API server, while it is: the
+    /// folder as the window had it open. See `lend`.
+    pub lent: Option<String>,
     /// The clip whose incoming transition is selected, while no clip is:
     /// a transition is picked on its own, not as part of the clip it rides
     /// into. Read through [`Studio::selected_transition`], which holds it
@@ -2985,6 +2990,7 @@ impl Studio {
             relink: crate::panes::relink::RelinkPane::default(),
             unread_pending: None,
             confirm: None,
+            lent: None,
             transition_selected: None,
             preview_full: false,
             full_screen_shown: false,

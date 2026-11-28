@@ -1981,6 +1981,7 @@ impl Studio {
             |data| app.set_relink(data),
         );
         app.set_confirm(self.confirm_data());
+        app.set_remote_edit(self.remote_edit_data());
 
         // The speech sheets, and the lists they choose from.
         let transcribers = installed(&self.settings.transcribers);
