@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
+// SPDX-FileCopyrightText: 2026 Concat contributors
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
@@ -7,15 +7,24 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { ResizeBox } from "../primitives/resize-box.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+import { Rail } from "../inspector/controls.slint";
 import { Tip } from "../primitives/tooltip.slint";
 
 export struct ThreadsFrameData {
     label: string,
     author: string,
+    username: string,
     text: string,
     likes: string,
     replies: string,
+    reposts: string,
+    is-post: bool,
+    has-media: bool,
+    meme-file: string,
     voice-ready: bool,
+    voice-playing: bool,
+    voice-loading: bool,
     voice-duration: string,
 }
 
@@ -25,18 +34,40 @@ export struct ThreadsData {
     running: bool,
     generating-voiceovers: bool,
     voiceovers-ready: bool,
-    meme-file: string,
     stage: string,
     error: string,
     title: string,
     source-url: string,
     sort: int,
+    card-theme: int,
+    voice: int,
     voice-rate: int,
+    karaoke-style: int,
+    bgm-preset: int,
+    bgm-custom-file: string,
+    bgm-volume: float,
+    bgm-playing: bool,
+    preview-loading: bool,
+    meme-count: int,
     selected-index: int,
     selected-label: string,
     selected-author: string,
+    selected-username: string,
+    selected-timestamp: string,
+    selected-verified: bool,
+    selected-has-media: bool,
+    selected-media-image: image,
+    selected-avatar-image: image,
+    selected-has-avatar: bool,
     selected-text: string,
     selected-likes: string,
+    selected-replies: string,
+    selected-reposts: string,
+    selected-is-post: bool,
+    selected-meme-file: string,
+    selected-voice-ready: bool,
+    selected-voice-playing: bool,
+    selected-voice-loading: bool,
     scene-revision: int,
     remaining-comments: int,
     frames: [ThreadsFrameData],
@@ -47,6 +78,7 @@ component SceneIconButton inherits Rectangle {
     in property <string> tip;
     in property <bool> enabled: true;
     in property <bool> danger: false;
+    in property <bool> active: false;
 
     callback clicked();
 
@@ -57,17 +89,17 @@ component SceneIconButton inherits Rectangle {
     border-radius: Theme.r-sm;
     opacity: root.enabled ? 1.0 : 0.35;
     background: root.danger && root.lit ? Theme.danger-wash
+        : root.active ? Theme.accent
         : root.lit ? Theme.field-hover
         : Colors.transparent;
-    border-width: root.danger && root.lit ? 1px : 0px;
-    border-color: Theme.danger-edge;
 
     Icon {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         glyph: root.glyph;
         size: 12px;
-        tint: root.danger && root.lit ? Theme.danger
+        tint: root.active ? Theme.on-accent
+            : root.danger && root.lit ? Theme.danger
             : root.lit ? Theme.fg
             : Theme.fg-muted;
     }
@@ -80,12 +112,10 @@ component SceneIconButton inherits Rectangle {
 
     Tip {
         text: root.tip;
-        active: root.lit && root.tip != "";
+        active: touch.has-hover && root.enabled;
     }
 }
 
-/// An additive entry point for the Threads quick-video workflow. It uses
-/// Concat's launch-screen sheet and leaves ordinary project creation alone.
 export component ThreadsDialog inherits Modal {
     in property <ThreadsData> data;
 
@@ -101,24 +131,34 @@ export component ThreadsDialog inherits Modal {
     callback add-next-comment();
     callback reset-frames();
     callback sort-changed(index: int);
+    callback card-theme-changed(index: int);
+    callback voice-changed(index: int);
     callback voice-rate-changed(index: int);
+    callback karaoke-style-changed(index: int);
     callback generate-voiceovers();
-    callback choose-meme();
-    callback remove-meme();
+    callback preview-scene-voice(index: int);
+    callback choose-scene-meme(index: int);
+    callback remove-scene-meme(index: int);
+    callback apply-meme-to-all(index: int);
+    callback bgm-preset-changed(index: int);
+    callback choose-bgm-file();
+    callback bgm-volume-changed(volume: float);
+    callback preview-bgm();
     callback create-project();
 
     open: root.data.open;
     title: I18n.t("threads.title");
     glyph: Glyph.film;
     dismissable: !root.data.running;
-    surface-width: 700px;
-    surface-height: 700px;
+    surface-width: 760px;
+    surface-height: 760px;
 
     property <int> draft-revision: -1;
     property <string> draft-author;
     property <string> draft-text;
     property <bool> typing-author;
     property <bool> typing-text;
+    property <bool> card-light: root.data.card-theme == 1;
 
     function sync-draft() {
         if (root.data.scene-revision != root.draft-revision || !root.typing-author) {
@@ -134,21 +174,15 @@ export component ThreadsDialog inherits Modal {
     changed data => { root.sync-draft(); }
 
     VerticalLayout {
-        // This form is mostly wrapping text and flexible controls. Give the
-        // modal's scroll content a real width so it does not measure the form
-        // at the minimum text width and leave most of the sheet empty.
-        horizontal-stretch: 1;
-        padding-left: 22px;
-        padding-right: 22px;
-        padding-top: 16px;
-        padding-bottom: 18px;
+        // Give the scroll content a real width so wrapping text and flexible controls measure cleanly.
+        min-width: 1px;
         spacing: 12px;
+        padding-bottom: 4px;
 
         Text {
-            horizontal-stretch: 1;
             text: I18n.t("threads.intro");
             color: Theme.fg-muted;
-            font-size: Theme.fs;
+            font-size: Theme.fs-sm;
             wrap: word-wrap;
         }
 
@@ -169,21 +203,25 @@ export component ThreadsDialog inherits Modal {
                     primary: true;
                     large: true;
                     glyph: Glyph.import;
-                    label: root.data.generating-voiceovers
-                        ? I18n.t("threads.generatingVoices")
-                        : root.data.running ? I18n.t("threads.extracting") : I18n.t("threads.fetch");
-                    enabled: !root.data.running && root.data.url != "";
+                    label: root.data.running && !root.data.generating-voiceovers
+                        ? I18n.t("threads.extracting")
+                        : I18n.t("threads.fetch");
+                    enabled: !root.data.running;
                     clicked => { root.extract(); }
                 }
             }
         }
 
-        if root.data.running: HorizontalLayout {
+        if root.data.running || root.data.preview-loading: HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 10px;
-            Progress { horizontal-stretch: 1; value: 0.18; live: true; }
+            Progress { horizontal-stretch: 1; value: 0.22; live: true; }
             Text {
-                text: root.data.stage == "" ? I18n.t("threads.extracting") : root.data.stage;
+                text: root.data.preview-loading
+                    ? I18n.t("threads.loadingVoice")
+                    : root.data.stage == ""
+                        ? I18n.t("threads.extracting")
+                        : root.data.stage;
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 vertical-alignment: center;
@@ -196,16 +234,20 @@ export component ThreadsDialog inherits Modal {
             background: Theme.danger-wash;
             border-width: 1px;
             border-color: Theme.danger-edge;
-            height: notice.preferred-height + 18px;
 
-            notice := Text {
-                x: 10px;
-                y: 8px;
-                width: parent.width - 20px;
-                text: root.data.error;
-                color: Theme.fg;
-                font-size: Theme.fs-sm;
-                wrap: word-wrap;
+            HorizontalLayout {
+                padding: 10px;
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    Icon { glyph: Glyph.close; size: 15px; tint: Theme.danger; }
+                }
+                Text {
+                    text: root.data.error;
+                    color: Theme.danger;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
             }
         }
 
@@ -225,21 +267,20 @@ export component ThreadsDialog inherits Modal {
                     background: is-selected ? Theme.accent-soft : Theme.field;
                     border-width: 1px;
                     border-color: is-selected ? Theme.accent : Theme.line;
-                    height: 68px;
+                    height: 70px;
 
                     // Declared first so action buttons inside the card take their own clicks.
                     TouchArea {
-                        enabled: !root.data.running;
-                        mouse-cursor: !root.data.running ? MouseCursor.pointer : MouseCursor.default;
+                        mouse-cursor: MouseCursor.pointer;
                         clicked => { root.select-frame(index); }
                     }
 
                     VerticalLayout {
-                        padding-left: 12px;
+                        padding-left: 10px;
                         padding-right: 8px;
-                        padding-top: 6px;
-                        padding-bottom: 6px;
-                        spacing: 3px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 4px;
 
                         HorizontalLayout {
                             spacing: 6px;
@@ -252,17 +293,40 @@ export component ThreadsDialog inherits Modal {
                                 vertical-alignment: center;
                             }
                             Text {
-                                text: frame.author;
+                                text: frame.username != "" ? "@\{frame.username}" : frame.author;
                                 color: Theme.fg-muted;
                                 font-size: Theme.fs-sm;
                                 vertical-alignment: center;
+                                horizontal-stretch: 1;
                                 overflow: elide;
                             }
-                            if frame.likes != "": Text {
-                                text: "· " + I18n.t1("threads.likes", frame.likes);
-                                color: Theme.fg-dim;
-                                font-size: Theme.fs-xs;
-                                vertical-alignment: center;
+                            if frame.has-media: VerticalLayout {
+                                alignment: center;
+                                Icon { glyph: Glyph.image; size: 12px; tint: Theme.accent; }
+                            }
+                            if frame.meme-file != "": Rectangle {
+                                height: 18px;
+                                border-radius: Theme.r-sm;
+                                background: Theme.well;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                HorizontalLayout {
+                                    padding-left: 6px;
+                                    padding-right: 6px;
+                                    spacing: 4px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Icon { glyph: Glyph.sticker; size: 10px; tint: Theme.accent; }
+                                    }
+                                    Text {
+                                        text: I18n.t1("threads.memeBadge", frame.meme-file);
+                                        color: Theme.fg-muted;
+                                        font-size: Theme.fs-xs;
+                                        vertical-alignment: center;
+                                        max-width: 108px;
+                                        overflow: elide;
+                                    }
+                                }
                             }
                             if frame.voice-ready: HorizontalLayout {
                                 spacing: 3px;
@@ -273,14 +337,25 @@ export component ThreadsDialog inherits Modal {
                                 if frame.voice-duration != "": Text {
                                     text: frame.voice-duration;
                                     color: Theme.green;
-                                    font-family: Theme.font-technical;
                                     font-size: Theme.fs-xs;
                                     vertical-alignment: center;
                                 }
                             }
-
-                            Rectangle { horizontal-stretch: 1; }
-
+                            if frame.likes != "": Text {
+                                text: I18n.t1("threads.likes", frame.likes);
+                                color: Theme.fg-dim;
+                                font-size: Theme.fs-xs;
+                                vertical-alignment: center;
+                            }
+                            SceneIconButton {
+                                glyph: frame.voice-playing ? Glyph.stop : Glyph.play;
+                                tip: frame.voice-playing
+                                    ? I18n.t("threads.stopPreview")
+                                    : I18n.t("threads.previewVoice");
+                                active: frame.voice-playing;
+                                enabled: !root.data.running && (!root.data.preview-loading || frame.voice-playing);
+                                clicked => { root.preview-scene-voice(index); }
+                            }
                             SceneIconButton {
                                 glyph: Glyph.chevron-up;
                                 tip: I18n.t("threads.moveUp");
@@ -312,17 +387,17 @@ export component ThreadsDialog inherits Modal {
                 }
 
                 HorizontalLayout {
-                    spacing: 6px;
+                    spacing: 8px;
                     padding-top: 2px;
 
-                    Button {
+                    if root.data.remaining-comments > 0: Button {
                         glyph: Glyph.plus;
                         label: I18n.t1("threads.addComment", "\{root.data.remaining-comments}");
-                        enabled: !root.data.running && root.data.remaining-comments > 0;
+                        enabled: !root.data.running;
                         clicked => { root.add-next-comment(); }
                     }
                     Button {
-                        glyph: Glyph.plus;
+                        glyph: Glyph.text-mark;
                         label: I18n.t("threads.addCustom");
                         enabled: !root.data.running;
                         clicked => { root.add-custom-frame(); }
@@ -337,6 +412,7 @@ export component ThreadsDialog inherits Modal {
                     }
                 }
 
+                // Selected scene editor + live Threads mock card preview + per-scene meme bar.
                 Rectangle {
                     border-radius: Theme.r;
                     background: Theme.raised;
@@ -352,17 +428,189 @@ export component ThreadsDialog inherits Modal {
                             Text {
                                 text: I18n.t1("threads.editScene", root.data.selected-label);
                                 color: Theme.fg;
-                                font-size: Theme.fs;
+                                font-size: Theme.fs-sm;
                                 font-weight: Theme.weight-title;
-                                vertical-alignment: center;
+                                horizontal-stretch: 1;
                             }
-                            Rectangle { horizontal-stretch: 1; }
                             Text {
-                                text: I18n.t1("threads.chars", "\{root.draft-text.character-count}");
+                                text: I18n.t1("threads.chars", "\{scene-text.text.character-count}");
                                 color: Theme.fg-dim;
-                                font-family: Theme.font-technical;
                                 font-size: Theme.fs-xs;
                                 vertical-alignment: center;
+                            }
+                        }
+
+                        // Live Threads mock card preview reflecting edits and theme in real time.
+                        Rectangle {
+                            border-radius: Theme.r;
+                            background: root.card-light ? #eef1f7 : #0b0d14;
+                            border-width: 1px;
+                            border-color: Theme.line;
+
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 6px;
+
+                                HorizontalLayout {
+                                    Text {
+                                        text: I18n.t("threads.cardPreview");
+                                        color: root.card-light ? #64748b : #7c8598;
+                                        font-size: Theme.fs-xs;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: root.card-light ? I18n.t("threads.themeLight") : I18n.t("threads.themeDark");
+                                        color: root.card-light ? #475569 : #8c93a1;
+                                        font-size: Theme.fs-xs;
+                                    }
+                                }
+
+                                Rectangle {
+                                    border-radius: 14px;
+                                    background: root.card-light ? #ffffff : #181818;
+                                    border-width: 1px;
+                                    border-color: root.card-light ? #0000001a : #ffffff22;
+
+                                    VerticalLayout {
+                                        padding: 12px;
+                                        spacing: 8px;
+
+                                        HorizontalLayout {
+                                            spacing: 10px;
+                                            Rectangle {
+                                                width: 34px;
+                                                height: 34px;
+                                                border-radius: 17px;
+                                                clip: true;
+                                                background: Theme.accent;
+                                                if root.data.selected-has-avatar: Image {
+                                                    width: 100%;
+                                                    height: 100%;
+                                                    source: root.data.selected-avatar-image;
+                                                    image-fit: cover;
+                                                }
+                                                if !root.data.selected-has-avatar: Icon {
+                                                    x: 9px;
+                                                    y: 9px;
+                                                    glyph: root.data.selected-is-post ? Glyph.film : Glyph.sticker;
+                                                    size: 16px;
+                                                    tint: Theme.on-accent;
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                horizontal-stretch: 1;
+                                                spacing: 6px;
+                                                alignment: start;
+                                                Text {
+                                                    text: root.data.selected-username != ""
+                                                        ? root.data.selected-username
+                                                        : (root.draft-author == "" ? "threads" : root.draft-author);
+                                                    color: root.card-light ? #0f0f0f : #f3f5f7;
+                                                    font-size: Theme.fs;
+                                                    font-weight: 700;
+                                                    vertical-alignment: center;
+                                                    overflow: elide;
+                                                }
+                                                if root.data.selected-verified: VerticalLayout {
+                                                    alignment: center;
+                                                    Rectangle {
+                                                        width: 13px;
+                                                        height: 13px;
+                                                        border-radius: 6.5px;
+                                                        background: #0095f6;
+                                                        Icon {
+                                                            x: 2.5px;
+                                                            y: 2.5px;
+                                                            glyph: Glyph.check;
+                                                            size: 8px;
+                                                            tint: #ffffff;
+                                                        }
+                                                    }
+                                                }
+                                                Text {
+                                                    text: root.data.selected-timestamp != ""
+                                                        ? root.data.selected-timestamp
+                                                        : root.data.selected-label;
+                                                    color: root.card-light ? #9498a0 : #888888;
+                                                    font-size: Theme.fs-xs;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            Text {
+                                                text: "···";
+                                                color: root.card-light ? #9498a0 : #888888;
+                                                font-size: 16px;
+                                                font-weight: 700;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: root.draft-text == ""
+                                                ? I18n.t("threads.sceneTextPlaceholder")
+                                                : root.draft-text;
+                                            color: root.draft-text == ""
+                                                ? (root.card-light ? #94a3b8 : #64748b)
+                                                : (root.card-light ? #0f0f0f : #f3f5f7);
+                                            font-size: Theme.fs;
+                                            wrap: word-wrap;
+                                        }
+
+                                        if root.data.selected-has-media: Rectangle {
+                                            height: 160px;
+                                            border-radius: 10px;
+                                            clip: true;
+                                            border-width: 1px;
+                                            border-color: root.card-light ? #00000014 : #ffffff1c;
+                                            Image {
+                                                width: 100%;
+                                                height: 100%;
+                                                source: root.data.selected-media-image;
+                                                image-fit: cover;
+                                            }
+                                        }
+
+                                        HorizontalLayout {
+                                            spacing: 14px;
+                                            HorizontalLayout {
+                                                spacing: 4px;
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    Icon {
+                                                        glyph: Glyph.mask-heart;
+                                                        size: 12px;
+                                                        tint: root.card-light ? #424242 : #bec2c8;
+                                                    }
+                                                }
+                                                if root.data.selected-likes != "": Text {
+                                                    text: root.data.selected-likes;
+                                                    color: root.card-light ? #424242 : #bec2c8;
+                                                    font-size: Theme.fs-xs;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            if root.data.selected-replies != "": Text {
+                                                text: "💬 \{root.data.selected-replies}";
+                                                color: root.card-light ? #424242 : #bec2c8;
+                                                font-size: Theme.fs-xs;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.data.selected-reposts != "": Text {
+                                                text: "↻ \{root.data.selected-reposts}";
+                                                color: root.card-light ? #424242 : #bec2c8;
+                                                font-size: Theme.fs-xs;
+                                                vertical-alignment: center;
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                            if root.data.selected-meme-file != "": Text {
+                                                text: "+ 1.5s " + I18n.t1("threads.memeBadge", root.data.selected-meme-file);
+                                                color: Theme.accent;
+                                                font-size: Theme.fs-xs;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -370,18 +618,11 @@ export component ThreadsDialog inherits Modal {
                             label: I18n.t("threads.author");
                             Rectangle {
                                 horizontal-stretch: 1;
-                                height: 28px;
+                                height: Theme.h;
                                 border-radius: Theme.r;
                                 background: Theme.field;
                                 border-width: 1px;
                                 border-color: author-input.has-focus ? Theme.accent : Theme.line;
-                                clip: true;
-
-                                TouchArea {
-                                    enabled: !root.data.running;
-                                    mouse-cursor: !root.data.running ? MouseCursor.text : MouseCursor.default;
-                                    clicked => { author-input.focus(); }
-                                }
 
                                 author-input := TextInput {
                                     x: 10px;
@@ -429,7 +670,7 @@ export component ThreadsDialog inherits Modal {
                                 edited => { root.frame-text-edited(self.text); }
                             }
 
-                            if root.draft-text == "" && !scene-text.has-focus: Text {
+                            if scene-text.text == "": Text {
                                 x: 0;
                                 y: text-box.pad-y;
                                 width: parent.width;
@@ -437,6 +678,51 @@ export component ThreadsDialog inherits Modal {
                                 color: Theme.fg-dim;
                                 font-size: Theme.fs;
                                 wrap: word-wrap;
+                            }
+                        }
+
+                        // 4.3 Per-scene meme picker + Apply to all helper
+                        DialogRow {
+                            label: I18n.t("threads.sceneMeme");
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 8px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon { glyph: Glyph.sticker; size: 15px; tint: Theme.fg-dim; }
+                                }
+                                Text {
+                                    text: root.data.selected-meme-file == ""
+                                        ? I18n.t("threads.memeOptional")
+                                        : root.data.selected-meme-file;
+                                    color: root.data.selected-meme-file == "" ? Theme.fg-dim : Theme.fg;
+                                    font-size: Theme.fs-sm;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                }
+                                Button {
+                                    glyph: Glyph.image;
+                                    label: root.data.selected-meme-file == ""
+                                        ? I18n.t("threads.chooseMeme")
+                                        : I18n.t("threads.changeMeme");
+                                    enabled: !root.data.running;
+                                    clicked => { root.choose-scene-meme(-1); }
+                                }
+                                if root.data.selected-meme-file != "": Button {
+                                    glyph: Glyph.copy;
+                                    ghost: true;
+                                    label: I18n.t("threads.applyMemeAll");
+                                    enabled: !root.data.running && root.data.frames.length > 1;
+                                    clicked => { root.apply-meme-to-all(-1); }
+                                }
+                                if root.data.selected-meme-file != "": Button {
+                                    glyph: Glyph.trash;
+                                    ghost: true;
+                                    label: I18n.t("threads.removeMeme");
+                                    enabled: !root.data.running;
+                                    clicked => { root.remove-scene-meme(-1); }
+                                }
                             }
                         }
                     }
@@ -449,8 +735,51 @@ export component ThreadsDialog inherits Modal {
             title: I18n.t("threads.voiceAndMeme");
 
             DialogRow {
+                label: I18n.t("threads.cardTheme");
+                SegmentedControl {
+                    horizontal-stretch: 1;
+                    options: [I18n.t("threads.themeDark"), I18n.t("threads.themeLight")];
+                    current: root.data.card-theme;
+                    enabled: !root.data.running;
+                    changed(index) => { root.card-theme-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("threads.voice");
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    Select {
+                        horizontal-stretch: 1;
+                        options: [
+                            I18n.t("threads.voiceHoaiMy"),
+                            I18n.t("threads.voiceNamMinh"),
+                            I18n.t("threads.voiceAva"),
+                            I18n.t("threads.voiceGuy"),
+                        ];
+                        current: root.data.voice;
+                        enabled: !root.data.running;
+                        changed(index) => { root.voice-changed(index); }
+                    }
+                    Button {
+                        glyph: root.data.selected-voice-playing ? Glyph.stop : Glyph.play;
+                        label: root.data.selected-voice-loading
+                            ? I18n.t("threads.loadingVoice")
+                            : root.data.selected-voice-playing
+                                ? I18n.t("threads.stopPreview")
+                                : I18n.t("threads.previewVoice");
+                        enabled: !root.data.running
+                            && (!root.data.preview-loading || root.data.selected-voice-playing);
+                        clicked => { root.preview-scene-voice(-1); }
+                    }
+                }
+            }
+
+            DialogRow {
                 label: I18n.t("threads.voiceSpeed");
                 SegmentedControl {
+                    horizontal-stretch: 1;
                     options: ["1.0×", "1.15×", "1.25×", "1.35×"];
                     current: root.data.voice-rate;
                     enabled: !root.data.running;
@@ -458,50 +787,104 @@ export component ThreadsDialog inherits Modal {
                 }
             }
 
-            HorizontalLayout {
-                spacing: 8px;
-                VerticalLayout {
-                    alignment: center;
-                    Icon { glyph: Glyph.sticker; size: 15px; tint: Theme.fg-dim; }
-                }
-                Text {
-                    text: root.data.meme-file == ""
-                        ? I18n.t("threads.memeOptional")
-                        : root.data.meme-file;
-                    color: Theme.fg-muted;
-                    font-size: Theme.fs-sm;
-                    overflow: elide;
+            DialogRow {
+                label: I18n.t("threads.karaoke");
+                Select {
                     horizontal-stretch: 1;
-                    vertical-alignment: center;
-                }
-                Button {
-                    glyph: Glyph.image;
-                    label: root.data.meme-file == ""
-                        ? I18n.t("threads.chooseMeme")
-                        : I18n.t("threads.changeMeme");
+                    options: [
+                        I18n.t("threads.karaokeOff"),
+                        I18n.t("threads.karaokeGold"),
+                        I18n.t("threads.karaokeCyan"),
+                        I18n.t("threads.karaokePink"),
+                    ];
+                    current: root.data.karaoke-style;
                     enabled: !root.data.running;
-                    clicked => { root.choose-meme(); }
+                    changed(index) => { root.karaoke-style-changed(index); }
                 }
-                if root.data.meme-file != "": Button {
-                    label: I18n.t("threads.removeMeme");
-                    enabled: !root.data.running;
-                    clicked => { root.remove-meme(); }
+            }
+
+            DialogRow {
+                label: I18n.t("threads.bgm");
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    Select {
+                        horizontal-stretch: 1;
+                        options: [
+                            I18n.t("threads.bgmOff"),
+                            I18n.t("threads.bgmLofi"),
+                            I18n.t("threads.bgmUpbeat"),
+                            I18n.t("threads.bgmDramatic"),
+                            I18n.t("threads.bgmCustom"),
+                        ];
+                        current: root.data.bgm-preset;
+                        enabled: !root.data.running;
+                        changed(index) => { root.bgm-preset-changed(index); }
+                    }
+                    if root.data.bgm-preset == 4: Button {
+                        glyph: Glyph.music;
+                        label: root.data.bgm-custom-file == ""
+                            ? I18n.t("threads.chooseBgm")
+                            : root.data.bgm-custom-file;
+                        enabled: !root.data.running;
+                        clicked => { root.choose-bgm-file(); }
+                    }
+                    Button {
+                        glyph: root.data.bgm-playing ? Glyph.stop : Glyph.music;
+                        label: root.data.bgm-playing
+                            ? I18n.t("threads.stopPreview")
+                            : I18n.t("threads.previewBgm");
+                        enabled: !root.data.running
+                            && root.data.bgm-preset != 0
+                            && (root.data.bgm-preset != 4 || root.data.bgm-custom-file != "");
+                        clicked => { root.preview-bgm(); }
+                    }
+                }
+            }
+
+            if root.data.bgm-preset != 0: DialogRow {
+                label: I18n.t("threads.bgmVolume");
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 10px;
+                    Rail {
+                        horizontal-stretch: 1;
+                        value: root.data.bgm-volume;
+                        minimum: 0.05;
+                        maximum: 0.45;
+                        step: 0.01;
+                        default-value: 0.18;
+                        enabled: !root.data.running;
+                        changed(value) => { root.bgm-volume-changed(value); }
+                    }
+                    Text {
+                        width: 40px;
+                        text: "\{Math.round(root.data.bgm-volume * 100)}%";
+                        color: Theme.fg;
+                        font-size: Theme.fs-sm;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: I18n.t("threads.bgmDuckNote");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
 
         if root.data.frames.length == 0 && !root.data.running && root.data.error == "": Rectangle {
             horizontal-stretch: 1;
-            vertical-stretch: 1;
-            background: Theme.launch-well;
+            border-radius: Theme.r;
+            background: Theme.raised;
             border-width: 1px;
             border-color: Theme.line;
-            border-radius: Theme.r-lg;
 
             VerticalLayout {
-                alignment: center;
-                padding: 24px;
-                spacing: 8px;
+                padding: 18px;
+                spacing: 6px;
                 HorizontalLayout {
                     alignment: center;
                     Icon { glyph: Glyph.link; size: 22px; tint: Theme.fg-dim; }
@@ -515,8 +898,6 @@ export component ThreadsDialog inherits Modal {
                 }
             }
         }
-
-        if root.data.frames.length > 0 || root.data.running || root.data.error != "": Rectangle { vertical-stretch: 1; }
 
         HorizontalLayout {
             horizontal-stretch: 1;

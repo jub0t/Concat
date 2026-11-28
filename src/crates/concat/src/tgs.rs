@@ -1,22 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah and Concat contributors
 
-//! The small boundary between Concat and the Python Threads extractor.
+//! Threads extraction and neural voiceover orchestration.
 //!
-//! Extraction stays in the existing TGS service for this first migration
-//! step. Concat owns what follows it: the native project, speech and render.
+//! Phase 3 (Complete Decoupling): both public Threads scraping (`threads_scraper`)
+//! and Microsoft Edge neural TTS (`edge_tts`) run natively inside Concat in Rust
+//! with zero Python / TGS backend requirement. If a user explicitly sets
+//! `TGS_API_URL`, legacy TGS extraction remains available as an opt-in fallback.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
+use std::path::PathBuf;
 use std::time::Duration;
 
-/// Playback-speed presets accepted by the Hoài My Edge TTS endpoint.
+use crate::edge_tts::{self, WordTiming};
+use crate::threads_scraper;
+
+/// Playback-speed presets accepted by the TGS Edge TTS endpoint.
 pub const VOICE_RATES: &[(&str, &str)] = &[
     ("1.0×", "+0%"),
     ("1.15×", "+15%"),
     ("1.25×", "+25%"),
     ("1.35×", "+35%"),
 ];
+
+/// Edge TTS voice presets accepted by TGS (`(voice_id, short_label)`).
+pub const VOICES: &[(&str, &str)] = &[
+    ("vi-VN-HoaiMyNeural", "Hoài My (VI)"),
+    ("vi-VN-NamMinhNeural", "Nam Minh (VI)"),
+    ("en-US-AvaNeural", "Ava (EN)"),
+    ("en-US-GuyNeural", "Guy (EN)"),
+];
+
+/// Returns `(voice_id, label)` for `index`, clamped to [`VOICES`].
+pub fn voice_at(index: usize) -> (&'static str, &'static str) {
+    VOICES.get(index).copied().unwrap_or(VOICES[0])
+}
 
 /// Returns `(label, edge_tts_rate)` for `index`, clamped to [`VOICE_RATES`].
 pub fn voice_rate_at(index: usize) -> (&'static str, &'static str) {
@@ -33,14 +52,25 @@ pub enum CommentSort {
     Replies,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Frame {
     pub id: String,
     pub label: String,
     pub author: String,
+    pub username: String,
+    pub timestamp: String,
+    pub verified: bool,
+    pub avatar_url: Option<String>,
+    pub avatar_bytes: Option<Vec<u8>>,
+    pub media_url: Option<String>,
+    pub media_bytes: Option<Vec<u8>>,
+    pub media_is_video: bool,
     pub text: String,
     pub likes: String,
     pub replies: String,
+    pub reposts: String,
+    pub is_post: bool,
+    pub meme_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +89,7 @@ pub struct Extraction {
 pub struct VoiceoverAudio {
     pub bytes: Vec<u8>,
     pub duration_seconds: f64,
+    pub word_timings: Vec<WordTiming>,
 }
 
 /// Validates and normalizes a public Threads post, share, or short URL,
@@ -214,16 +245,32 @@ fn is_link_only_comment(text: &str) -> bool {
             .all(|word| word.starts_with("http://") || word.starts_with("https://"))
 }
 
-/// Extract a post and its top-level comments from the local TGS service.
-/// `progress` receives only meaningful stage changes so the window is not
-/// republished for every poll tick.
+/// Extract a post and its top-level comments natively in Rust.
+///
+/// If the user explicitly sets `TGS_API_URL` in the environment and native
+/// scraping fails, falls back to the legacy TGS HTTP service.
 pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Extraction, String> {
     let normalized_url = normalize_threads_url(source_url)?;
-    let base = std::env::var("TGS_API_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_owned())
-        .trim_end_matches('/')
-        .to_owned();
+    match threads_scraper::extract(&normalized_url, &mut progress) {
+        Ok(extraction) => Ok(extraction),
+        Err(native_err) => {
+            if let Ok(base) = std::env::var("TGS_API_URL") {
+                let base = base.trim().trim_end_matches('/').to_owned();
+                if !base.is_empty() {
+                    progress("Native scrape unavailable; trying configured TGS_API_URL…".to_owned());
+                    return extract_via_tgs(&base, &normalized_url, progress);
+                }
+            }
+            Err(native_err)
+        }
+    }
+}
 
+fn extract_via_tgs(
+    base: &str,
+    normalized_url: &str,
+    mut progress: impl FnMut(String),
+) -> Result<Extraction, String> {
     let payload = serde_json::json!({
         "source_url": normalized_url,
         "settings": {
@@ -317,13 +364,19 @@ pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Ext
         .filter(|text| !text.trim().is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| string(post, "text"));
-    let post_frame = Frame {
+    let mut post_frame = Frame {
         id: string(post, "id"),
         label: "Post".to_owned(),
         author: author(post),
+        username: username(post),
+        avatar_url: avatar_url(post),
+        avatar_bytes: None,
         text: post_text,
         likes: engagement(post, "likes"),
         replies: engagement(post, "replies"),
+        reposts: engagement(post, "reposts"),
+        is_post: true,
+        ..Frame::default()
     };
 
     let comment_by_id: HashMap<String, serde_json::Value> = comments
@@ -335,8 +388,9 @@ pub fn extract(source_url: &str, mut progress: impl FnMut(String)) -> Result<Ext
         .and_then(|value| value.get("edited_texts"))
         .and_then(serde_json::Value::as_object);
 
-    let pool_by_likes = build_comment_pool(&comment_by_id, ranking_data, "by_likes", "likes", edited);
-    let pool_by_replies = build_comment_pool(&comment_by_id, ranking_data, "by_replies", "replies", edited);
+    let mut pool_by_likes = build_comment_pool(&comment_by_id, ranking_data, "by_likes", "likes", edited);
+    let mut pool_by_replies = build_comment_pool(&comment_by_id, ranking_data, "by_replies", "replies", edited);
+    hydrate_avatars(&base, &mut post_frame, &mut pool_by_likes, &mut pool_by_replies);
     let frames = default_frames(&post_frame, &pool_by_likes);
 
     let title = exported
@@ -428,26 +482,36 @@ fn build_comment_pool(
                 id,
                 label: format!("Comment {}", index + 1),
                 author: author(&comment),
+                username: username(&comment),
+                avatar_url: avatar_url(&comment),
+                avatar_bytes: None,
                 text,
                 likes: engagement(&comment, "likes"),
                 replies: engagement(&comment, "replies"),
+                reposts: comment_reposts(&comment),
+                is_post: false,
+                ..Frame::default()
             })
         })
         .collect()
 }
 
-/// Generates one Hoài My voiceover per requested `(frame_index, Frame)` through
-/// TGS's voiceover endpoint at `rate` (e.g. `"+15%"`), returning `(frame_index, audio)`.
+/// Generates one voiceover per requested `(frame_index, Frame)` natively via
+/// Concat's built-in Microsoft Edge neural TTS client using `voice` (e.g.
+/// `"vi-VN-HoaiMyNeural"`) and `rate` (e.g. `"+15%"`), returning
+/// `(frame_index, audio)` with `WordBoundary` timings for karaoke subtitles.
 pub fn generate_voiceovers(
-    project_id: &str,
+    _project_id: &str,
     frames: &[(usize, Frame)],
+    voice: &str,
     rate: &str,
     mut progress: impl FnMut(String),
 ) -> Result<Vec<(usize, VoiceoverAudio)>, String> {
-    let base = std::env::var("TGS_API_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_owned())
-        .trim_end_matches('/')
-        .to_owned();
+    let (voice_id, voice_label) = VOICES
+        .iter()
+        .copied()
+        .find(|&(id, _)| id == voice)
+        .unwrap_or(VOICES[0]);
     let rate = if VOICE_RATES.iter().any(|&(_, value)| value == rate) {
         rate
     } else {
@@ -457,51 +521,23 @@ pub fn generate_voiceovers(
     let mut audio = Vec::with_capacity(total);
 
     for (step, (index, frame)) in frames.iter().enumerate() {
-        progress(format!("Creating Hoài My voice {}/{}", step + 1, total));
+        progress(format!(
+            "Creating {voice_label} voice {}/{}",
+            step + 1,
+            total
+        ));
         let text = if frame.text.trim().is_empty() {
             format!("{} — {}", frame.label, frame.author)
         } else {
             frame.text.trim().to_owned()
         };
-        let payload = serde_json::json!({
-            "frame_id": format!("concat-frame-{}", index + 1),
-            "text": text,
-            "voice": "vi-VN-HoaiMyNeural",
-            "rate": rate
-        });
-        let generated = request_json(
-            "POST",
-            &format!("{base}/api/v1/projects/{project_id}/voiceover"),
-            Some(&payload),
-        )?;
-        let track = generated
-            .get("track")
-            .ok_or_else(|| "TGS did not return the generated voiceover".to_owned())?;
-        let audio_url = track
-            .get("audio_url")
-            .and_then(serde_json::Value::as_str)
-            .filter(|url| !url.is_empty())
-            .ok_or_else(|| "TGS returned a voiceover without an audio URL".to_owned())?;
-        let url = if audio_url.starts_with("http://") || audio_url.starts_with("https://") {
-            audio_url.to_owned()
-        } else {
-            format!("{base}{audio_url}")
-        };
-        let bytes = request_bytes(&url)?;
-        if bytes.is_empty() {
-            return Err(format!(
-                "TGS returned an empty voiceover for {}",
-                frame.label
-            ));
-        }
+        let synth = edge_tts::synthesize(&text, voice_id, rate)?;
         audio.push((
             *index,
             VoiceoverAudio {
-                bytes,
-                duration_seconds: track
-                    .get("duration_seconds")
-                    .and_then(serde_json::Value::as_f64)
-                    .unwrap_or_default(),
+                bytes: synth.bytes,
+                duration_seconds: synth.duration_seconds,
+                word_timings: synth.word_timings,
             },
         ));
     }
@@ -533,23 +569,6 @@ fn request_json(
         .into_string()
         .map_err(|error| format!("Could not read the TGS response: {error}"))?;
     serde_json::from_str(&body).map_err(|error| format!("TGS returned invalid JSON: {error}"))
-}
-
-fn request_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(120))
-        .build();
-    let response = agent
-        .get(url)
-        .call()
-        .map_err(|error| service_error(error, url))?;
-    let mut bytes = Vec::new();
-    response
-        .into_reader()
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("Could not download the TGS voiceover: {error}"))?;
-    Ok(bytes)
 }
 
 fn service_error(error: ureq::Error, url: &str) -> String {
@@ -593,8 +612,97 @@ fn engagement(value: &serde_json::Value, key: &str) -> String {
         .get("engagement")
         .and_then(|engagement| engagement.get(key))
         .and_then(serde_json::Value::as_i64)
-        .map(|count| count.to_string())
+        .filter(|&count| count > 0)
+        .map(format_compact_count)
         .unwrap_or_default()
+}
+
+fn comment_reposts(value: &serde_json::Value) -> String {
+    let primary = engagement(value, "reposts");
+    if primary.is_empty() {
+        engagement(value, "shares")
+    } else {
+        primary
+    }
+}
+
+pub(crate) fn format_compact_count(count: i64) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    } else if count >= 10_000 {
+        format!("{}K", count / 1_000)
+    } else if count >= 1_000 {
+        format!("{:.1}K", count as f64 / 1_000.0)
+    } else {
+        count.to_string()
+    }
+}
+
+fn username(value: &serde_json::Value) -> String {
+    value
+        .get("author")
+        .and_then(|author| author.get("username"))
+        .and_then(serde_json::Value::as_str)
+        .map(|name| name.trim().trim_start_matches('@').to_owned())
+        .unwrap_or_default()
+}
+
+fn avatar_url(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("author")
+        .and_then(|author| author.get("avatar_url"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned)
+}
+
+fn hydrate_avatars(
+    base: &str,
+    post: &mut Frame,
+    pool_likes: &mut [Frame],
+    pool_replies: &mut [Frame],
+) {
+    let mut cache: HashMap<String, Option<Vec<u8>>> = HashMap::new();
+    let resolve = |raw: &str| -> String {
+        if raw.starts_with("http://") || raw.starts_with("https://") {
+            raw.to_owned()
+        } else if raw.starts_with('/') {
+            format!("{base}{raw}")
+        } else {
+            format!("{base}/{raw}")
+        }
+    };
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(2))
+        .timeout_read(Duration::from_secs(4))
+        .build();
+
+    let all_frames = std::iter::once(post)
+        .chain(pool_likes.iter_mut())
+        .chain(pool_replies.iter_mut());
+    for frame in all_frames {
+        let Some(raw_url) = frame.avatar_url.clone() else {
+            continue;
+        };
+        let url = resolve(&raw_url);
+        let bytes = cache
+            .entry(url.clone())
+            .or_insert_with(|| fetch_avatar_best_effort(&agent, &url))
+            .clone();
+        frame.avatar_bytes = bytes;
+    }
+}
+
+fn fetch_avatar_best_effort(agent: &ureq::Agent, url: &str) -> Option<Vec<u8>> {
+    let response = agent.get(url).call().ok()?;
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(1_500_000)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 #[cfg(test)]
@@ -639,6 +747,8 @@ mod tests {
             text: "Main post".into(),
             likes: "100".into(),
             replies: "10".into(),
+            is_post: true,
+            ..Frame::default()
         };
         let pool = vec![
             Frame {
@@ -648,6 +758,7 @@ mod tests {
                 text: "https://spam.example.com".into(),
                 likes: "99".into(),
                 replies: "0".into(),
+                ..Frame::default()
             },
             Frame {
                 id: "c2".into(),
@@ -656,6 +767,7 @@ mod tests {
                 text: "Quá hay!".into(),
                 likes: "50".into(),
                 replies: "5".into(),
+                ..Frame::default()
             },
             Frame {
                 id: "c3".into(),
@@ -664,6 +776,7 @@ mod tests {
                 text: "Chuẩn luôn".into(),
                 likes: "40".into(),
                 replies: "3".into(),
+                ..Frame::default()
             },
             Frame {
                 id: "c4".into(),
@@ -672,6 +785,7 @@ mod tests {
                 text: "Hóng tiếp".into(),
                 likes: "30".into(),
                 replies: "2".into(),
+                ..Frame::default()
             },
             Frame {
                 id: "c5".into(),
@@ -680,6 +794,7 @@ mod tests {
                 text: "Tuyệt vời".into(),
                 likes: "20".into(),
                 replies: "1".into(),
+                ..Frame::default()
             },
         ];
 

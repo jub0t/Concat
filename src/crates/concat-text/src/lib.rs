@@ -42,6 +42,7 @@ mod colour_glyphs;
 #[cfg(test)]
 mod emoji_tests;
 mod shape;
+pub mod threads_card;
 pub use shape::{
     Align as StrokeAlign, Dash, Figure, Gradient, Head, Shadow, ShapeStyle, render_shape,
     render_shape_frame,

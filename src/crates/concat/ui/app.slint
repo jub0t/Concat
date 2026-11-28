@@ -283,10 +283,19 @@ export component App inherits Window {
     callback threads-add-next-comment();
     callback threads-reset-frames();
     callback threads-sort-changed(index: int);
+    callback threads-card-theme-changed(index: int);
+    callback threads-voice-changed(index: int);
     callback threads-voice-rate-changed(index: int);
+    callback threads-karaoke-style-changed(index: int);
     callback threads-generate-voiceovers();
-    callback threads-choose-meme();
-    callback threads-remove-meme();
+    callback threads-preview-scene-voice(index: int);
+    callback threads-choose-scene-meme(index: int);
+    callback threads-remove-scene-meme(index: int);
+    callback threads-apply-meme-to-all(index: int);
+    callback threads-bgm-preset-changed(index: int);
+    callback threads-choose-bgm-file();
+    callback threads-bgm-volume-changed(volume: float);
+    callback threads-preview-bgm();
     callback threads-create-project();
     callback start-dismiss();
     callback start-name-edited(name: string);
@@ -984,10 +993,19 @@ export component App inherits Window {
         add-next-comment => { root.threads-add-next-comment(); }
         reset-frames => { root.threads-reset-frames(); }
         sort-changed(index) => { root.threads-sort-changed(index); }
+        card-theme-changed(index) => { root.threads-card-theme-changed(index); }
+        voice-changed(index) => { root.threads-voice-changed(index); }
         voice-rate-changed(index) => { root.threads-voice-rate-changed(index); }
+        karaoke-style-changed(index) => { root.threads-karaoke-style-changed(index); }
         generate-voiceovers => { root.threads-generate-voiceovers(); }
-        choose-meme => { root.threads-choose-meme(); }
-        remove-meme => { root.threads-remove-meme(); }
+        preview-scene-voice(index) => { root.threads-preview-scene-voice(index); }
+        choose-scene-meme(index) => { root.threads-choose-scene-meme(index); }
+        remove-scene-meme(index) => { root.threads-remove-scene-meme(index); }
+        apply-meme-to-all(index) => { root.threads-apply-meme-to-all(index); }
+        bgm-preset-changed(index) => { root.threads-bgm-preset-changed(index); }
+        choose-bgm-file => { root.threads-choose-bgm-file(); }
+        bgm-volume-changed(volume) => { root.threads-bgm-volume-changed(volume); }
+        preview-bgm => { root.threads-preview-bgm(); }
         create-project => { root.threads-create-project(); }
     }
 

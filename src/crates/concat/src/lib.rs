@@ -34,6 +34,7 @@ mod ui {
 mod batch_volume;
 mod chips;
 mod dock;
+mod edge_tts;
 mod fonts;
 mod format;
 mod gpu;
@@ -73,6 +74,9 @@ mod start_watch;
 mod studio;
 mod sysinfo;
 mod tgs;
+mod threads_bgm;
+mod threads_karaoke;
+mod threads_scraper;
 /// Native Wayland file drops, which winit does not report; see the module.
 #[cfg(target_os = "linux")]
 mod wayland_drop;
@@ -990,19 +994,66 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_threads_sort_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Threads(panes::threads::ThreadsMsg::SortChanged(index)));
     }));
+    app.on_threads_card_theme_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::CardThemeChanged(index),
+        ));
+    }));
+    app.on_threads_voice_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::VoiceChanged(
+            index,
+        )));
+    }));
     app.on_threads_voice_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Threads(
             panes::threads::ThreadsMsg::VoiceRateChanged(index),
         ));
     }));
+    app.on_threads_karaoke_style_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::KaraokeStyleChanged(index),
+        ));
+    }));
     app.on_threads_generate_voiceovers(on_window!(|state| {
-        state.handle(Msg::Threads(panes::threads::ThreadsMsg::GenerateVoiceovers));
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::GenerateVoiceovers,
+        ));
     }));
-    app.on_threads_choose_meme(on_window!(|state| {
-        state.handle(Msg::Threads(panes::threads::ThreadsMsg::ChooseMeme));
+    app.on_threads_preview_scene_voice(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::PreviewSceneVoice(index),
+        ));
     }));
-    app.on_threads_remove_meme(on_window!(|state| {
-        state.handle(Msg::Threads(panes::threads::ThreadsMsg::RemoveMeme));
+    app.on_threads_choose_scene_meme(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::ChooseSceneMeme(index),
+        ));
+    }));
+    app.on_threads_remove_scene_meme(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::RemoveSceneMeme(index),
+        ));
+    }));
+    app.on_threads_apply_meme_to_all(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::ApplyMemeToAll(index),
+        ));
+    }));
+    app.on_threads_bgm_preset_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::BgmPresetChanged(index),
+        ));
+    }));
+    app.on_threads_choose_bgm_file(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::ChooseBgmFile));
+    }));
+    app.on_threads_bgm_volume_changed(on_window!(|state, volume: f32| {
+        state.handle(Msg::Threads(
+            panes::threads::ThreadsMsg::BgmVolumeChanged(volume),
+        ));
+    }));
+    app.on_threads_preview_bgm(on_window!(|state| {
+        state.handle(Msg::Threads(panes::threads::ThreadsMsg::PreviewBgm));
     }));
     app.on_threads_create_project(on_window!(|state| {
         state.handle(Msg::Threads(panes::threads::ThreadsMsg::CreateProject));

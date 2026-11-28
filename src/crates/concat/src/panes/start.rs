@@ -5,18 +5,21 @@
 //! and rate, the verb that opens one that already exists, and the project
 //! grid's own two verbs.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use concat_host::projects;
-use concat_project::commands::{Command, TrimEdge};
-use concat_project::model::{MediaKind, MediaOrigin, TextStyle};
+use concat_project::commands::{ClipPatch, Command, NewMedia, TrimEdge};
+use concat_project::model::{
+    ClipMotion, ClipMove, KeyEase, KeyProperty, MediaKind, MediaOrigin,
+};
 
 use crate::i18n::{t, tf};
+use crate::panes::threads::ThreadsBuildOptions;
 use crate::platform;
 use crate::studio::{
     ASPECTS, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
 };
-use crate::tgs::Extraction;
 use crate::ui::StartData;
 
 /// Everything that can happen to the launch screen's sheet.
@@ -83,9 +86,7 @@ struct SavedProjectSetup {
 }
 
 struct ThreadsProjectSetup {
-    extraction: Extraction,
-    voiceovers: Vec<crate::tgs::VoiceoverAudio>,
-    meme_path: Option<PathBuf>,
+    options: ThreadsBuildOptions,
     saved: SavedProjectSetup,
 }
 
@@ -279,12 +280,7 @@ impl StartPane {
     /// Opens the normal new-project sheet with vertical video defaults and
     /// remembers the user's previous choices so the quick flow does not
     /// change later project creation.
-    pub fn begin_threads_creation(
-        &mut self,
-        extraction: Extraction,
-        voiceovers: Vec<crate::tgs::VoiceoverAudio>,
-        meme_path: Option<PathBuf>,
-    ) {
+    pub fn begin_threads_creation(&mut self, options: ThreadsBuildOptions) {
         let saved = SavedProjectSetup {
             name: self.name.clone(),
             aspect: self.aspect,
@@ -293,7 +289,7 @@ impl StartPane {
             custom_size: self.custom_size,
             custom_rate: self.custom_rate,
         };
-        let title = extraction.title.trim();
+        let title = options.extraction.title.trim();
         self.name = if title.is_empty() {
             self.free_untitled()
         } else {
@@ -314,12 +310,7 @@ impl StartPane {
         self.composing = true;
         self.error.clear();
         self.dropped.clear();
-        self.threads_setup = Some(ThreadsProjectSetup {
-            extraction,
-            voiceovers,
-            meme_path,
-            saved,
-        });
+        self.threads_setup = Some(ThreadsProjectSetup { options, saved });
     }
 
     fn restore_project_setup(&mut self, saved: SavedProjectSetup) {
@@ -332,59 +323,26 @@ impl StartPane {
     }
 
     fn place_threads_frames(
-        extraction: &Extraction,
-        voiceovers: &[crate::tgs::VoiceoverAudio],
-        meme_path: Option<&Path>,
+        options: &ThreadsBuildOptions,
         project_path: &Path,
         studio: &mut Studio,
     ) {
-        let meme_requested = meme_path.is_some();
-        let meme_media_id = meme_path.and_then(|source| {
-            let extension = source
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .map(str::to_ascii_lowercase)
-                .filter(|extension| matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp"));
-            let Some(extension) = extension else {
-                studio.notify(&t("threads.memeUnsupported"), true);
-                return None;
-            };
-            let media_dir = project_path.join("media");
-            if let Err(error) = std::fs::create_dir_all(&media_dir) {
-                studio.notify(&format!("Could not create the media folder: {error}"), true);
-                return None;
-            }
-            let path = media_dir.join(format!("threads-meme.{extension}"));
-            if let Err(error) = std::fs::copy(source, &path) {
-                studio.notify(&format!("Could not copy the meme image: {error}"), true);
-                return None;
-            }
-            match concat_host::media::probe(&path.to_string_lossy()) {
-                Ok(summary) if summary.kind == MediaKind::Image => {
-                    let stored_path = summary.path.clone();
-                    let item = summary.to_new_media();
-                    let id = studio.apply(Command::AddMedia { item });
-                    id.or_else(|| {
-                        studio
-                            .project()
-                            .media
-                            .iter()
-                            .find(|media| media.path == stored_path)
-                            .map(|media| media.id.clone())
-                    })
-                }
-                Ok(_) => {
-                    studio.notify(&t("threads.memeUnsupported"), true);
-                    None
-                }
-                Err(error) => {
-                    studio.notify(&format!("Could not read the meme image: {error}"), true);
-                    None
-                }
-            }
-        });
+        let extraction = &options.extraction;
+        let voiceovers = &options.voiceovers;
+        let video = studio.project().active().video;
+        let frame_w = video.width.max(360);
+        let frame_h = video.height.max(640);
+        let frame_rate = (video.rate_num, video.rate_den.max(1));
 
+        let media_dir = project_path.join("media");
         let audio_dir = project_path.join("audio");
+        let media_dir_ready = match std::fs::create_dir_all(&media_dir) {
+            Ok(()) => true,
+            Err(error) => {
+                studio.notify(&format!("Could not create the media folder: {error}"), true);
+                false
+            }
+        };
         let audio_dir_ready = match std::fs::create_dir_all(&audio_dir) {
             Ok(()) => true,
             Err(error) => {
@@ -396,18 +354,51 @@ impl StartPane {
             }
         };
 
-        let mut at = 0.0;
-        let mut titles = Vec::with_capacity(extraction.frames.len());
+        // Import deduplicated per-scene meme images into the project media folder.
+        let mut meme_ids: HashMap<PathBuf, Option<String>> = HashMap::new();
+        let mut requested_memes = 0usize;
+        let mut placed_memes = 0usize;
+        if media_dir_ready {
+            for frame in &extraction.frames {
+                let Some(source) = frame.meme_path.as_ref() else {
+                    continue;
+                };
+                requested_memes += 1;
+                if meme_ids.contains_key(source) {
+                    continue;
+                }
+                let idx = meme_ids.len() + 1;
+                let id = import_threads_meme(source, idx, &media_dir, studio);
+                meme_ids.insert(source.clone(), id);
+            }
+        }
+
+        // Render and import vertical gradient backdrop for bottom track T1.
+        let backdrop_rgb = if media_dir_ready {
+            render_backdrop_rgb(options.card_theme, frame_w, frame_h)
+        } else {
+            None
+        };
+        let backdrop_media_id = backdrop_rgb
+            .as_ref()
+            .and_then(|rgb| save_and_import_jpeg(rgb, "threads-backdrop.jpg", &media_dir, studio));
+
+        let fonts = concat_text::Fonts::new();
+        let mut at = 0.0f64;
+        let mut last_card_clip: Option<String> = None;
+        let mut cards_placed = 0usize;
         let mut audio_clips = Vec::with_capacity(extraction.frames.len());
-        let mut meme_starts = Vec::with_capacity(extraction.frames.len());
-        let mut audio_count = 0;
+        let mut audio_count = 0usize;
+        let mut speech_spans: Vec<(f64, f64)> = Vec::with_capacity(extraction.frames.len());
+        let mut karaoke_scenes: Vec<(String, f64, f64, Vec<crate::edge_tts::WordTiming>)> =
+            Vec::with_capacity(extraction.frames.len());
 
         for (index, frame) in extraction.frames.iter().enumerate() {
             let mut audio_duration = voiceovers
                 .get(index)
                 .map(|audio| audio.duration_seconds)
                 .unwrap_or_default();
-            let mut media_id = None;
+            let mut voice_media_id = None;
             if audio_dir_ready && let Some(audio) = voiceovers.get(index) {
                 let path = audio_dir.join(format!("threads-frame-{}.mp3", index + 1));
                 match std::fs::write(&path, &audio.bytes) {
@@ -419,14 +410,7 @@ impl StartPane {
                                 .max(audio_duration);
                             let mut item = summary.to_new_media();
                             item.origin = Some(MediaOrigin::Speech);
-                            media_id = studio.apply(Command::AddMedia { item }).or_else(|| {
-                                studio
-                                    .project()
-                                    .media
-                                    .iter()
-                                    .find(|item| item.path == path.to_string_lossy())
-                                    .map(|item| item.id.clone())
-                            });
+                            voice_media_id = import_media_item(item, &summary.path, studio);
                         }
                         Err(error) => log::error!(
                             "threads: could not read generated voiceover for {}: {error}",
@@ -441,94 +425,177 @@ impl StartPane {
             }
 
             let scene_duration = audio_duration.max(3.5) + 0.35;
-            let mut style = TextStyle::default();
-            let text = frame.text.trim();
-            style.content = if text.is_empty() {
-                format!("{}\n— {}", frame.label, frame.author)
+            speech_spans.push((at, at + scene_duration));
+            let spoken_text = if frame.text.trim().is_empty() {
+                format!("{} — {}", frame.label, frame.author)
             } else {
-                format!("{}\n— {}\n\n{}", frame.label, frame.author, text)
+                frame.text.trim().to_owned()
             };
-            style.font_size = match text.chars().count() {
-                0..=140 => 0.055,
-                141..=280 => 0.045,
-                281..=480 => 0.037,
-                _ => 0.03,
-            };
-            style.max_width = 0.84;
-            style.background = "#111827e8".to_owned();
-            titles.push(Command::AddTextClip {
-                track_id: None,
-                above: true,
-                start: at,
-                style: Some(style),
-                duration: Some(scene_duration),
-                offset_y: None,
-            });
-            if let Some(media_id) = media_id {
+            let word_timings = voiceovers
+                .get(index)
+                .map(|audio| audio.word_timings.clone())
+                .unwrap_or_default();
+            karaoke_scenes.push((
+                spoken_text,
+                at,
+                audio_duration.max(1.0),
+                word_timings,
+            ));
+
+            // Render authentic Threads mock post card PNG on T2 with subtle pop entrance.
+            if media_dir_ready {
+                let replying_to = if !frame.is_post
+                    && !frame.id.starts_with("custom-")
+                    && !extraction.post_frame.username.trim().is_empty()
+                {
+                    format!(
+                        "{} @{}",
+                        t("threads.replyingTo"),
+                        extraction.post_frame.username.trim()
+                    )
+                } else {
+                    String::new()
+                };
+                let avatar = frame.avatar_bytes.as_deref().and_then(decode_avatar_pixels);
+                let media = frame.media_bytes.as_deref().and_then(decode_avatar_pixels);
+                let spec = concat_text::threads_card::ThreadsCardSpec {
+                    is_post: frame.is_post,
+                    author_name: frame.author.clone(),
+                    author_handle: frame.username.clone(),
+                    timestamp: frame.timestamp.clone(),
+                    verified: frame.verified,
+                    badge: frame.label.clone(),
+                    replying_to,
+                    text: frame.text.clone(),
+                    likes: frame.likes.clone(),
+                    replies: frame.replies.clone(),
+                    reposts: frame.reposts.clone(),
+                    avatar,
+                    media,
+                    media_is_video: frame.media_is_video,
+                    theme: options.card_theme,
+                };
+                if let Some(card_media_id) = render_and_import_card(
+                    &fonts,
+                    &spec,
+                    backdrop_rgb.as_ref(),
+                    index + 1,
+                    frame_w,
+                    frame_h,
+                    &media_dir,
+                    studio,
+                ) && let Some(clip_id) = place_still_clip(
+                    studio,
+                    card_media_id,
+                    "T2",
+                    at,
+                    scene_duration,
+                    Some(0.25),
+                ) {
+                    last_card_clip = Some(clip_id);
+                    cards_placed += 1;
+                }
+            }
+
+            if let Some(media_id) = voice_media_id {
                 audio_count += 1;
-                audio_clips.push(Command::AddClipAtFirstFree {
+                audio_clips.push(Command::AddClip {
                     media_id,
+                    track_id: "T3".to_owned(),
                     start: at,
+                    ripple: false,
                 });
             }
-            if meme_media_id.is_some() {
-                meme_starts.push(at + scene_duration);
-                at += scene_duration + THREADS_MEME_DURATION;
+
+            if let Some(source) = frame.meme_path.as_ref() {
+                let meme_media = meme_ids.get(source).and_then(Option::as_ref).cloned();
+                if let Some(media_id) = meme_media {
+                    if place_still_clip(
+                        studio,
+                        media_id,
+                        "T2",
+                        at + scene_duration,
+                        THREADS_MEME_DURATION,
+                        Some(0.18),
+                    )
+                    .is_some()
+                    {
+                        placed_memes += 1;
+                    }
+                    at += scene_duration + THREADS_MEME_DURATION;
+                } else {
+                    at += scene_duration;
+                }
             } else {
                 at += scene_duration;
             }
         }
 
-        let titles_added = !titles.is_empty();
-        let added = titles_added
-            .then(|| studio.apply(Command::Batch { commands: titles }))
-            .flatten();
-        let clips_added = added.is_some();
-        if let Some(last_clip) = added {
+        let total_duration = at.max(1.0);
+        if let Some(media_id) = backdrop_media_id {
+            let _ = place_still_clip(studio, media_id, "T1", 0.0, total_duration, None);
+        }
+
+        if let Some(last_clip) = last_card_clip {
             studio.selection = vec![last_clip];
         }
-        let mut meme_count = 0;
-        if clips_added && let Some(media_id) = meme_media_id.as_ref() {
-            for start in meme_starts {
-                let Some(clip_id) = studio.apply(Command::AddClipAtFirstFree {
-                    media_id: media_id.clone(),
-                    start,
-                }) else {
-                    continue;
-                };
-                studio.apply(Command::TrimClip {
-                    clip_id,
-                    edge: TrimEdge::End,
-                    delta: THREADS_MEME_DURATION - CONCAT_DEFAULT_IMAGE_DURATION,
-                    ripple: false,
-                });
-                meme_count += 1;
-            }
-        }
-        let mut voice_clips_added = false;
-        if clips_added && !audio_clips.is_empty() {
-            voice_clips_added = studio
+
+        let voice_clips_added = if !audio_clips.is_empty() {
+            studio
                 .apply(Command::Batch {
                     commands: audio_clips,
                 })
-                .is_some();
+                .is_some()
+        } else {
+            false
+        };
+
+        // 6.2 Auto-BGM loop on T4 with fade-in/out and ducking under voiceovers.
+        if audio_dir_ready && options.bgm_preset != crate::threads_bgm::BgmPreset::Off {
+            place_threads_bgm(options, total_duration, &speech_spans, &audio_dir, studio);
         }
-        if clips_added && voice_clips_added && audio_count == extraction.frames.len() {
+
+        // 7.1 Dynamic word-by-word karaoke subtitles on a dedicated top track.
+        if options.karaoke_style != crate::threads_karaoke::KaraokeStyle::Off
+            && !karaoke_scenes.is_empty()
+            && let Some(karaoke_track_id) = studio.apply(Command::AddTrack { bottom: false })
+        {
+            let mut karaoke_commands = Vec::new();
+            for (text, scene_start, dur, timings) in &karaoke_scenes {
+                karaoke_commands.extend(
+                    crate::threads_karaoke::build_scene_karaoke_commands(
+                        &karaoke_track_id,
+                        text,
+                        *scene_start,
+                        *dur,
+                        timings,
+                        options.karaoke_style,
+                    ),
+                );
+            }
+            if !karaoke_commands.is_empty() {
+                let _ = studio.apply(Command::Batch {
+                    commands: karaoke_commands,
+                });
+            }
+        }
+
+        if cards_placed == extraction.frames.len()
+            && voice_clips_added
+            && audio_count == extraction.frames.len()
+        {
             studio.notify(&t("threads.voiceoversAdded"), false);
         } else {
             studio.notify(&t("threads.voiceoversImportPartial"), true);
         }
-        if meme_requested {
-            if meme_media_id.is_some() && meme_count == extraction.frames.len() {
+        if requested_memes > 0 {
+            if placed_memes == requested_memes {
                 studio.notify(&t("threads.memeAdded"), false);
             } else {
                 studio.notify(&t("threads.memeImportPartial"), true);
             }
         }
-        let video = studio.project().active().video;
-        studio
-            .export
-            .apply_tiktok_preset_for_rate((video.rate_num, video.rate_den.max(1)));
+        studio.export.apply_tiktok_preset_for_rate(frame_rate);
     }
 
     /// Applies one message. The studio is the rest of the window; while
@@ -733,13 +800,7 @@ impl StartPane {
             Ok(project_path) => {
                 if let Some(setup) = self.threads_setup.take() {
                     self.restore_project_setup(setup.saved);
-                    Self::place_threads_frames(
-                        &setup.extraction,
-                        &setup.voiceovers,
-                        setup.meme_path.as_deref(),
-                        &project_path,
-                        studio,
-                    );
+                    Self::place_threads_frames(&setup.options, &project_path, studio);
                 }
                 studio.prefs.last_project_location = Some(self.location.clone());
                 studio.prefs.save(&studio.host.dirs);
@@ -1057,4 +1118,400 @@ mod tests {
         assert_eq!(pane.free_untitled(), "Untitled project 2");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn ducking_keyframes_ramp_down_on_speech_and_lift_during_meme_gap() {
+        let speech = vec![(0.0, 4.0), (5.5, 9.0)];
+        let keys = build_ducking_keyframes(0.0, 10.0, &speech, 0.06, 0.22);
+        assert!(keys.len() >= 4);
+        assert!((keys.first().unwrap().0 - 0.0).abs() < 1e-6);
+        assert!((keys.first().unwrap().1 - 0.06).abs() < 1e-6);
+        // Inside the [4.0, 5.5] meme break, gain lifts to 0.22.
+        assert!(
+            keys.iter()
+                .any(|&(at, val)| at > 0.40 && at < 0.55 && (val - 0.22).abs() < 1e-6)
+        );
+        // At 0.70 (inside second speech), gain is ducked to 0.06.
+        assert!(
+            keys.iter()
+                .any(|&(at, val)| at > 0.56 && (val - 0.06).abs() < 1e-6)
+        );
+    }
+}
+
+fn import_media_item(
+    item: NewMedia,
+    stored_path: &str,
+    studio: &mut Studio,
+) -> Option<String> {
+    studio.apply(Command::AddMedia { item }).or_else(|| {
+        studio
+            .project()
+            .media
+            .iter()
+            .find(|media| media.path == stored_path)
+            .map(|media| media.id.clone())
+    })
+}
+
+fn import_threads_meme(
+    source: &Path,
+    idx: usize,
+    media_dir: &Path,
+    studio: &mut Studio,
+) -> Option<String> {
+    let extension = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|extension| matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp"));
+    let Some(extension) = extension else {
+        studio.notify(&t("threads.memeUnsupported"), true);
+        return None;
+    };
+    let path = media_dir.join(format!("threads-meme-{idx}.{extension}"));
+    if let Err(error) = std::fs::copy(source, &path) {
+        studio.notify(&format!("Could not copy the meme image: {error}"), true);
+        return None;
+    }
+    match concat_host::media::probe(&path.to_string_lossy()) {
+        Ok(summary) if summary.kind == MediaKind::Image => {
+            let stored_path = summary.path.clone();
+            import_media_item(summary.to_new_media(), &stored_path, studio)
+        }
+        _ => {
+            // Fallback for FFmpeg builds without PNG/WebP decoders: transcode to JPEG.
+            let bytes = std::fs::read(&path).ok()?;
+            let rgb = image::load_from_memory(&bytes).ok()?.to_rgb8();
+            let _ = std::fs::remove_file(&path);
+            save_and_import_jpeg(&rgb, &format!("threads-meme-{idx}.jpg"), media_dir, studio)
+        }
+    }
+}
+
+fn render_backdrop_rgb(
+    theme: concat_text::threads_card::ThreadsCardTheme,
+    width: u32,
+    height: u32,
+) -> Option<image::RgbImage> {
+    let png = match concat_text::threads_card::render_threads_backdrop(theme, width, height) {
+        Ok(png) => png,
+        Err(error) => {
+            log::error!("threads: could not render backdrop: {error}");
+            return None;
+        }
+    };
+    match image::load_from_memory(&png) {
+        Ok(img) => Some(img.to_rgb8()),
+        Err(error) => {
+            log::error!("threads: could not decode rendered backdrop: {error}");
+            None
+        }
+    }
+}
+
+fn save_and_import_jpeg(
+    rgb: &image::RgbImage,
+    filename: &str,
+    media_dir: &Path,
+    studio: &mut Studio,
+) -> Option<String> {
+    let mut jpeg = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 94);
+    if let Err(error) = encoder.encode_image(rgb) {
+        log::error!("threads: could not encode {filename}: {error}");
+        return None;
+    }
+    let path = media_dir.join(filename);
+    if let Err(error) = std::fs::write(&path, &jpeg) {
+        log::error!("threads: could not write {filename}: {error}");
+        return None;
+    }
+    match concat_host::media::probe(&path.to_string_lossy()) {
+        Ok(summary) if summary.kind == MediaKind::Image => {
+            let stored = summary.path.clone();
+            import_media_item(summary.to_new_media(), &stored, studio)
+        }
+        Ok(summary) => {
+            log::error!(
+                "threads: unexpected media kind {:?} when probing {filename}",
+                summary.kind
+            );
+            None
+        }
+        Err(error) => {
+            log::error!("threads: could not probe {filename}: {error}");
+            None
+        }
+    }
+}
+
+fn render_and_import_card(
+    fonts: &concat_text::Fonts,
+    spec: &concat_text::threads_card::ThreadsCardSpec,
+    backdrop: Option<&image::RgbImage>,
+    number: usize,
+    width: u32,
+    height: u32,
+    media_dir: &Path,
+    studio: &mut Studio,
+) -> Option<String> {
+    let rendered = match concat_text::threads_card::render_threads_card(fonts, spec, width, height)
+    {
+        Ok(rendered) => rendered,
+        Err(error) => {
+            log::error!("threads: could not render card {number}: {error}");
+            return None;
+        }
+    };
+    let card_rgba = match image::load_from_memory(&rendered.png) {
+        Ok(img) => img.to_rgba8(),
+        Err(error) => {
+            log::error!("threads: could not decode rendered card {number}: {error}");
+            return None;
+        }
+    };
+    let (cw, ch) = card_rgba.dimensions();
+    let mut out = if let Some(bg) = backdrop
+        && bg.width() == cw
+        && bg.height() == ch
+    {
+        bg.clone()
+    } else {
+        let fill = match spec.theme {
+            concat_text::threads_card::ThreadsCardTheme::Dark => image::Rgb([14, 16, 22]),
+            concat_text::threads_card::ThreadsCardTheme::Light => image::Rgb([242, 244, 248]),
+        };
+        image::RgbImage::from_pixel(cw, ch, fill)
+    };
+
+    // Straight-alpha composite the rendered Threads card over the vertical backdrop.
+    for (dst, src) in out.pixels_mut().zip(card_rgba.pixels()) {
+        let a = f32::from(src[3]) / 255.0;
+        if a <= 0.0 {
+            continue;
+        }
+        let inv = 1.0 - a;
+        dst[0] = (f32::from(src[0]) * a + f32::from(dst[0]) * inv).round() as u8;
+        dst[1] = (f32::from(src[1]) * a + f32::from(dst[1]) * inv).round() as u8;
+        dst[2] = (f32::from(src[2]) * a + f32::from(dst[2]) * inv).round() as u8;
+    }
+
+    save_and_import_jpeg(&out, &format!("threads-card-{number}.jpg"), media_dir, studio)
+}
+
+fn decode_avatar_pixels(bytes: &[u8]) -> Option<concat_text::threads_card::AvatarPixels> {
+    let img = image::load_from_memory(bytes).ok()?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Some(concat_text::threads_card::AvatarPixels {
+        width,
+        height,
+        rgba: rgba.into_raw(),
+    })
+}
+
+fn place_still_clip(
+    studio: &mut Studio,
+    media_id: String,
+    track_id: &str,
+    start: f64,
+    duration: f64,
+    pop_seconds: Option<f64>,
+) -> Option<String> {
+    let clip_id = studio.apply(Command::AddClip {
+        media_id,
+        track_id: track_id.to_owned(),
+        start,
+        ripple: false,
+    })?;
+    let delta = duration.max(0.25) - CONCAT_DEFAULT_IMAGE_DURATION;
+    if delta.abs() > 1e-4 {
+        studio.apply(Command::TrimClip {
+            clip_id: clip_id.clone(),
+            edge: TrimEdge::End,
+            delta,
+            ripple: false,
+        });
+    }
+    if let Some(seconds) = pop_seconds {
+        studio.apply(Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                motion: Some(Some(ClipMotion {
+                    enter: Some(ClipMove {
+                        kind: "pop".to_owned(),
+                        seconds,
+                    }),
+                    exit: None,
+                    cycle: None,
+                })),
+                ..Default::default()
+            },
+        });
+    }
+    Some(clip_id)
+}
+
+fn place_threads_bgm(
+    options: &ThreadsBuildOptions,
+    total_duration: f64,
+    speech_spans: &[(f64, f64)],
+    audio_dir: &Path,
+    studio: &mut Studio,
+) {
+    let src_path = match options.bgm_preset {
+        crate::threads_bgm::BgmPreset::Off => return,
+        crate::threads_bgm::BgmPreset::Custom => {
+            let Some(custom) = options.bgm_custom_path.clone() else {
+                studio.notify(&t("threads.bgmCustomMissing"), true);
+                return;
+            };
+            custom
+        }
+        preset => match crate::threads_bgm::ensure_preset_wav(&studio.host.dirs.data, preset) {
+            Ok(path) => path,
+            Err(error) => {
+                studio.notify(&error, true);
+                return;
+            }
+        },
+    };
+
+    let ext = src_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|ext| !ext.is_empty())
+        .unwrap_or_else(|| "wav".to_owned());
+    let dest = audio_dir.join(format!("threads-bgm.{ext}"));
+    if let Err(error) = std::fs::copy(&src_path, &dest) {
+        studio.notify(&format!("Could not copy BGM file: {error}"), true);
+        return;
+    }
+
+    let summary = match concat_host::media::probe(&dest.to_string_lossy()) {
+        Ok(summary) if summary.kind == MediaKind::Audio => summary,
+        Ok(_) => {
+            studio.notify(&t("threads.bgmUnsupported"), true);
+            return;
+        }
+        Err(error) => {
+            studio.notify(&format!("{}: {error}", t("threads.bgmUnsupported")), true);
+            return;
+        }
+    };
+
+    let loop_dur = summary.duration.unwrap_or(0.0).max(0.5);
+    let stored = summary.path.clone();
+    let Some(media_id) = import_media_item(summary.to_new_media(), &stored, studio) else {
+        return;
+    };
+
+    let base_vol = f64::from(options.bgm_volume).clamp(0.02, 0.55);
+    let duck_vol = (base_vol * 0.38).clamp(0.015, 0.16);
+    let swell_vol = (base_vol * 1.15).clamp(base_vol, 0.60);
+
+    let mut at = 0.0f64;
+    let mut is_first = true;
+    for _ in 0..200 {
+        let remaining = total_duration - at;
+        if remaining <= 0.05 {
+            break;
+        }
+        let clip_dur = remaining.min(loop_dur);
+        let is_last = (total_duration - (at + clip_dur)) <= 0.05;
+        let Some(clip_id) = studio.apply(Command::AddClip {
+            media_id: media_id.clone(),
+            track_id: "T4".to_owned(),
+            start: at,
+            ripple: false,
+        }) else {
+            break;
+        };
+        if loop_dur - clip_dur > 0.02 {
+            studio.apply(Command::TrimClip {
+                clip_id: clip_id.clone(),
+                edge: TrimEdge::End,
+                delta: clip_dur - loop_dur,
+                ripple: false,
+            });
+        }
+
+        let keys = build_ducking_keyframes(at, clip_dur, speech_spans, duck_vol, swell_vol);
+        let has_variation = keys
+            .first()
+            .is_some_and(|&(_, first)| keys.iter().any(|&(_, v)| (v - first).abs() > 0.01));
+        studio.apply(Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                volume: Some(if has_variation { base_vol } else { duck_vol }),
+                fade_in: is_first.then(|| 0.6f64.min(clip_dur * 0.25)),
+                fade_out: is_last.then(|| 1.4f64.min(clip_dur * 0.35)),
+                ..Default::default()
+            },
+        });
+        if has_variation {
+            for (frac, value) in keys {
+                studio.apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::Volume,
+                    at: frac,
+                    value,
+                    ease: KeyEase::LINEAR,
+                });
+            }
+        }
+
+        at += clip_dur;
+        is_first = false;
+    }
+}
+
+fn build_ducking_keyframes(
+    clip_start: f64,
+    clip_dur: f64,
+    speech_spans: &[(f64, f64)],
+    duck_vol: f64,
+    swell_vol: f64,
+) -> Vec<(f64, f64)> {
+    let clip_end = clip_start + clip_dur.max(0.1);
+    let in_speech = |t: f64| {
+        speech_spans
+            .iter()
+            .any(|&(s, e)| t >= s - 1e-4 && t <= e + 1e-4)
+    };
+    let mut raw: Vec<(f64, f64)> = Vec::new();
+    raw.push((0.0, if in_speech(clip_start) { duck_vol } else { swell_vol }));
+
+    for (idx, &(s, e)) in speech_spans.iter().enumerate() {
+        // Duck in cleanly right before speech starts if preceded by a break.
+        if s > clip_start + 0.25 && s < clip_end {
+            raw.push((((s - 0.18 - clip_start) / clip_dur).clamp(0.0, 1.0), swell_vol));
+            raw.push((((s + 0.04 - clip_start) / clip_dur).clamp(0.0, 1.0), duck_vol));
+        }
+        // Only swell between speech segments when there is a meaningful pause (e.g., 1.5s meme).
+        let next_start = speech_spans
+            .get(idx + 1)
+            .map(|&(ns, _)| ns)
+            .unwrap_or(f64::INFINITY);
+        if next_start - e >= 0.55 && e >= clip_start && e < clip_end - 0.1 {
+            raw.push((((e - 0.05 - clip_start) / clip_dur).clamp(0.0, 1.0), duck_vol));
+            raw.push((((e + 0.18 - clip_start) / clip_dur).clamp(0.0, 1.0), swell_vol));
+        }
+    }
+    raw.push((1.0, if in_speech(clip_end) { duck_vol } else { swell_vol }));
+
+    raw.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut merged: Vec<(f64, f64)> = Vec::with_capacity(raw.len());
+    for (pos, val) in raw {
+        if let Some(last) = merged.last_mut() {
+            if (pos - last.0).abs() <= 0.006 {
+                last.1 = val;
+                continue;
+            }
+        }
+        merged.push((pos, val));
+    }
+    merged
 }

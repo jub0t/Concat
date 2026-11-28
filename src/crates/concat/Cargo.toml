@@ -157,13 +157,17 @@ concat-text.workspace = true
 # Remembered preferences, as a small JSON file in the config directory.
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
-# Local boundary to the Python TGS extractor; editing and rendering remain native.
+# HTTP client for standalone Threads extraction and avatar downloads.
 ureq = "2"
+# Native TLS, SHA-256 and Base64 for direct Microsoft Edge neural TTS WebSocket synthesis.
+native-tls = "0.2"
+sha2 = "0.10"
+base64 = "0.22"
 # Text presets are TOML files, as the effect manifests are.
 toml = "1.1"
 
-# JPEG encoding for the media artwork cache.
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# JPEG/PNG/WebP decoding for media artwork & Threads avatars.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [build-dependencies]
 slint-build = "1.18"

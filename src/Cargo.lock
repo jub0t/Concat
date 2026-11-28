@@ -1182,6 +1182,7 @@ dependencies = [
 name = "concat"
 version = "0.2.12"
 dependencies = [
+ "base64 0.22.1",
  "block2 0.6.2",
  "concat-api",
  "concat-core",
@@ -1202,6 +1203,7 @@ dependencies = [
  "image",
  "libc",
  "log",
+ "native-tls",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
  "opener",
@@ -1209,6 +1211,7 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "sha2",
  "slint",
  "slint-build",
  "toml",
@@ -3514,6 +3517,7 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png 0.18.1",
