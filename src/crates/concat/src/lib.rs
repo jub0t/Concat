@@ -2199,6 +2199,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_confirm_dismissed(on_window!(|state| {
         state.confirm = None;
     }));
+    app.on_remote_edit_take_back(on_window!(|state| {
+        state.take_back_lent();
+    }));
 
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));

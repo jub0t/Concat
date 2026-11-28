@@ -9,7 +9,7 @@ use super::*;
 
 /// An API with its own scratch config and data folders, and a sink that
 /// drops events.
-fn scratch_api() -> (Api, tempfile::TempDir) {
+pub(super) fn scratch_api() -> (Api, tempfile::TempDir) {
     let scratch = tempfile::tempdir().expect("scratch");
     let dirs = AppDirs {
         config: scratch.path().join("config"),
@@ -19,19 +19,19 @@ fn scratch_api() -> (Api, tempfile::TempDir) {
     (api, scratch)
 }
 
-fn answered(response: Response) -> Reply {
+pub(super) fn answered(response: Response) -> Reply {
     match response {
         Response::Result(reply) => reply,
         Response::Error(error) => panic!("refused: {error}"),
     }
 }
 
-fn refused(response: Response) -> bool {
+pub(super) fn refused(response: Response) -> bool {
     matches!(response, Response::Error(_))
 }
 
 /// A new project called `name`, open in `api`; its folder.
-fn new_project(api: &mut Api, scratch: &tempfile::TempDir, name: &str) -> String {
+pub(super) fn new_project(api: &mut Api, scratch: &tempfile::TempDir, name: &str) -> String {
     answered(api.dispatch(Request::ProjectCreate {
         location: scratch.path().to_string_lossy().into_owned(),
         name: name.to_owned(),

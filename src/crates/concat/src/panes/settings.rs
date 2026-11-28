@@ -1001,6 +1001,7 @@ impl SettingsPane {
                     let mut api = concat_api::Api::new(events)?;
                     api.share_exporter(exporter);
                     api.share_open_projects(open_projects);
+                    api.set_lender(std::sync::Arc::new(crate::studio::WindowLender));
                     Ok(api)
                 })
             });

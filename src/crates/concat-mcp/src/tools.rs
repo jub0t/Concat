@@ -193,7 +193,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_open",
             "Open a project",
-            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. Refused when the Concat window has that project open. Returns the project summary.",
+            "Opens a project folder so it can be read and edited. Opening one already open returns it as it stands, unsaved edits included. Through the Concat window's server, a project the window has open is lent: the window saves it, closes it and locks itself until `project_close`, then opens it again with your saved edits - so save and close it when you are done. On its own (headless), a project the window has open is refused. Returns the project summary.",
             "project.open",
             Summary,
         )
@@ -209,7 +209,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "project_close",
             "Close a project",
-            "Closes an open project. With `save: true` it is saved first; otherwise unsaved edits are dropped.",
+            "Closes an open project. With `save: true` it is saved first; otherwise unsaved edits are dropped. A project the Concat window lent goes back to the window, which opens it again from its folder.",
             "project.close",
             Raw,
         )

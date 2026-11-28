@@ -72,6 +72,10 @@ impl Studio {
     /// [`Studio::open_project`], which says how it went.
     fn open_project_timed(&mut self, info: ProjectInfo) -> Result<(), String> {
         log::debug!("project: opening {}", info.path);
+        // A window whose project is lent opens nothing until it is back.
+        if let Some(lent) = &self.lent {
+            return Err(lend::lent_message(lent));
+        }
         // File › Open and Recents from a window with a project in it: that
         // project is closed first, as a close would - saved, its folder let
         // go, its jobs stopped. Swapping the session alone dropped what the

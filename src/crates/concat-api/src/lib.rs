@@ -31,6 +31,9 @@
 #[cfg(feature = "schema")]
 mod contract;
 mod job;
+mod lend;
+#[cfg(test)]
+mod lend_tests;
 pub mod message;
 #[cfg(test)]
 mod project_close_tests;
@@ -84,6 +87,7 @@ const CAPABILITIES: &[&str] = &["events", "captions", "models", "speech"];
 /// added to the types is in the schema on the next build.
 #[cfg(feature = "schema")]
 pub use contract::contract_schema;
+pub use lend::Lender;
 
 /// The JSON Schema of [`Request`] alone; see [`contract_schema`] for the
 /// whole contract.
@@ -244,6 +248,8 @@ pub struct Api {
     /// Which project folders are open on this machine, across this API
     /// and a window it is embedded in.
     open: OpenProjects,
+    /// What the window has lent this API of the projects it had open.
+    lending: lend::Lending,
     titles: Titles,
     cutouts: Arc<Cutouts>,
     stabilizers: Arc<Stabilizers>,
@@ -323,6 +329,7 @@ impl Api {
             sessions: BTreeMap::new(),
             roots: Vec::new(),
             open: OpenProjects::default(),
+            lending: lend::Lending::default(),
             events,
             jobs: Jobs::default(),
             dirs,
@@ -383,6 +390,12 @@ impl Api {
     /// round.
     pub fn share_open_projects(&mut self, open: OpenProjects) {
         self.open = open;
+    }
+
+    /// Takes the embedding window as a lender: from here on a project the
+    /// window has open is asked for instead of refused; see [`Lender`].
+    pub fn set_lender(&mut self, lender: Arc<dyn Lender>) {
+        self.lending.set_lender(lender);
     }
 
     /// Confines every write to `roots`: from here on a created project, an
@@ -704,12 +717,14 @@ impl Api {
     /// Opens a session on a project the host just described and puts it at
     /// the front of the recents list.
     fn adopt(&mut self, info: ProjectInfo) -> Result<EditorView, ApiError> {
+        self.lending.borrow(&self.open, &info.path)?;
         if let Err(refusal) = self.open.claim(&info.path, Holder::Api) {
+            self.lending.returned(&info.path);
             // A window holding it is the case an agent meets: say how to
             // go through that window instead of around it.
             let how = match &refusal {
                 Refusal::Elsewhere(owner) if owner.role == "window" => {
-                    ". To work on it from an agent, turn on Settings > Automation in that window and run the agent with `concat --mcp window`; the project on screen stays the window's until live mode lands"
+                    ". To work on it from an agent, turn on Settings > Automation in that window and run the agent with `concat --mcp window`: the window then lends it until the agent closes it"
                 }
                 Refusal::Elsewhere(_) => ". Close it there first",
                 Refusal::Here(_) => "",
@@ -723,6 +738,7 @@ impl Api {
             Ok(session) => session,
             Err(error) => {
                 self.open.release(&info.path);
+                self.lending.returned(&info.path);
                 return Err(ApiError::failed(error));
             }
         };
@@ -746,6 +762,7 @@ impl Api {
             .ok_or_else(|| not_open(path));
         if closed.is_ok() {
             self.open.release(path);
+            self.lending.returned(path);
         }
         closed
     }
